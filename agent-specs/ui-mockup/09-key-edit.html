@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="app-shell" data-title-key="admin.keys.edit_title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <header class="app-header">
+      <a class="logo" href="06-keys.html" aria-label="places.agent-mate.ai">
+        <img class="logo-header-mark" src="assets/agent-logo.png" alt="" width="36" height="36" />
+        <span class="logo-word">places.agent-mate.ai</span>
+      </a>
+      <button type="button" class="menu-toggle" data-i18n="admin.nav.menu">Menu</button>
+      <div class="header-end">
+        <a class="header-guide" href="11-instructions-app.html" data-i18n="admin.landing.instructions_link">Agent instructions</a>
+        <p class="hello" data-i18n="admin.landing.hello" data-i18n-vars='{"name":"admin"}'>Hello, admin</p>
+        <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+          <button type="button" data-locale="EN">EN</button>
+          <button type="button" data-locale="CN">CN</button>
+          <button type="button" data-locale="HK">HK</button>
+          <button type="button" data-locale="TW">TW</button>
+        </div>
+      </div>
+    </header>
+    <div class="app-body">
+      <aside class="sidebar">
+        <nav class="nav">
+          <a class="active" href="06-keys.html" data-i18n="admin.nav.keys">Keys</a>
+          <a href="10-admins.html" data-i18n="admin.nav.admins">Admins</a>
+          <a class="nav-signout" href="01-home.html" data-i18n="admin.nav.sign_out">Sign out</a>
+        </nav>
+      </aside>
+      <main id="content" class="content">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow" data-i18n="admin.keys.eyebrow">Keys</p>
+            <h1 data-i18n="admin.keys.edit_title">Edit key</h1>
+            <p class="mono" style="margin-top: 0.35rem">plc_live_a1b2</p>
+          </div>
+        </div>
+        <form class="form" action="06-keys.html" style="max-width: 26rem">
+          <label>
+            <span data-i18n="admin.keys.name">Name</span>
+            <input type="text" name="name" value="what2eat-prod" required />
+          </label>
+          <label>
+            <span data-i18n="admin.keys.description">Description</span>
+            <input type="text" name="description" value="what2eat.food production BFF" />
+          </label>
+          <div class="form-actions">
+            <button class="btn" type="submit" data-i18n="admin.common.save">Save</button>
+            <a class="btn-text" href="06-keys.html" data-i18n="admin.keys.back_list">Back to keys</a>
+          </div>
+        </form>
+        <div class="form-actions" style="max-width: 26rem">
+          <button type="button" class="btn-text" data-open-dialog="dialog-regenerate" data-i18n="admin.keys.regenerate">Regenerate</button>
+          <button type="button" class="btn-text" data-open-dialog="dialog-delete" data-i18n="admin.keys.delete">Delete</button>
+        </div>
+      </main>
+    </div>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+
+    <div class="dialog-backdrop" id="dialog-regenerate" role="dialog" aria-modal="true">
+      <div class="dialog">
+        <h2 class="dialog-title" data-i18n="admin.keys.regenerate_title">Regenerate this key?</h2>
+        <p class="dialog-body" data-i18n="admin.keys.regenerate_body">The current secret stops working. A new secret is shown once.</p>
+        <div class="dialog-actions">
+          <a class="btn" href="08-key-created.html" data-i18n="admin.keys.regenerate_submit">Regenerate</a>
+          <button type="button" class="btn-text" data-close-dialog data-i18n="admin.common.cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-backdrop" id="dialog-delete" role="dialog" aria-modal="true">
+      <div class="dialog">
+        <h2 class="dialog-title" data-i18n="admin.keys.delete_title">Delete this key?</h2>
+        <p class="dialog-body" data-i18n="admin.keys.delete_body">The caller can no longer call places-agent with this secret.</p>
+        <div class="dialog-actions">
+          <a class="btn" href="06-keys.html" data-i18n="admin.keys.delete_submit">Delete</a>
+          <button type="button" class="btn-text" data-close-dialog data-i18n="admin.common.cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

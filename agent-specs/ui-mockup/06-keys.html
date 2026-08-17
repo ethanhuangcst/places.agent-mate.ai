@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="app-shell" data-title-key="admin.keys.title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <header class="app-header">
+      <a class="logo" href="06-keys.html" aria-label="places.agent-mate.ai">
+        <img class="logo-header-mark" src="assets/agent-logo.png" alt="" width="36" height="36" />
+        <span class="logo-word">places.agent-mate.ai</span>
+      </a>
+      <button type="button" class="menu-toggle" data-i18n="admin.nav.menu">Menu</button>
+      <div class="header-end">
+        <a class="header-guide" href="11-instructions-app.html" data-i18n="admin.landing.instructions_link" data-testid="landing-instructions">Agent instructions</a>
+        <p class="hello" data-i18n="admin.landing.hello" data-i18n-vars='{"name":"admin"}'>Hello, admin</p>
+        <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+          <button type="button" data-locale="EN">EN</button>
+          <button type="button" data-locale="CN">CN</button>
+          <button type="button" data-locale="HK">HK</button>
+          <button type="button" data-locale="TW">TW</button>
+        </div>
+      </div>
+    </header>
+    <div class="app-body">
+      <aside class="sidebar">
+        <nav class="nav">
+          <a class="active" href="06-keys.html" data-i18n="admin.nav.keys">Keys</a>
+          <a href="10-admins.html" data-i18n="admin.nav.admins">Admins</a>
+          <a class="nav-signout" href="01-home.html" data-i18n="admin.nav.sign_out">Sign out</a>
+        </nav>
+      </aside>
+      <main id="content" class="content">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow" data-i18n="admin.keys.eyebrow">Keys</p>
+            <h1 data-i18n="admin.keys.title">Caller API keys</h1>
+            <p data-i18n="admin.keys.lead">One secret per caller. HTTP and MCP share the same key. Map-vendor keys are not shown here.</p>
+          </div>
+          <a class="btn btn-page" href="07-key-new.html" data-i18n="admin.keys.issue" data-testid="issue-key">Issue new key</a>
+        </div>
+        <div class="table-wrap" data-keys-table>
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="admin.keys.col_name">Name</th>
+                <th data-i18n="admin.keys.col_prefix">Prefix</th>
+                <th data-i18n="admin.keys.col_status">Status</th>
+                <th data-i18n="admin.keys.col_issued">Issued</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>what2eat-prod</td>
+                <td class="mono">plc_live_a1b2</td>
+                <td><span class="status is-on" data-i18n="admin.keys.status_active">Active</span></td>
+                <td>2026-08-12</td>
+                <td>
+                  <div class="row-actions">
+                    <a href="09-key-edit.html" data-i18n="admin.keys.edit">Edit</a>
+                    <a href="09-key-edit.html?confirm=regenerate" data-i18n="admin.keys.regenerate">Regenerate</a>
+                    <a href="09-key-edit.html?confirm=delete" data-i18n="admin.keys.delete">Delete</a>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>where2play-prod</td>
+                <td class="mono">plc_live_9c3d</td>
+                <td><span class="status is-on" data-i18n="admin.keys.status_active">Active</span></td>
+                <td>2026-08-15</td>
+                <td>
+                  <div class="row-actions">
+                    <a href="09-key-edit.html" data-i18n="admin.keys.edit">Edit</a>
+                    <a href="09-key-edit.html?confirm=regenerate" data-i18n="admin.keys.regenerate">Regenerate</a>
+                    <a href="09-key-edit.html?confirm=delete" data-i18n="admin.keys.delete">Delete</a>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>chatbox-ethan</td>
+                <td class="mono">plc_live_52d4</td>
+                <td><span class="status is-on" data-i18n="admin.keys.status_active">Active</span></td>
+                <td>2026-08-17</td>
+                <td>
+                  <div class="row-actions">
+                    <a href="09-key-edit.html" data-i18n="admin.keys.edit">Edit</a>
+                    <a href="09-key-edit.html?confirm=regenerate" data-i18n="admin.keys.regenerate">Regenerate</a>
+                    <a href="09-key-edit.html?confirm=delete" data-i18n="admin.keys.delete">Delete</a>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="empty" data-keys-empty hidden>
+          <p data-i18n="admin.keys.empty">No caller keys yet. Issue one for what2eat, where2play, or an MCP host.</p>
+          <a class="btn" href="07-key-new.html" data-i18n="admin.keys.issue">Issue new key</a>
+        </div>
+      </main>
+    </div>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

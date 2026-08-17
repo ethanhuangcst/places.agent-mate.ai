@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <meta name="description" content="Operator app for places-agent" />
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="gallery-shell" data-title-key="admin.gallery.title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <div class="shell-locale">
+      <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+        <button type="button" data-locale="EN">EN</button>
+        <button type="button" data-locale="CN">CN</button>
+        <button type="button" data-locale="HK">HK</button>
+        <button type="button" data-locale="TW">TW</button>
+      </div>
+    </div>
+    <main id="content" class="gallery">
+      <div class="logo logo-home" aria-label="places.agent-mate.ai">
+        <img class="logo-full" src="assets/agent-logo.png" alt="" width="56" height="56" />
+        <span class="logo-word">places.agent-mate.ai</span>
+      </div>
+      <h1 data-i18n="admin.gallery.title">Admin UI mock-ups</h1>
+      <p class="lead" data-i18n="admin.gallery.lead">places.agent-mate.ai operator app. Switch locale on any screen.</p>
+      <nav class="screen-list">
+        <a href="01-home.html"><span class="n">01</span><span><h2>Public home</h2><p>Feature 14</p></span></a>
+        <a href="02-login.html"><span class="n">02</span><span><h2>Admin sign-in</h2><p>Feature 15 · closed register</p></span></a>
+        <a href="02-login.html?error=1"><span class="n">02b</span><span><h2>Sign-in failed</h2><p>errors.login_failed</p></span></a>
+        <a href="03-reset.html"><span class="n">03</span><span><h2>Reset password</h2><p>Resend mail</p></span></a>
+        <a href="04-set-password.html"><span class="n">04</span><span><h2>Set password</h2><p>Empty-password gate</p></span></a>
+        <a href="05-instructions.html"><span class="n">05</span><span><h2>Agent instructions</h2><p>Public guide</p></span></a>
+        <a href="06-keys.html"><span class="n">06</span><span><h2>Caller API keys</h2><p>Post-login landing</p></span></a>
+        <a href="06-keys.html?empty=1"><span class="n">06b</span><span><h2>Keys empty</h2><p>First key</p></span></a>
+        <a href="07-key-new.html"><span class="n">07</span><span><h2>Issue new key</h2><p>Name and description</p></span></a>
+        <a href="08-key-created.html"><span class="n">08</span><span><h2>Copy secret</h2><p>Shown once</p></span></a>
+        <a href="09-key-edit.html"><span class="n">09</span><span><h2>Edit key</h2><p>Regenerate · delete</p></span></a>
+        <a href="10-admins.html"><span class="n">10</span><span><h2>Admins</h2><p>Invite-only</p></span></a>
+        <a href="11-instructions-app.html"><span class="n">11</span><span><h2>Instructions (signed in)</h2><p>Same guide, app shell</p></span></a>
+      </nav>
+    </main>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

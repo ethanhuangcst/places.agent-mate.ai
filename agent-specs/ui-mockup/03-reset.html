@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="auth-shell" data-title-key="admin.reset.title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <div class="shell-locale">
+      <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+        <button type="button" data-locale="EN">EN</button>
+        <button type="button" data-locale="CN">CN</button>
+        <button type="button" data-locale="HK">HK</button>
+        <button type="button" data-locale="TW">TW</button>
+      </div>
+    </div>
+    <main id="content" class="auth-main">
+      <div class="auth-card auth-work">
+        <a class="logo logo-auth" href="01-home.html" aria-label="places.agent-mate.ai">
+          <img class="logo-full" src="assets/agent-logo.png" alt="" width="56" height="56" />
+          <span class="logo-word">places.agent-mate.ai</span>
+        </a>
+        <h1 data-i18n="admin.reset.title">Reset password</h1>
+        <p class="lead" data-i18n="admin.reset.lead">Enter the email on the admin account. A reset mail is sent through Resend.</p>
+        <p class="auth-status" data-sent hidden data-i18n="admin.reset.sent">If that email is an admin account, a reset mail is on its way.</p>
+        <form class="form" data-reset-form action="03-reset.html">
+          <input type="hidden" name="sent" value="1" />
+          <label>
+            <span data-i18n="admin.reset.email">Email</span>
+            <input type="email" name="email" autocomplete="email" required />
+          </label>
+          <div class="form-actions">
+            <button class="btn" type="submit" data-i18n="admin.reset.submit">Send reset mail</button>
+          </div>
+        </form>
+        <a class="back-link" href="01-home.html" data-i18n="admin.common.back_home">Back to home</a>
+      </div>
+    </main>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

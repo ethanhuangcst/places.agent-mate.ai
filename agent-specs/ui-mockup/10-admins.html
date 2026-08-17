@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="app-shell" data-title-key="admin.users.title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <header class="app-header">
+      <a class="logo" href="06-keys.html" aria-label="places.agent-mate.ai">
+        <img class="logo-header-mark" src="assets/agent-logo.png" alt="" width="36" height="36" />
+        <span class="logo-word">places.agent-mate.ai</span>
+      </a>
+      <button type="button" class="menu-toggle" data-i18n="admin.nav.menu">Menu</button>
+      <div class="header-end">
+        <a class="header-guide" href="11-instructions-app.html" data-i18n="admin.landing.instructions_link">Agent instructions</a>
+        <p class="hello" data-i18n="admin.landing.hello" data-i18n-vars='{"name":"admin"}'>Hello, admin</p>
+        <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+          <button type="button" data-locale="EN">EN</button>
+          <button type="button" data-locale="CN">CN</button>
+          <button type="button" data-locale="HK">HK</button>
+          <button type="button" data-locale="TW">TW</button>
+        </div>
+      </div>
+    </header>
+    <div class="app-body">
+      <aside class="sidebar">
+        <nav class="nav">
+          <a href="06-keys.html" data-i18n="admin.nav.keys">Keys</a>
+          <a class="active" href="10-admins.html" data-i18n="admin.nav.admins">Admins</a>
+          <a class="nav-signout" href="01-home.html" data-i18n="admin.nav.sign_out">Sign out</a>
+        </nav>
+      </aside>
+      <main id="content" class="content">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow" data-i18n="admin.users.eyebrow">Admins</p>
+            <h1 data-i18n="admin.users.title">Admins</h1>
+            <p data-i18n="admin.users.lead">Invite-only. Public registration stays closed.</p>
+          </div>
+        </div>
+        <h2 class="guide-sub" data-i18n="admin.users.invite">Invite admin</h2>
+        <form class="form" action="10-admins.html" style="max-width: 26rem; margin-bottom: 2.5rem">
+          <label>
+            <span data-i18n="admin.users.email">Email</span>
+            <input type="email" name="email" autocomplete="off" required />
+          </label>
+          <div class="form-actions">
+            <button class="btn" type="submit" data-i18n="admin.users.invite_submit">Send invite</button>
+          </div>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="admin.users.col_name">Name</th>
+                <th data-i18n="admin.users.col_email">Email</th>
+                <th data-i18n="admin.users.col_status">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>admin</td>
+                <td class="mono">me@ethanhuang.com</td>
+                <td><span class="status is-on" data-i18n="admin.users.status_active">Active</span></td>
+              </tr>
+              <tr>
+                <td>—</td>
+                <td class="mono">new.admin@example.com</td>
+                <td><span class="status" data-i18n="admin.users.status_pending">Pending</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

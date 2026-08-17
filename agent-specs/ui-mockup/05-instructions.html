@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="guide-shell" data-title-key="admin.guide.title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <header class="guide-header">
+      <a class="logo" href="01-home.html" aria-label="places.agent-mate.ai">
+        <img class="logo-header-mark" src="assets/agent-logo.png" alt="" width="36" height="36" />
+        <span class="logo-word">places.agent-mate.ai</span>
+      </a>
+      <div class="header-end">
+        <a class="header-guide" href="01-home.html" data-i18n="admin.common.back_home">Back to home</a>
+        <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+          <button type="button" data-locale="EN">EN</button>
+          <button type="button" data-locale="CN">CN</button>
+          <button type="button" data-locale="HK">HK</button>
+          <button type="button" data-locale="TW">TW</button>
+        </div>
+      </div>
+    </header>
+    <main id="content" class="guide-body">
+      <p class="eyebrow" data-i18n="admin.guide.eyebrow">Connect</p>
+      <h1 data-i18n="admin.guide.title">Agent instructions</h1>
+      <p class="lead" data-i18n="admin.guide.lead">How to call places.agent-mate.ai. The agent id is places-agent. Callers send a caller API key. Map-vendor keys stay on the server.</p>
+      <nav class="guide-toc">
+        <a href="#architecture" data-i18n="admin.guide.toc_architecture">1. Architecture</a>
+        <a href="#key" data-i18n="admin.guide.toc_key">2. Get a key</a>
+        <a href="#http" data-i18n="admin.guide.toc_http">3. HTTP</a>
+        <a href="#mcp" data-i18n="admin.guide.toc_mcp">4. MCP</a>
+      </nav>
+
+      <section class="guide-section" id="architecture">
+        <h2 data-i18n="admin.guide.h_architecture">1. Architecture</h2>
+        <h3 class="guide-sub" data-i18n="admin.guide.who">Who calls</h3>
+        <ul>
+          <li data-i18n="admin.guide.who_apps">App BFFs — what2eat.food and where2play.place, server to server</li>
+          <li data-i18n="admin.guide.who_mcp">MCP hosts — Cursor, ChatBox, and similar</li>
+        </ul>
+        <h3 class="guide-sub" data-i18n="admin.guide.provides">What places-agent provides</h3>
+        <ul>
+          <li><code>search_restaurants</code>, <code>search_places</code>, <code>get_place_details</code>, <code>navigate</code></li>
+          <li><code>plan_itinerary</code></li>
+          <li data-i18n="admin.guide.provides_3">The same tools on HTTP and MCP</li>
+        </ul>
+        <div class="guide-flow" aria-hidden="true">
+          <div class="guide-flow-lanes">
+            <div class="guide-flow-lane">
+              <p class="guide-flow-clients" data-i18n="admin.guide.flow_http_who">App BFF</p>
+              <span class="guide-flow-proto" data-i18n="admin.guide.flow_http">HTTP</span>
+            </div>
+            <div class="guide-flow-lane">
+              <p class="guide-flow-clients" data-i18n="admin.guide.flow_mcp_who">Agent host</p>
+              <span class="guide-flow-proto" data-i18n="admin.guide.flow_mcp">MCP</span>
+            </div>
+          </div>
+          <div class="guide-flow-merge">
+            <span class="guide-flow-auth" data-i18n="admin.guide.flow_auth">Caller API key</span>
+          </div>
+          <div class="guide-flow-hub">
+            <p class="guide-flow-hub-name">places-agent</p>
+            <p class="guide-flow-hub-ops" data-i18n="admin.guide.flow_hub_ops">tools · itinerary engine</p>
+          </div>
+          <div class="guide-flow-store">
+            <p data-i18n="admin.guide.flow_vendors">AMAP · Google Maps · Tripadvisor</p>
+            <p class="guide-flow-store-meta" data-i18n="admin.guide.flow_vendors_meta">Server env only</p>
+          </div>
+        </div>
+        <p data-i18n="admin.guide.id_note">Callers must see the agent id places-agent (MCP serverInfo.name and HTTP field agent). That string is not localized.</p>
+      </section>
+
+      <section class="guide-section" id="key">
+        <h2 data-i18n="admin.guide.h_key">2. Get a key</h2>
+        <p data-i18n="admin.guide.key_body">An admin issues a caller API key in this app. HTTP and MCP use the same key. Send it as:</p>
+        <div class="code-block">
+          <pre><code>Authorization: Bearer &lt;caller_api_key&gt;</code></pre>
+        </div>
+        <p class="field-note" style="margin-top: 1rem" data-i18n="admin.guide.key_note">A deleted or regenerated secret is rejected. The plaintext is shown only at create and regenerate.</p>
+      </section>
+
+      <section class="guide-section" id="http">
+        <h2 data-i18n="admin.guide.h_http">3. HTTP</h2>
+        <p data-i18n="admin.guide.http_body">App BFFs call the HTTP API on https://places.agent-mate.ai with the caller API key. Browsers do not hold this key. Responses identify the service as places-agent.</p>
+      </section>
+
+      <section class="guide-section" id="mcp">
+        <h2 data-i18n="admin.guide.h_mcp">4. MCP</h2>
+        <p data-i18n="admin.guide.mcp_body">MCP hosts use the same caller API key. Cursor (and similar) use Streamable HTTP at /mcp. ChatBox uses remote SSE at /sse — do not point ChatBox at /mcp.</p>
+        <h3 class="guide-sub" data-i18n="admin.guide.mcp_cursor">Cursor mcp.json (remote)</h3>
+        <div class="code-block">
+          <pre><code>{
+  "mcpServers": {
+    "places-agent": {
+      "url": "https://places.agent-mate.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer &lt;caller_api_key&gt;"
+      }
+    }
+  }
+}</code></pre>
+        </div>
+        <p style="margin-top: 1.25rem" data-i18n="admin.guide.mcp_chatbox">ChatBox: Type Remote (http/sse), URL https://places.agent-mate.ai/sse, header Authorization=Bearer &lt;key&gt;.</p>
+      </section>
+    </main>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

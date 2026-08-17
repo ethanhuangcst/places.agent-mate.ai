@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="app-shell" data-title-key="admin.keys.created_title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <header class="app-header">
+      <a class="logo" href="06-keys.html" aria-label="places.agent-mate.ai">
+        <img class="logo-header-mark" src="assets/agent-logo.png" alt="" width="36" height="36" />
+        <span class="logo-word">places.agent-mate.ai</span>
+      </a>
+      <button type="button" class="menu-toggle" data-i18n="admin.nav.menu">Menu</button>
+      <div class="header-end">
+        <a class="header-guide" href="11-instructions-app.html" data-i18n="admin.landing.instructions_link">Agent instructions</a>
+        <p class="hello" data-i18n="admin.landing.hello" data-i18n-vars='{"name":"admin"}'>Hello, admin</p>
+        <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+          <button type="button" data-locale="EN">EN</button>
+          <button type="button" data-locale="CN">CN</button>
+          <button type="button" data-locale="HK">HK</button>
+          <button type="button" data-locale="TW">TW</button>
+        </div>
+      </div>
+    </header>
+    <div class="app-body">
+      <aside class="sidebar">
+        <nav class="nav">
+          <a class="active" href="06-keys.html" data-i18n="admin.nav.keys">Keys</a>
+          <a href="10-admins.html" data-i18n="admin.nav.admins">Admins</a>
+          <a class="nav-signout" href="01-home.html" data-i18n="admin.nav.sign_out">Sign out</a>
+        </nav>
+      </aside>
+      <main id="content" class="content">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow" data-i18n="admin.keys.eyebrow">Keys</p>
+            <h1 data-i18n="admin.keys.created_title">Copy this secret now</h1>
+            <p data-i18n="admin.keys.created_lead">This is the only time the full secret is shown.</p>
+          </div>
+        </div>
+        <div class="key-panel">
+          <div class="key-meta">
+            <span class="key-meta-label" data-i18n="admin.keys.name">Name</span>
+            <span class="key-meta-value">what2eat-prod</span>
+          </div>
+          <div class="key-meta">
+            <span class="key-meta-label" data-i18n="admin.keys.secret">Secret</span>
+          </div>
+          <div class="code-block">
+            <pre><code id="secret-value">plc_live_a1b2_7f3e9c0d4b18e2a6</code></pre>
+            <button type="button" class="btn-copy" data-copy="plc_live_a1b2_7f3e9c0d4b18e2a6" data-i18n="admin.keys.copy" data-i18n-attr="aria-label" data-testid="copy-secret">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="8" y="8" width="12" height="12" rx="0"/><path d="M4 16V4h12"/></svg>
+            </button>
+          </div>
+          <p class="warn" data-i18n="admin.keys.created_warn">Store it on the caller. It will not be shown again from the list.</p>
+          <div class="form-actions">
+            <a class="btn" href="06-keys.html" data-i18n="admin.common.done">Done</a>
+          </div>
+        </div>
+      </main>
+    </div>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>
