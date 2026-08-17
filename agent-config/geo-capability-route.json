@@ -1,10 +1,11 @@
 {
-  "version": "2026-08-17.1",
+  "version": "2026-08-17.2",
+  "agent": "places-agent",
   "status": "superseded_as_hard_router",
-  "superseded_by": "caller providers[] — see specs/2.architecture.md ADR-005",
+  "superseded_by": "caller providers[] — see workspace-specs/2.architecture.md ADR-005",
   "llm": "OPENAI",
   "supported_providers": ["AMAP", "GOOGLE_MAPS", "TRIPADVISOR"],
-  "notes": "Agent no longer forces mainland destination → AMAP. Callers pass providers[]. This file lists supported provider ids and optional client UX hints only.",
+  "notes": "Agent no longer forces mainland destination → AMAP. Callers pass providers[]. This file lists supported provider ids and optional client UX hints only. Caller-visible agent id is places-agent (ADR-013).",
   "client_nav_hint": {
     "description": "Optional UX hint for apps — not enforced as destination geo-policy in places-agent",
     "mainland_prefer_deeplink": "AMAP",
