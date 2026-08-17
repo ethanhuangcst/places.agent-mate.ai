@@ -1,0 +1,13 @@
+{
+  "version": "2026-08-17.1",
+  "status": "superseded_as_hard_router",
+  "superseded_by": "caller providers[] — see specs/2.architecture.md ADR-005",
+  "llm": "OPENAI",
+  "supported_providers": ["AMAP", "GOOGLE_MAPS", "TRIPADVISOR"],
+  "notes": "Agent no longer forces mainland destination → AMAP. Callers pass providers[]. This file lists supported provider ids and optional client UX hints only.",
+  "client_nav_hint": {
+    "description": "Optional UX hint for apps — not enforced as destination geo-policy in places-agent",
+    "mainland_prefer_deeplink": "AMAP",
+    "default_prefer_deeplink": "GOOGLE_MAPS"
+  }
+}
