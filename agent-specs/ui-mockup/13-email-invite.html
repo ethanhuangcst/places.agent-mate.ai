@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+    <link rel="stylesheet" href="assets/email-mockup.css" />
+  </head>
+  <body class="email-preview-shell" data-title-key="admin.mail.invite.preview_title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <div class="shell-locale">
+      <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+        <button type="button" data-locale="EN">EN</button>
+        <button type="button" data-locale="CN">CN</button>
+        <button type="button" data-locale="HK">HK</button>
+        <button type="button" data-locale="TW">TW</button>
+      </div>
+    </div>
+    <main id="content" class="email-preview-main">
+      <h1 data-i18n="admin.mail.invite.preview_title">Invite admin email</h1>
+      <p class="lead" data-i18n="admin.mail.invite.preview_lead">
+        Sent when an existing admin invites someone by email. Same chrome as the reset mail.
+      </p>
+      <div class="email-frame">
+        <div class="email-meta">
+          <span
+            ><span data-i18n="admin.mail.from_label">From</span>:
+            <span data-i18n="admin.mail.from_value">places-agent &lt;noreply@places.agent-mate.ai&gt;</span></span
+          >
+          <span
+            ><span data-i18n="admin.mail.subject_label">Subject</span>:
+            <span data-i18n="admin.mail.invite.subject">You are invited to places.agent-mate.ai</span></span
+          >
+        </div>
+        <div class="email-canvas">
+          <div class="email-canvas-inner">
+            <table
+              role="presentation"
+              cellpadding="0"
+              cellspacing="0"
+              border="0"
+              width="100%"
+              style="background: #fafafa; border-collapse: collapse; font-family: 'Outfit', 'Noto Sans SC', 'Noto Sans TC', Arial, sans-serif"
+            >
+              <tr>
+                <td style="padding: 32px 24px">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: #ffffff; border: 1px solid #e0e0e0; border-collapse: collapse">
+                    <tr>
+                      <td style="padding: 28px 28px 0">
+                        <img src="assets/agent-logo.png" alt="" width="48" height="48" style="display: block; width: 48px; height: 48px" />
+                        <p style="margin: 14px 0 0; font-family: 'Outfit', Arial, sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0.04em; color: #0a0a0a; text-transform: lowercase">places.agent-mate.ai</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 24px 28px 0">
+                        <p style="margin: 0 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #525252" data-i18n="admin.mail.invite.eyebrow">
+                          Admin invite
+                        </p>
+                        <h1 style="margin: 0 0 16px; font-family: 'Outfit', Arial, sans-serif; font-size: 22px; font-weight: 600; line-height: 1.25; color: #0a0a0a" data-i18n="admin.mail.invite.heading">
+                          Join the places-agent operator app
+                        </h1>
+                        <p style="margin: 0 0 12px; font-size: 15px; line-height: 1.65; color: #1f1f1f" data-i18n="admin.mail.invite.intro">
+                          An admin invited you to manage places.agent-mate.ai — issue caller API keys and read agent instructions.
+                        </p>
+                        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.65; color: #525252" data-i18n="admin.mail.invite.detail">
+                          Set a password to sign in. The link expires in 7 days.
+                        </p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 0 28px 24px">
+                        <a href="04-set-password.html" style="display: inline-block; background: #0a0a0a; color: #ffffff; font-family: 'Outfit', Arial, sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-decoration: none; padding: 12px 22px; border: 1.5px solid #0a0a0a" data-i18n="admin.mail.invite.cta">Set password and sign in</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="border-top: 1px solid #e0e0e0; padding: 18px 28px 24px">
+                        <p style="margin: 0 0 10px; font-size: 14px; line-height: 1.6; color: #525252" data-i18n="admin.mail.invite.ignore">
+                          Did not expect this invite? Ignore this email.
+                        </p>
+                        <p style="margin: 0; font-family: 'Outfit', Arial, sans-serif; font-size: 13px; line-height: 1.5; color: #6b6b6b">
+                          <a href="https://places.agent-mate.ai" style="color: #0a0a0a; text-decoration: underline" data-i18n="admin.mail.footer">places.agent-mate.ai</a>
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <nav class="email-preview-links">
+        <a href="12-email-reset.html" data-i18n="admin.mail.reset.preview_link">View reset email mock-up</a>
+      </nav>
+    </main>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

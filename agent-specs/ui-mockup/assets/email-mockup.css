@@ -1,0 +1,65 @@
+/* Email preview shell — not sent mail CSS */
+
+.email-preview-shell {
+  background: var(--bg);
+}
+
+.email-preview-main {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: max(4.5rem, min(12vh, 6rem)) 1.5rem 2.5rem;
+}
+
+.email-preview-main h1 {
+  font-size: 1.85rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.email-preview-main .lead {
+  color: var(--mute);
+  margin: 0 0 2rem;
+  max-width: 36rem;
+}
+
+.email-frame {
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+}
+
+.email-meta {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  color: var(--mute);
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.6;
+}
+
+.email-meta span {
+  display: block;
+}
+
+.email-canvas {
+  padding: 1.25rem;
+  background: #ececec;
+}
+
+.email-canvas-inner {
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.email-preview-links {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.email-preview-links a {
+  font-size: 0.95rem;
+}

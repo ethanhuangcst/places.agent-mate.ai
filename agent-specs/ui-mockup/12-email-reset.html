@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+    <link rel="stylesheet" href="assets/email-mockup.css" />
+  </head>
+  <body class="email-preview-shell" data-title-key="admin.mail.reset.preview_title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <div class="shell-locale">
+      <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+        <button type="button" data-locale="EN">EN</button>
+        <button type="button" data-locale="CN">CN</button>
+        <button type="button" data-locale="HK">HK</button>
+        <button type="button" data-locale="TW">TW</button>
+      </div>
+    </div>
+    <main id="content" class="email-preview-main">
+      <h1 data-i18n="admin.mail.reset.preview_title">Reset password email</h1>
+      <p class="lead" data-i18n="admin.mail.reset.preview_lead">
+        Transactional mail for admin password reset. Sent from noreply@places.agent-mate.ai via Resend. Invite mail reuses the same layout.
+      </p>
+      <div class="email-frame">
+        <div class="email-meta">
+          <span
+            ><span data-i18n="admin.mail.from_label">From</span>:
+            <span data-i18n="admin.mail.from_value">places-agent &lt;noreply@places.agent-mate.ai&gt;</span></span
+          >
+          <span
+            ><span data-i18n="admin.mail.subject_label">Subject</span>:
+            <span data-i18n="admin.mail.reset.subject">Reset your admin password — places.agent-mate.ai</span></span
+          >
+        </div>
+        <div class="email-canvas">
+          <div class="email-canvas-inner">
+            <!-- Inline styles: production Resend HTML mirrors this structure -->
+            <table
+              role="presentation"
+              cellpadding="0"
+              cellspacing="0"
+              border="0"
+              width="100%"
+              style="background: #fafafa; border-collapse: collapse; font-family: 'Outfit', 'Noto Sans SC', 'Noto Sans TC', Arial, sans-serif"
+            >
+              <tr>
+                <td style="padding: 32px 24px">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: #ffffff; border: 1px solid #e0e0e0; border-collapse: collapse">
+                    <tr>
+                      <td style="padding: 28px 28px 0">
+                        <img src="assets/agent-logo.png" alt="" width="48" height="48" style="display: block; width: 48px; height: 48px" />
+                        <p style="margin: 14px 0 0; font-family: 'Outfit', Arial, sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0.04em; color: #0a0a0a; text-transform: lowercase">places.agent-mate.ai</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 24px 28px 0">
+                        <p
+                          style="margin: 0 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #525252"
+                          data-i18n="admin.mail.reset.eyebrow"
+                        >
+                          Account security
+                        </p>
+                        <h1
+                          style="margin: 0 0 16px; font-family: 'Outfit', Arial, sans-serif; font-size: 22px; font-weight: 600; line-height: 1.25; color: #0a0a0a"
+                          data-i18n="admin.mail.reset.heading"
+                        >
+                          Reset your admin password
+                        </h1>
+                        <p style="margin: 0 0 12px; font-size: 15px; line-height: 1.65; color: #1f1f1f" data-i18n="admin.mail.reset.intro">
+                          You asked to reset the password for your admin account on places.agent-mate.ai (places-agent operator app).
+                        </p>
+                        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.65; color: #525252" data-i18n="admin.mail.reset.detail">
+                          Use the button below to choose a new password. The link works once and expires in 1 hour.
+                        </p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 0 28px 24px">
+                        <a
+                          href="04-set-password.html?mode=reset"
+                          style="display: inline-block; background: #0a0a0a; color: #ffffff; font-family: 'Outfit', Arial, sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-decoration: none; padding: 12px 22px; border: 1.5px solid #0a0a0a"
+                          data-i18n="admin.mail.reset.cta"
+                          >Set new password</a
+                        >
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 0 28px 24px">
+                        <p style="margin: 0 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6b6b6b" data-i18n="admin.mail.reset.fallback_label">
+                          If the button does not open, copy this link:
+                        </p>
+                        <p style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.55; color: #0a0a0a; word-break: break-all">
+                          https://places.agent-mate.ai/set-password?token=…
+                        </p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="border-top: 1px solid #e0e0e0; padding: 18px 28px 24px">
+                        <p style="margin: 0 0 10px; font-size: 14px; line-height: 1.6; color: #525252" data-i18n="admin.mail.reset.ignore">
+                          Did not request this? Ignore this email. Your password stays unchanged.
+                        </p>
+                        <p style="margin: 0; font-family: 'Outfit', Arial, sans-serif; font-size: 13px; line-height: 1.5; color: #6b6b6b">
+                          <a href="https://places.agent-mate.ai" style="color: #0a0a0a; text-decoration: underline" data-i18n="admin.mail.footer">places.agent-mate.ai</a>
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <nav class="email-preview-links">
+        <a href="13-email-invite.html" data-i18n="admin.mail.invite.preview_link">View invite email mock-up</a>
+        <a href="04-set-password.html?mode=reset&done=1" data-i18n="admin.set_password.preview_done_link">View post-reset screen</a>
+      </nav>
+    </main>
+    <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>

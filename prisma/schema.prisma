@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id                   String    @id @default(cuid())
+  username             String    @unique
+  firstName            String?
+  lastName             String?
+  email                String    @unique
+  passwordHash         String    @default("")
+  inviteTokenHash      String?
+  inviteTokenExpiresAt DateTime?
+  resetTokenHash       String?
+  resetTokenExpiresAt  DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model CallerApiKey {
+  id          String    @id @default(cuid())
+  name        String
+  description String    @default("")
+  keyHash     String    @unique
+  prefix      String
+  status      String    @default("ACTIVE")
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}

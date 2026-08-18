@@ -150,9 +150,42 @@
     }
     if (params.get("sent") === "1") {
       var sent = document.querySelector("[data-sent]");
+      var lead = document.querySelector("[data-reset-lead]");
       var form = document.querySelector("[data-reset-form]");
       if (sent) sent.hidden = false;
+      if (lead) lead.hidden = true;
       if (form) form.hidden = true;
+    }
+    if (params.get("done") === "1") {
+      var done = document.querySelector("[data-set-done]");
+      var formBlock = document.querySelector("[data-set-form]");
+      if (done) done.hidden = false;
+      if (formBlock) formBlock.hidden = true;
+    } else {
+      var doneDefault = document.querySelector("[data-set-done]");
+      if (doneDefault) doneDefault.hidden = true;
+    }
+    var mode = params.get("mode");
+    if (mode === "reset") {
+      var emptyLead = document.querySelector("[data-set-empty-lead]");
+      var resetLead = document.querySelector("[data-set-reset-lead]");
+      var emptyNote = document.querySelector("[data-set-empty-note]");
+      if (emptyLead) emptyLead.hidden = true;
+      if (resetLead) resetLead.hidden = false;
+      if (emptyNote) emptyNote.hidden = true;
+    }
+    var setError = params.get("error");
+    if (setError === "session") {
+      var sessionCallout = document.querySelector("[data-set-error-session]");
+      var fields = document.querySelector("[data-set-fields]");
+      var formBlock = document.querySelector("[data-set-form]");
+      if (sessionCallout) sessionCallout.hidden = false;
+      if (fields) fields.hidden = true;
+      if (formBlock) formBlock.hidden = false;
+    }
+    if (setError === "mismatch") {
+      var mismatch = document.querySelector("[data-set-error-mismatch]");
+      if (mismatch) mismatch.hidden = false;
     }
     if (params.get("empty") === "1") {
       var table = document.querySelector("[data-keys-table]");

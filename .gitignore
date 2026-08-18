@@ -7,3 +7,8 @@ node_modules/
 .venv/
 dist/
 *.pyc
+.data/
+.next/
+coverage/
+*.db
+*.db-journal

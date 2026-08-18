@@ -25,8 +25,10 @@
           <span class="logo-word">places.agent-mate.ai</span>
         </a>
         <h1 data-i18n="admin.reset.title">Reset password</h1>
-        <p class="lead" data-i18n="admin.reset.lead">Enter the email on the admin account. A reset mail is sent through Resend.</p>
-        <p class="auth-status" data-sent hidden data-i18n="admin.reset.sent">If that email is an admin account, a reset mail is on its way.</p>
+        <p class="lead" data-reset-lead data-i18n="admin.reset.lead">Enter the email on the admin account. A reset mail will be sent.</p>
+        <div class="callout callout-success" data-sent hidden>
+          <p class="callout-body" data-i18n="admin.reset.sent">If that email is an admin account, a reset mail is on its way. Check inbox and junk.</p>
+        </div>
         <form class="form" data-reset-form action="03-reset.html">
           <input type="hidden" name="sent" value="1" />
           <label>

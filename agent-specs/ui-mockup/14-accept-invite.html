@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>places.agent-mate.ai</title>
+    <link rel="icon" href="assets/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/apple-icon.png" />
+    <link rel="stylesheet" href="assets/mockup.css" />
+  </head>
+  <body class="auth-shell" data-title-key="admin.accept_invite.title">
+    <a class="sr-only" href="#content" data-i18n="admin.a11y.skip">Skip to content</a>
+    <div class="shell-locale">
+      <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
+        <button type="button" data-locale="EN">EN</button>
+        <button type="button" data-locale="CN">CN</button>
+        <button type="button" data-locale="HK">HK</button>
+        <button type="button" data-locale="TW">TW</button>
+      </div>
+    </div>
+    <main id="content" class="auth-main">
+      <div class="auth-card auth-work">
+        <div class="logo logo-auth" aria-label="places.agent-mate.ai">
+          <img class="logo-full" src="assets/agent-logo.png" alt="" width="56" height="56" />
+          <span class="logo-word">places.agent-mate.ai</span>
+        </div>
+
+        <div data-invite-done hidden>
+          <div class="callout callout-success">
+            <p class="callout-eyebrow" data-i18n="admin.accept_invite.done_eyebrow">Ready to sign in</p>
+            <p class="callout-title" data-i18n="admin.accept_invite.done_title">Account created</p>
+            <p class="callout-body" data-i18n="admin.accept_invite.done_lead">
+              Your admin account is active. Sign in to continue.
+            </p>
+            <div class="callout-action">
+              <a class="btn btn-page" href="02-login.html" data-i18n="admin.accept_invite.sign_in">Sign in</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-error" data-invite-expired hidden>
+          <p class="callout-eyebrow" data-i18n="errors.invite_link_expired_eyebrow">Link expired</p>
+          <p class="callout-title" data-i18n="errors.invite_link_expired_title">This invite link no longer works</p>
+          <p class="callout-body" data-i18n="errors.invite_link_expired_body">
+            The link was already used or is more than 7 days old. Ask an admin to send a new invite.
+          </p>
+        </div>
+
+        <div data-invite-form>
+          <h1 data-i18n="admin.accept_invite.title">Join places-agent</h1>
+          <p class="lead" data-i18n="admin.accept_invite.lead">Set up your admin account before signing in.</p>
+          <p class="auth-status">
+            <span data-i18n="admin.accept_invite.email_lead">Invited as</span>
+            <span class="mono">new.admin@example.com</span>
+          </p>
+          <form class="form" style="margin-top: 1.5rem" action="14-accept-invite.html?done=1" method="post">
+            <label>
+              <span data-i18n="admin.accept_invite.first_name">First name</span>
+              <input type="text" name="firstName" autocomplete="given-name" required />
+            </label>
+            <label>
+              <span data-i18n="admin.accept_invite.last_name">Last name</span>
+              <input type="text" name="lastName" autocomplete="family-name" required />
+            </label>
+            <label>
+              <span data-i18n="admin.accept_invite.username">Username</span>
+              <input type="text" name="username" autocomplete="username" required />
+            </label>
+            <label>
+              <span data-i18n="admin.accept_invite.password">Password</span>
+              <span class="password-field">
+                <input id="invite-password" type="password" name="password" autocomplete="new-password" required />
+                <button type="button" class="password-toggle" data-for="invite-password" data-i18n="admin.login.show_password" data-i18n-attr="aria-label" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </span>
+            </label>
+            <label>
+              <span data-i18n="admin.accept_invite.confirm">Confirm password</span>
+              <input type="password" name="confirm" autocomplete="new-password" required />
+            </label>
+            <div class="form-actions">
+              <button class="btn" type="submit" data-i18n="admin.accept_invite.submit">Create account</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/mockup.js"></script>
+  </body>
+</html>
