@@ -1,0 +1,16 @@
+node_modules
+.next
+.next-e2e
+.data
+coverage
+e2e
+.git
+.env
+.env.*
+!.env.production.example
+*.db
+*.db-journal
+.DS_Store
+agent-specs
+*.md
+!README.md

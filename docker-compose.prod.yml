@@ -1,0 +1,55 @@
+name: places-agent
+
+services:
+  agent:
+    image: ghcr.io/ethanhuangcst/places.agent-mate.ai/agent:${IMAGE_TAG:-latest}
+    container_name: places-agent
+    restart: unless-stopped
+    ports:
+      - "3007:3000"
+    environment:
+      NODE_ENV: production
+      APP_NAME: places-agent
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://places.agent-mate.ai}
+      APP_URL: ${APP_URL:-https://places.agent-mate.ai}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+      PLACES_VENDOR_MODE: ${PLACES_VENDOR_MODE:-live}
+      PROMPT_ID: ${PROMPT_ID:-chat.v1}
+      GLOSSARY_ID: ${GLOSSARY_ID:-}
+      CATALOG_PACK: ${CATALOG_PACK:-catalogs.v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_HOST: ${OPENAI_HOST:-quanzil.com}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://quanzil.com/v1}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-}
+      AMAP_API_KEY: ${AMAP_API_KEY:-}
+      AMAP_HOST: ${AMAP_HOST:-restapi.amap.com}
+      AMAP_BASE_URL: ${AMAP_BASE_URL:-https://restapi.amap.com}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      GOOGLE_MAPS_HOST: ${GOOGLE_MAPS_HOST:-maps.googleapis.com}
+      GOOGLE_MAPS_BASE_URL: ${GOOGLE_MAPS_BASE_URL:-}
+      GOOGLE_PLACES_BASE_URL: ${GOOGLE_PLACES_BASE_URL:-https://places.googleapis.com/v1}
+      GOOGLE_MAPS_PROJECT: ${GOOGLE_MAPS_PROJECT:-}
+      GMAPS_MCP_HOST: ${GMAPS_MCP_HOST:-}
+      GMAPS_MCP_URL: ${GMAPS_MCP_URL:-}
+      GMAPS_MCP_BEARER: ${GMAPS_MCP_BEARER:-}
+      TRIPADVISOR_API_KEY: ${TRIPADVISOR_API_KEY:-}
+      TRIPADVISOR_HOST: ${TRIPADVISOR_HOST:-terra.tripadvisor.com}
+      TRIPADVISOR_BASE_URL: ${TRIPADVISOR_BASE_URL:-https://terra.tripadvisor.com/api}
+      OPEN_METEO_HOST: ${OPEN_METEO_HOST:-api.open-meteo.com}
+      OPEN_METEO_BASE_URL: ${OPEN_METEO_BASE_URL:-https://api.open-meteo.com/v1}
+      OPEN_METEO_API_KEY: ${OPEN_METEO_API_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_HOST: ${RESEND_HOST:-api.resend.com}
+      RESEND_BASE_URL: ${RESEND_BASE_URL:-https://api.resend.com}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    networks:
+      - default
+
+networks:
+  default:
+    external: true
+    name: portainer_network
