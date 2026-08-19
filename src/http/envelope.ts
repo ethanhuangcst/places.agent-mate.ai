@@ -41,8 +41,22 @@ export function errorEnvelope(
   };
 }
 
-export function healthEnvelope(): Envelope {
-  return { agent: AGENT_ID, ok: true };
+export function healthEnvelope(): Envelope<{ tools: string[] }> {
+  return {
+    agent: AGENT_ID,
+    ok: true,
+    data: {
+      tools: [
+        "search_restaurants",
+        "search_places",
+        "plan_itinerary",
+        "get_place_details",
+        "geocode",
+        "navigate",
+        "chat",
+      ],
+    },
+  };
 }
 
 export function toolToEnvelope<T>(result: ToolResult<T>): Envelope<T> {
@@ -67,5 +81,8 @@ export function toolToEnvelope<T>(result: ToolResult<T>): Envelope<T> {
 
 export function statusForOutcome(outcomeKey: string | undefined): number {
   if (outcomeKey === "errors.place_not_found") return 404;
+  if (outcomeKey === "errors.bounds_invalid" || outcomeKey === "errors.no_places_to_plan") {
+    return 400;
+  }
   return 200;
 }

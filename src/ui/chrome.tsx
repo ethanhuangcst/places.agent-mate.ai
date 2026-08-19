@@ -185,12 +185,22 @@ export function SecretOncePanel({
           type="button"
           className="btn-copy"
           data-testid="copy-secret"
-          aria-label={copied ? tt("admin.common.copied") : tt("admin.keys.copy")}
+          aria-label={copied ? tt("admin.keys.copied_to_clipboard") : tt("admin.keys.copy")}
           onClick={() => void copy()}
         >
           <CopyIcon />
         </button>
       </div>
+      <p
+        className={copied ? "copy-status is-visible" : "copy-status"}
+        role="status"
+        aria-live="polite"
+        data-testid="copy-secret-status"
+        data-i18n="admin.keys.copied_to_clipboard"
+        hidden={!copied}
+      >
+        {tt("admin.keys.copied_to_clipboard")}
+      </p>
       <p className="warn" data-i18n="admin.keys.created_warn">
         {tt("admin.keys.created_warn")}
       </p>

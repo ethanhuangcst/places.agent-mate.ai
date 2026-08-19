@@ -12,6 +12,7 @@ const devOrigins = allowedDevOrigins();
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  distDir: process.env.NEXT_DIST_DIR?.trim() || ".next",
   ...(devOrigins.length > 0 ? { allowedDevOrigins: devOrigins } : {}),
 };
 

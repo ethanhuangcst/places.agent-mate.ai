@@ -51,12 +51,45 @@ export function LoginScreen() {
     <AuthShell>
       <div className="auth-card auth-card-login">
         <AgentLogo href="/" variant="auth" />
-        <p
-          className="auth-status"
-          data-i18n="admin.register.disabled_notice"
-          data-testid="register-disabled"
-        >
-          {tt("admin.register.disabled_notice")}
+        <p className="auth-status" role="status" data-testid="register-disabled">
+          <span className="auth-status-text" data-i18n="admin.register.disabled_prefix">
+            {tt("admin.register.disabled_prefix")}
+          </span>
+          <span className="contact-admin">
+            <button
+              type="button"
+              className="contact-admin-trigger"
+              aria-describedby="login-wechat-qr"
+              data-testid="contact-admin"
+              data-i18n="admin.register.contact_admin"
+            >
+              {tt("admin.register.contact_admin")}
+            </button>
+            <span
+              id="login-wechat-qr"
+              className="contact-admin-pop"
+              role="tooltip"
+              data-testid="contact-admin-qr"
+            >
+              <img
+                src="/EthanWeChat.png"
+                alt={tt("admin.register.wechat_qr_alt")}
+                width={180}
+                height={180}
+                data-i18n="admin.register.wechat_qr_alt"
+              />
+              <span
+                className="contact-admin-caption"
+                data-i18n="admin.register.wechat_qr_caption"
+              >
+                {tt("admin.register.wechat_qr_caption")}
+              </span>
+            </span>
+          </span>
+          <span className="auth-status-text" data-i18n="admin.register.disabled_suffix">
+            {tt("admin.register.disabled_suffix")}
+          </span>
+          <code className="auth-status-key">api-key</code>
         </p>
         <div className="auth-login-panel auth-work">
           <h1 data-i18n="admin.login.title">{tt("admin.login.title")}</h1>

@@ -17,7 +17,7 @@
       </a>
       <button type="button" class="menu-toggle" data-i18n="admin.nav.menu">Menu</button>
       <div class="header-end">
-        <a class="header-guide" href="11-instructions-app.html" data-i18n="admin.landing.instructions_link" data-testid="landing-instructions">Agent instructions</a>
+        <a class="header-guide" href="11-instructions-app.html" target="_blank" rel="noopener noreferrer" data-i18n="admin.landing.instructions_link" data-testid="landing-instructions">Agent instructions</a>
         <p class="hello" data-i18n="admin.landing.hello" data-i18n-vars='{"name":"admin"}'>Hello, admin</p>
         <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
           <button type="button" data-locale="EN">EN</button>
@@ -37,17 +37,22 @@
       </aside>
       <main id="content" class="content">
         <div class="page-head">
-          <div>
-            <p class="eyebrow" data-i18n="admin.keys.eyebrow">Keys</p>
-            <h1 data-i18n="admin.keys.title">Caller API keys</h1>
-            <p data-i18n="admin.keys.lead">One secret per caller. HTTP and MCP share the same key. Map-vendor keys are not shown here.</p>
+          <p class="eyebrow" data-i18n="admin.keys.eyebrow">API KEYS</p>
+          <div class="page-head-row">
+            <p class="page-head-lead" data-i18n="admin.keys.lead">One API key per caller. Supports HTTP and MCP.</p>
+            <div class="page-head-actions">
+              <a class="btn btn-page" href="07-key-new.html" data-i18n="admin.keys.issue" data-testid="issue-key">Issue new key</a>
+              <button type="button" class="btn btn-page" data-i18n="admin.keys.bulk_delete" data-testid="keys-delete-selected" disabled>Bulk Delete</button>
+            </div>
           </div>
-          <a class="btn btn-page" href="07-key-new.html" data-i18n="admin.keys.issue" data-testid="issue-key">Issue new key</a>
         </div>
         <div class="table-wrap" data-keys-table>
           <table>
             <thead>
               <tr>
+                <th class="table-check">
+                  <input type="checkbox" data-testid="keys-select-all" data-i18n="admin.keys.select_all" data-i18n-attr="aria-label" aria-label="Select all keys" />
+                </th>
                 <th data-i18n="admin.keys.col_name">Name</th>
                 <th data-i18n="admin.keys.col_prefix">Prefix</th>
                 <th data-i18n="admin.keys.col_status">Status</th>
@@ -57,6 +62,9 @@
             </thead>
             <tbody>
               <tr>
+                <td class="table-check">
+                  <input type="checkbox" data-testid="keys-select-what2eat-prod" data-i18n="admin.keys.select_row" data-i18n-vars='{"name":"what2eat-prod"}' data-i18n-attr="aria-label" aria-label="Select what2eat-prod" />
+                </td>
                 <td>what2eat-prod</td>
                 <td class="mono">plc_live_a1b2</td>
                 <td><span class="status is-on" data-i18n="admin.keys.status_active">Active</span></td>
@@ -70,6 +78,9 @@
                 </td>
               </tr>
               <tr>
+                <td class="table-check">
+                  <input type="checkbox" data-testid="keys-select-where2play-prod" data-i18n="admin.keys.select_row" data-i18n-vars='{"name":"where2play-prod"}' data-i18n-attr="aria-label" aria-label="Select where2play-prod" />
+                </td>
                 <td>where2play-prod</td>
                 <td class="mono">plc_live_9c3d</td>
                 <td><span class="status is-on" data-i18n="admin.keys.status_active">Active</span></td>
@@ -83,6 +94,9 @@
                 </td>
               </tr>
               <tr>
+                <td class="table-check">
+                  <input type="checkbox" data-testid="keys-select-chatbox-ethan" data-i18n="admin.keys.select_row" data-i18n-vars='{"name":"chatbox-ethan"}' data-i18n-attr="aria-label" aria-label="Select chatbox-ethan" />
+                </td>
                 <td>chatbox-ethan</td>
                 <td class="mono">plc_live_52d4</td>
                 <td><span class="status is-on" data-i18n="admin.keys.status_active">Active</span></td>
@@ -100,11 +114,20 @@
         </div>
         <div class="empty" data-keys-empty hidden>
           <p data-i18n="admin.keys.empty">No caller keys yet. Issue one for what2eat, where2play, or an MCP host.</p>
-          <a class="btn" href="07-key-new.html" data-i18n="admin.keys.issue">Issue new key</a>
         </div>
       </main>
     </div>
     <footer class="site-footer"><p data-i18n="admin.footer.copyright">copyright © Ethan Huang</p></footer>
+    <div class="dialog-backdrop" id="dialog-delete-selected" role="dialog" aria-modal="true">
+      <div class="dialog">
+        <h2 class="dialog-title" data-i18n="admin.keys.delete_selected_title">Delete selected keys?</h2>
+        <p class="dialog-body" data-i18n="admin.keys.delete_selected_body" data-i18n-vars='{"count":"0"}'>0 keys will stop working. Callers using those secrets can no longer call places-agent.</p>
+        <div class="dialog-actions">
+          <button type="button" class="btn" data-testid="keys-delete-selected-confirm" data-i18n="admin.keys.delete_selected_submit">Delete selected</button>
+          <button type="button" class="btn-text" data-close-dialog data-i18n="admin.common.cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
     <script src="assets/i18n.js"></script>
     <script src="assets/mockup.js"></script>
   </body>

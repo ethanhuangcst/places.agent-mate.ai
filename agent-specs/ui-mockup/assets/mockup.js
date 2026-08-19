@@ -200,12 +200,76 @@
     }
   }
 
+  function bindKeysSelection() {
+    var table = document.querySelector("[data-keys-table]");
+    if (!table) return;
+    var selectAll = table.querySelector("[data-testid=keys-select-all]");
+    var deleteBtn = document.querySelector("[data-testid=keys-delete-selected]");
+    var confirmBtn = document.querySelector("[data-testid=keys-delete-selected-confirm]");
+    var dialog = document.getElementById("dialog-delete-selected");
+    var dialogBody = dialog ? dialog.querySelector(".dialog-body") : null;
+
+    function rowBoxes() {
+      return Array.prototype.slice.call(table.querySelectorAll("tbody input[type=checkbox]"));
+    }
+
+    function update() {
+      var boxes = rowBoxes();
+      var checked = boxes.filter(function (box) {
+        return box.checked;
+      });
+      if (deleteBtn) deleteBtn.disabled = checked.length === 0;
+      if (selectAll) {
+        selectAll.checked = boxes.length > 0 && checked.length === boxes.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < boxes.length;
+      }
+      if (dialogBody) {
+        dialogBody.setAttribute("data-i18n-vars", JSON.stringify({ count: String(checked.length) }));
+        applyI18n();
+      }
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener("change", function () {
+        rowBoxes().forEach(function (box) {
+          box.checked = selectAll.checked;
+        });
+        update();
+      });
+    }
+    rowBoxes().forEach(function (box) {
+      box.addEventListener("change", update);
+    });
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", function () {
+        if (deleteBtn.disabled) return;
+        if (dialog) dialog.classList.add("is-open");
+      });
+    }
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", function () {
+        rowBoxes()
+          .filter(function (box) {
+            return box.checked;
+          })
+          .forEach(function (box) {
+            var row = box.closest("tr");
+            if (row) row.remove();
+          });
+        if (dialog) dialog.classList.remove("is-open");
+        update();
+      });
+    }
+    update();
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     bindLocale();
     bindPassword();
     bindCopy();
     bindMenu();
     bindDialogs();
+    bindKeysSelection();
     applyQueryState();
     applyI18n();
   });

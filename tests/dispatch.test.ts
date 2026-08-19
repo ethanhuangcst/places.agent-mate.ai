@@ -61,6 +61,29 @@ describe("caller auth and HTTP dispatch", () => {
     expect(cards[0]?.sources[0]?.provider).toBe("GOOGLE_MAPS");
   });
 
+  it("should_search_places_when_caller_key_is_valid", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    const result = await dispatchTool(
+      "search_places",
+      `Bearer ${generated.secret}`,
+      { query: "museum", providers: ["GOOGLE_MAPS"], locale: "EN" },
+    );
+    expect(result.status).toBe(200);
+    expect(result.envelope.agent).toBe(AGENT_ID);
+    expect(result.envelope.ok).toBe(true);
+    const cards = result.envelope.data as { category?: string }[];
+    expect(cards.length).toBeGreaterThan(0);
+    expect(cards[0]?.category).not.toBe("restaurant");
+  });
+
   it("should_return_empty_results_key_when_no_match", async () => {
     const generated = generateCallerSecret();
     await prisma.callerApiKey.create({
@@ -118,5 +141,27 @@ describe("caller auth and HTTP dispatch", () => {
     expect(result.envelope.locale).toBe("HK");
     expect(result.envelope.outcome?.locales?.HK).toBeTruthy();
     expect(result.envelope.outcome?.locales?.EN).toBeTruthy();
+  });
+
+  it("should_reject_invalid_get_place_details_and_plan_bodies", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    const auth = `Bearer ${generated.secret}`;
+    const badDetails = await dispatchTool("get_place_details", auth, { provider: "" });
+    expect(badDetails.status).toBe(400);
+    const okDetails = await dispatchTool("get_place_details", auth, {
+      provider: "GOOGLE_MAPS",
+      native_id: "fixture_yat_lok",
+    });
+    expect(okDetails.status).toBe(200);
+    const badPlan = await dispatchTool("plan_itinerary", auth, { bounds: { start: 1 } });
+    expect(badPlan.status).toBe(400);
   });
 });

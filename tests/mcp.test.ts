@@ -20,6 +20,17 @@ describe("MCP tools", () => {
     await server.close();
   });
 
+  it("should_name_every_tool_description_as_places-agent", async () => {
+    const { client, server } = await connectedClient();
+    const listed = await client.listTools();
+    expect(listed.tools.length).toBeGreaterThan(0);
+    for (const tool of listed.tools) {
+      expect(tool.description, tool.name).toMatch(/places-agent/);
+    }
+    await client.close();
+    await server.close();
+  });
+
   it("should_list_unprefixed_mvp_tools", async () => {
     const { client, server } = await connectedClient();
     const listed = await client.listTools();
@@ -27,12 +38,13 @@ describe("MCP tools", () => {
     expect(names).toEqual(
       expect.arrayContaining([
         "search_restaurants",
+        "search_places",
+        "plan_itinerary",
         "get_place_details",
         "geocode",
         "navigate",
       ]),
     );
-    expect(names).not.toContain("search_places");
     await client.close();
     await server.close();
   });
@@ -55,6 +67,29 @@ describe("MCP tools", () => {
     expect(envelope.agent).toBe(AGENT_ID);
     expect(envelope.ok).toBe(true);
     expect(envelope.data[0]?.name).toContain("Yat Lok");
+    await client.close();
+    await server.close();
+  });
+
+  it("should_return_same_place_search_meaning_as_http_core", async () => {
+    const { client, server } = await connectedClient();
+    const result = await client.callTool({
+      name: "search_places",
+      arguments: { query: "museum", providers: ["GOOGLE_MAPS"], locale: "EN" },
+    });
+    const text = (result.content as { type: string; text?: string }[])
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    const envelope = JSON.parse(text) as {
+      agent: string;
+      ok: boolean;
+      data: { category?: string }[];
+    };
+    expect(envelope.agent).toBe(AGENT_ID);
+    expect(envelope.ok).toBe(true);
+    expect(envelope.data.length).toBeGreaterThan(0);
+    expect(envelope.data[0]?.category).not.toBe("restaurant");
     await client.close();
     await server.close();
   });

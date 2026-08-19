@@ -1,9 +1,43 @@
 import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import js from "@eslint/js";
+import nextPlugin from "@next/eslint-plugin-next";
+import babelParser from "@babel/eslint-parser";
+
+const nextRules = {
+  ...nextPlugin.configs.recommended.rules,
+  ...nextPlugin.configs["core-web-vitals"].rules,
+};
 
 export default defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  globalIgnores([".next/**", "out/**", "node_modules/**", "agent-specs/**", "e2e/**"]),
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    ...js.configs.recommended,
+  },
+  {
+    files: ["**/*.{ts,tsx,jsx}"],
+    languageOptions: {
+      parser: babelParser,
+      parserOptions: {
+        requireConfigFile: false,
+        babelOptions: {
+          presets: [
+            "@babel/preset-typescript",
+            ["@babel/preset-react", { runtime: "automatic" }],
+          ],
+        },
+      },
+    },
+    plugins: { "@next/next": nextPlugin },
+    rules: nextRules,
+  },
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "node_modules/**",
+    "agent-specs/**",
+    "e2e/**",
+    "coverage/**",
+    "scripts/run-tc-c07.ts",
+    "scripts/run-tc-c08.ts",
+  ]),
 ]);

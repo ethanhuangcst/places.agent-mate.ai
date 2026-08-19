@@ -1,5 +1,7 @@
 import { validateProviders, type Capability } from "./providers";
 import { getAdapter } from "../adapters";
+import { isDiningCategory } from "../adapters/fixtures";
+import { enrichWithTripadvisor } from "./enrich";
 import { parseLocale, type Locale } from "./locales";
 import {
   type PlaceCard,
@@ -57,6 +59,17 @@ async function fanOut<T>(
   return { values, skipped };
 }
 
+/** Drop dining-dominated results when the caller is searching for attractions/POIs. */
+function filterPlaceSearchResults(cards: PlaceCard[], query?: string): PlaceCard[] {
+  const nonDining = cards.filter((c) => !isDiningCategory(c.category));
+  if (nonDining.length > 0) return nonDining;
+  const q = (query ?? "").toLowerCase();
+  const attractionHint =
+    /museum|park|attraction|poi|gallery|temple|monument|sight/i.test(q);
+  if (attractionHint) return [];
+  return cards;
+}
+
 export async function searchRestaurants(
   input: SearchInput,
 ): Promise<ToolResult<PlaceCard[]>> {
@@ -68,6 +81,30 @@ export async function searchRestaurants(
   });
   let cards = values.flat();
   if (input.merge) cards = mergeCards(cards);
+  if (input.enrich?.tripadvisor) {
+    const enriched = await enrichWithTripadvisor(cards);
+    cards = enriched.cards;
+    skipped.push(...enriched.skipped);
+  }
+  const outcomeKey = cards.length === 0 ? "errors.empty_results" : undefined;
+  return { data: cards, skipped, locale, locales: pair, outcomeKey };
+}
+
+export async function searchPlaces(input: SearchInput): Promise<ToolResult<PlaceCard[]>> {
+  const { locale, pair } = localesFrom(input);
+  const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
+    const adapter = getAdapter(id);
+    if (!adapter) throw new Error("missing");
+    return adapter.searchPlaces(input);
+  });
+  let cards = values.flat();
+  cards = filterPlaceSearchResults(cards, input.query);
+  if (input.merge) cards = mergeCards(cards);
+  if (input.enrich?.tripadvisor) {
+    const enriched = await enrichWithTripadvisor(cards);
+    cards = enriched.cards;
+    skipped.push(...enriched.skipped);
+  }
   const outcomeKey = cards.length === 0 ? "errors.empty_results" : undefined;
   return { data: cards, skipped, locale, locales: pair, outcomeKey };
 }

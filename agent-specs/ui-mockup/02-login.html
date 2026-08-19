@@ -24,7 +24,18 @@
           <img class="logo-full" src="assets/agent-logo.png" alt="" width="56" height="56" />
           <span class="logo-word">places.agent-mate.ai</span>
         </a>
-        <p class="auth-status" data-i18n="admin.register.disabled_notice" data-testid="register-disabled">Open registration is closed. Ask an existing admin to invite you.</p>
+        <p class="auth-status" role="status" data-testid="register-disabled">
+          <span class="auth-status-text" data-i18n="admin.register.disabled_prefix">Open registration is closed. </span>
+          <span class="contact-admin">
+            <button type="button" class="contact-admin-trigger" aria-describedby="login-wechat-qr" data-testid="contact-admin" data-i18n="admin.register.contact_admin">Contact an admin</button>
+            <span id="login-wechat-qr" class="contact-admin-pop" role="tooltip" data-testid="contact-admin-qr">
+              <img src="assets/EthanWeChat.png" alt="Admin WeChat QR code" width="180" height="180" data-i18n="admin.register.wechat_qr_alt" data-i18n-attr="alt" />
+              <span class="contact-admin-caption" data-i18n="admin.register.wechat_qr_caption">Scan with WeChat</span>
+            </span>
+          </span>
+          <span class="auth-status-text" data-i18n="admin.register.disabled_suffix"> for an </span>
+          <code class="auth-status-key">api-key</code>
+        </p>
         <div class="auth-login-panel auth-work">
           <h1 data-i18n="admin.login.title">Admin sign-in</h1>
           <p class="error" data-error hidden data-i18n="errors.login_failed" data-testid="login-error">Username or password is wrong.</p>

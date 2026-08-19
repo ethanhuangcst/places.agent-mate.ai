@@ -3,8 +3,11 @@ import {
   geocode,
   getPlaceDetails,
   navigate,
+  searchPlaces,
   searchRestaurants,
 } from "../core/tools";
+import { planItinerary } from "../core/itinerary";
+import { type PlanItineraryInput } from "../core/types";
 import { parseLocale, type Locale } from "../core/locales";
 import {
   errorEnvelope,
@@ -16,11 +19,15 @@ import {
   geocodeBody,
   getPlaceDetailsBody,
   navigateBody,
+  planItineraryBody,
+  searchPlacesBody,
   searchRestaurantsBody,
 } from "./schemas";
 
 export type ToolName =
   | "search_restaurants"
+  | "search_places"
+  | "plan_itinerary"
   | "get_place_details"
   | "geocode"
   | "navigate";
@@ -57,6 +64,18 @@ export async function dispatchTool(
     const parsed = searchRestaurantsBody.safeParse(body ?? {});
     if (!parsed.success) return invalid(locale, extra);
     const result = await searchRestaurants(parsed.data);
+    return { status: statusForOutcome(result.outcomeKey), envelope: toolToEnvelope(result) };
+  }
+  if (tool === "search_places") {
+    const parsed = searchPlacesBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    const result = await searchPlaces(parsed.data);
+    return { status: statusForOutcome(result.outcomeKey), envelope: toolToEnvelope(result) };
+  }
+  if (tool === "plan_itinerary") {
+    const parsed = planItineraryBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    const result = await planItinerary(parsed.data as PlanItineraryInput);
     return { status: statusForOutcome(result.outcomeKey), envelope: toolToEnvelope(result) };
   }
   if (tool === "get_place_details") {

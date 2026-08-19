@@ -30,27 +30,112 @@
       <h1 data-i18n="admin.guide.title">Agent instructions</h1>
       <p class="lead" data-i18n="admin.guide.lead">How to call places.agent-mate.ai. The agent id is places-agent. Callers send a caller API key. Map-vendor keys stay on the server.</p>
       <nav class="guide-toc">
-        <a href="#architecture" data-i18n="admin.guide.toc_architecture">1. Architecture</a>
-        <a href="#key" data-i18n="admin.guide.toc_key">2. Get a key</a>
-        <a href="#http" data-i18n="admin.guide.toc_http">3. HTTP</a>
-        <a href="#mcp" data-i18n="admin.guide.toc_mcp">4. MCP</a>
+        <a href="#capabilities" data-i18n="admin.guide.toc_capabilities">1. Agent capabilities</a>
+        <a href="#architecture" data-i18n="admin.guide.toc_architecture">2. Architecture</a>
+        <a href="#key" data-i18n="admin.guide.toc_key">3. Get a key</a>
+        <a href="#http" data-i18n="admin.guide.toc_http">4. HTTP</a>
+        <a href="#mcp" data-i18n="admin.guide.toc_mcp">5. MCP</a>
       </nav>
 
+      <section class="guide-section" id="capabilities" data-testid="guide-capabilities">
+        <h2 data-i18n="admin.guide.h_capabilities">1. Agent capabilities</h2>
+        <p data-i18n="admin.guide.cap_intro">Callers get these tools. HTTP and MCP share the same JSON unless marked HTTP only. Callers pass providers[] as GOOGLE_MAPS and/or AMAP. Search and details cards include sources[].</p>
+        <div class="table-wrap">
+          <table class="guide-caps-table" data-testid="guide-capabilities-table">
+            <thead>
+              <tr>
+                <th data-i18n="admin.guide.cap_col_capability">Capabilities</th>
+                <th data-i18n="admin.guide.cap_col_channel">Channel</th>
+                <th data-i18n="admin.guide.cap_col_body">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+            <tr>
+              <td><code>search_restaurants</code></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_both">HTTP and MCP</span>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_search_restaurants_body">Find restaurants near coordinates or an address. Optional cuisine, keyword, and open now. Empty matches return errors.empty_results.</td>
+            </tr>
+            <tr>
+              <td><code>search_places</code></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_both">HTTP and MCP</span>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_search_places_body">Find non-restaurant places (museums, parks, attractions). Same card shape and vendor contract as restaurant search.</td>
+            </tr>
+            <tr>
+              <td><code>get_place_details</code></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_both">HTTP and MCP</span>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_details_body">Load one place by provider native_id. Missing places return errors.place_not_found.</td>
+            </tr>
+            <tr>
+              <td><code>geocode</code></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_both">HTTP and MCP</span>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_geocode_body">Forward-geocode an address or reverse-geocode lat/lng so search can run from a pin or a named area.</td>
+            </tr>
+            <tr>
+              <td><code>navigate</code></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_both">HTTP and MCP</span>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_navigate_body">Return secret-free map deep links and web URLs for a place or coordinate.</td>
+            </tr>
+            <tr>
+              <td><code>plan_itinerary</code></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_both">HTTP and MCP</span>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_itinerary_body">Build a structured plan from trip bounds, place cards, and preferences. Weather uses Open-Meteo WMO codes via weather.wmo.* keys. Trip screens stay on the caller.</td>
+            </tr>
+            <tr>
+              <td><span data-i18n="admin.guide.cap_chat">Place chat</span></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_http">HTTP only</span>
+                  <code>POST /v1/chat</code>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_chat_body">Natural-language tool loop. The server runs the same tools. Do not use chat as the only way to search.</td>
+            </tr>
+            <tr>
+              <td><code>Tripadvisor.enrich</code></td>
+              <td>
+                <div class="guide-cap-channel">
+                  <span data-i18n="admin.guide.cap_channel_http">HTTP only</span>
+                </div>
+              </td>
+              <td data-i18n="admin.guide.cap_tripadvisor_body">Optional ratings and content on HTTP search. Match by name and location. Never pass a Google place_id as a Tripadvisor id. Not an MCP tool argument.</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
       <section class="guide-section" id="architecture">
-        <h2 data-i18n="admin.guide.h_architecture">1. Architecture</h2>
+        <h2 data-i18n="admin.guide.h_architecture">2. Architecture</h2>
         <h3 class="guide-sub" data-i18n="admin.guide.who">Who calls</h3>
         <ul>
           <li data-i18n="admin.guide.who_apps">App BFFs — what2eat.food and where2play.place, server to server</li>
           <li data-i18n="admin.guide.who_mcp">MCP hosts — Cursor, ChatBox, and similar</li>
         </ul>
-        <h3 class="guide-sub" data-i18n="admin.guide.provides">What places-agent provides</h3>
-        <ul>
-          <li><code>search_restaurants</code>, <code>search_places</code>, <code>get_place_details</code>, <code>navigate</code></li>
-          <li><code>plan_itinerary</code></li>
-          <li data-i18n="admin.guide.provides_3">The same tools on HTTP and MCP</li>
-        </ul>
         <div class="guide-flow" aria-hidden="true">
-          <div class="guide-flow-lanes">
+          <div class="guide-flow-sources">
             <div class="guide-flow-lane">
               <p class="guide-flow-clients" data-i18n="admin.guide.flow_http_who">App BFF</p>
               <span class="guide-flow-proto" data-i18n="admin.guide.flow_http">HTTP</span>
@@ -60,13 +145,14 @@
               <span class="guide-flow-proto" data-i18n="admin.guide.flow_mcp">MCP</span>
             </div>
           </div>
-          <div class="guide-flow-merge">
-            <span class="guide-flow-auth" data-i18n="admin.guide.flow_auth">Caller API key</span>
-          </div>
+          <span class="guide-flow-join"></span>
+          <span class="guide-flow-auth" data-i18n="admin.guide.flow_auth">Caller API key</span>
+          <span class="guide-flow-rail"></span>
           <div class="guide-flow-hub">
             <p class="guide-flow-hub-name">places-agent</p>
             <p class="guide-flow-hub-ops" data-i18n="admin.guide.flow_hub_ops">tools · itinerary engine</p>
           </div>
+          <span class="guide-flow-rail"></span>
           <div class="guide-flow-store">
             <p data-i18n="admin.guide.flow_vendors">AMAP · Google Maps · Tripadvisor</p>
             <p class="guide-flow-store-meta" data-i18n="admin.guide.flow_vendors_meta">Server env only</p>
@@ -76,7 +162,7 @@
       </section>
 
       <section class="guide-section" id="key">
-        <h2 data-i18n="admin.guide.h_key">2. Get a key</h2>
+        <h2 data-i18n="admin.guide.h_key">3. Get a key</h2>
         <p data-i18n="admin.guide.key_body">An admin issues a caller API key in this app. HTTP and MCP use the same key. Send it as:</p>
         <div class="code-block">
           <pre><code>Authorization: Bearer &lt;caller_api_key&gt;</code></pre>
@@ -85,12 +171,12 @@
       </section>
 
       <section class="guide-section" id="http">
-        <h2 data-i18n="admin.guide.h_http">3. HTTP</h2>
+        <h2 data-i18n="admin.guide.h_http">4. HTTP</h2>
         <p data-i18n="admin.guide.http_body">App BFFs call the HTTP API on https://places.agent-mate.ai with the caller API key. Browsers do not hold this key. Responses identify the service as places-agent.</p>
       </section>
 
       <section class="guide-section" id="mcp">
-        <h2 data-i18n="admin.guide.h_mcp">4. MCP</h2>
+        <h2 data-i18n="admin.guide.h_mcp">5. MCP</h2>
         <p data-i18n="admin.guide.mcp_body">MCP hosts use the same caller API key. Cursor (and similar) use Streamable HTTP at /mcp. ChatBox uses remote SSE at /sse — do not point ChatBox at /mcp.</p>
         <h3 class="guide-sub" data-i18n="admin.guide.mcp_cursor">Cursor mcp.json (remote)</h3>
         <div class="code-block">

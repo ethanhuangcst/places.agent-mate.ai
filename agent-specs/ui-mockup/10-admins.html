@@ -17,7 +17,7 @@
       </a>
       <button type="button" class="menu-toggle" data-i18n="admin.nav.menu">Menu</button>
       <div class="header-end">
-        <a class="header-guide" href="11-instructions-app.html" data-i18n="admin.landing.instructions_link">Agent instructions</a>
+        <a class="header-guide" href="11-instructions-app.html" target="_blank" rel="noopener noreferrer" data-i18n="admin.landing.instructions_link">Agent instructions</a>
         <p class="hello" data-i18n="admin.landing.hello" data-i18n-vars='{"name":"admin"}'>Hello, admin</p>
         <div class="locale-switch" role="group" data-i18n="admin.a11y.locale" data-i18n-attr="aria-label">
           <button type="button" data-locale="EN">EN</button>
@@ -37,22 +37,18 @@
       </aside>
       <main id="content" class="content">
         <div class="page-head">
-          <div>
-            <p class="eyebrow" data-i18n="admin.users.eyebrow">Admins</p>
-            <h1 data-i18n="admin.users.title">Admins</h1>
-            <p data-i18n="admin.users.lead">Invite-only. Public registration stays closed.</p>
+          <p class="eyebrow" data-i18n="admin.users.eyebrow">Admins</p>
+          <div class="page-head-row">
+            <p class="page-head-lead" data-i18n="admin.users.lead">Invite-only. Public registration stays closed.</p>
           </div>
+          <form class="invite-row" action="10-admins.html">
+            <label class="invite-field">
+              <span data-i18n="admin.users.email">Email</span>
+              <input class="input-box" type="email" name="email" autocomplete="off" required />
+            </label>
+            <button class="btn btn-page" type="submit" data-i18n="admin.users.invite_submit">Send invite</button>
+          </form>
         </div>
-        <h2 class="guide-sub" data-i18n="admin.users.invite">Invite admin</h2>
-        <form class="form" action="10-admins.html" style="max-width: 26rem; margin-bottom: 2.5rem">
-          <label>
-            <span data-i18n="admin.users.email">Email</span>
-            <input type="email" name="email" autocomplete="off" required />
-          </label>
-          <div class="form-actions">
-            <button class="btn" type="submit" data-i18n="admin.users.invite_submit">Send invite</button>
-          </div>
-        </form>
         <div class="table-wrap">
           <table>
             <thead>

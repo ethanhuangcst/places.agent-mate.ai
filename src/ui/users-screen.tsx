@@ -102,17 +102,33 @@ export function UsersScreen() {
   return (
     <main id="content" className="content">
       <div className="page-head">
-        <div>
-          <p className="eyebrow" data-i18n="admin.users.eyebrow">
-            {tt("admin.users.eyebrow")}
+        <p className="eyebrow" data-i18n="admin.users.eyebrow">
+          {tt("admin.users.eyebrow")}
+        </p>
+        <div className="page-head-row">
+          <p className="page-head-lead" data-i18n="admin.users.lead">
+            {tt("admin.users.lead")}
           </p>
-          <h1 data-i18n="admin.users.title">{tt("admin.users.title")}</h1>
-          <p data-i18n="admin.users.lead">{tt("admin.users.lead")}</p>
         </div>
+        <form
+          className="invite-row"
+          onSubmit={handleSubmit((v) => void onInvite(v))}
+        >
+          <label className="invite-field">
+            <span data-i18n="admin.users.email">{tt("admin.users.email")}</span>
+            <input
+              className="input-box"
+              type="email"
+              autoComplete="off"
+              required
+              {...register("email")}
+            />
+          </label>
+          <button className="btn btn-page" type="submit" data-i18n="admin.users.invite_submit">
+            {tt("admin.users.invite_submit")}
+          </button>
+        </form>
       </div>
-      <h2 className="guide-sub" data-i18n="admin.users.invite">
-        {tt("admin.users.invite")}
-      </h2>
       {sent ? (
         <p className="auth-status" data-i18n="admin.users.invite_sent">
           {tt("admin.users.invite_sent")}
@@ -123,21 +139,6 @@ export function UsersScreen() {
           {tt(errorKey)}
         </p>
       ) : null}
-      <form
-        className="form"
-        style={{ maxWidth: "26rem", marginBottom: "2.5rem" }}
-        onSubmit={handleSubmit((v) => void onInvite(v))}
-      >
-        <label>
-          <span data-i18n="admin.users.email">{tt("admin.users.email")}</span>
-          <input type="email" autoComplete="off" required {...register("email")} />
-        </label>
-        <div className="form-actions">
-          <button className="btn" type="submit" data-i18n="admin.users.invite_submit">
-            {tt("admin.users.invite_submit")}
-          </button>
-        </div>
-      </form>
       {query.isLoading ? (
         <p data-i18n="admin.users.loading">{tt("admin.users.loading")}</p>
       ) : null}

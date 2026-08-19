@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { adminJson, type SessionResponse } from "./admin-api";
 import { AgentLogo, SiteFooter, SkipLink } from "./chrome";
 import { LocaleSwitcher, useT } from "./locale";
@@ -25,15 +25,6 @@ export function AppChrome({
   });
 
   const name = session.data?.name;
-  const mustSet = session.data?.mustSetPassword;
-
-  useEffect(() => {
-    if (mustSet && pathname.startsWith("/admin")) {
-      router.replace("/set-password");
-    } else if (session.data && session.data.name === null && pathname.startsWith("/admin")) {
-      router.replace("/login");
-    }
-  }, [mustSet, pathname, router, session.data]);
 
   const active =
     navActive ??
@@ -43,8 +34,7 @@ export function AppChrome({
         ? "keys"
         : "none");
 
-  async function signOut(e: MouseEvent<HTMLAnchorElement>) {
-    e.preventDefault();
+  async function signOut() {
     await adminJson("/api/admin/logout", { method: "POST" }).catch(() => undefined);
     router.push("/");
     router.refresh();
@@ -67,6 +57,8 @@ export function AppChrome({
           <Link
             className="header-guide"
             href="/instructions"
+            target="_blank"
+            rel="noopener noreferrer"
             data-i18n="admin.landing.instructions_link"
             data-testid="landing-instructions"
           >
@@ -99,15 +91,15 @@ export function AppChrome({
             >
               {tt("admin.nav.admins")}
             </Link>
-            <a
+            <button
+              type="button"
               className="nav-signout"
-              href="/"
               data-i18n="admin.nav.sign_out"
               data-testid="nav-sign-out"
-              onClick={(e) => void signOut(e)}
+              onClick={() => void signOut()}
             >
               {tt("admin.nav.sign_out")}
-            </a>
+            </button>
           </nav>
         </aside>
         {children}

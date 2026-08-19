@@ -19,16 +19,35 @@ import socket
 import time
 import sys
 import argparse
+import json
+import urllib.error
+import urllib.request
+
+
+def is_port_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("localhost", port), timeout=0.5):
+            return True
+    except (socket.error, ConnectionRefusedError, OSError):
+        return False
+
+
+def health_ok(port: int) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://localhost:{port}/v1/health", timeout=2) as res:
+            body = json.loads(res.read().decode("utf-8"))
+            return body.get("agent") == "places-agent" and body.get("ok") is True
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError):
+        return False
+
 
 def is_server_ready(port, timeout=30):
-    """Wait for server to be ready by polling the port."""
+    """Wait for server to be ready by polling health, not just an open port."""
     start_time = time.time()
     while time.time() - start_time < timeout:
-        try:
-            with socket.create_connection(('localhost', port), timeout=1):
-                return True
-        except (socket.error, ConnectionRefusedError):
-            time.sleep(0.5)
+        if health_ok(port):
+            return True
+        time.sleep(0.5)
     return False
 
 
@@ -69,8 +88,8 @@ def main():
             process = subprocess.Popen(
                 server['cmd'],
                 shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stdout=None,
+                stderr=None,
             )
             server_processes.append(process)
 

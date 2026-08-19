@@ -9,8 +9,10 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createPlacesMcpServer } from "./src/mcp/create-server";
 import { authenticateCaller } from "./src/auth/caller";
 import { errorEnvelope } from "./src/http/envelope";
+import { assertGoogleProductionSafety } from "./src/adapters/google/config";
 
 loadEnvConfig(process.cwd());
+assertGoogleProductionSafety();
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "localhost";
@@ -106,7 +108,6 @@ async function handleSse(req: IncomingMessage, res: ServerResponse): Promise<voi
     sseSessions.delete(transport.sessionId);
   };
   await server.connect(transport);
-  await transport.start();
 }
 
 async function handleSseMessage(req: IncomingMessage, res: ServerResponse, sessionId: string | undefined) {
@@ -133,9 +134,16 @@ async function main() {
         await handleMcp(req, res);
         return;
       }
-      if (pathname === "/sse" && req.method === "GET") {
-        await handleSse(req, res);
-        return;
+      // ChatBox Streamable HTTP may POST initialize to the same URL as GET /sse (spec §1.2).
+      if (pathname === "/sse") {
+        if (req.method === "GET") {
+          await handleSse(req, res);
+          return;
+        }
+        if (req.method === "POST") {
+          await handleMcp(req, res);
+          return;
+        }
       }
       if (pathname === "/messages" && req.method === "POST") {
         const sessionId = typeof parsed.query.sessionId === "string" ? parsed.query.sessionId : undefined;

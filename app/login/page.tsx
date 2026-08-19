@@ -8,7 +8,7 @@ export default async function LoginPage() {
   if (session) {
     const user = await prisma.adminUser.findUnique({ where: { id: session.userId } });
     if (user && !user.passwordHash) redirect("/set-password");
-    redirect("/admin/api-keys");
+    if (user) redirect("/admin/api-keys");
   }
   return <LoginScreen />;
 }

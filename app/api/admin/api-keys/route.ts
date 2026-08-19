@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, adminError } from "@/src/auth/admin";
+import { deleteCallerKeys, parseBulkDeleteIds } from "@/src/auth/delete-caller-keys";
 import { prisma } from "@/src/db/client";
 import { generateCallerSecret } from "@/src/core/crypto";
 
@@ -46,4 +47,14 @@ export async function POST(request: NextRequest) {
     prefix: row.prefix,
     secret: generated.secret,
   });
+}
+
+export async function DELETE(request: NextRequest) {
+  const gate = await requireAdmin(request);
+  if ("error" in gate && gate.error) return gate.error;
+  const body: unknown = await request.json().catch(() => ({}));
+  const parsed = parseBulkDeleteIds(body);
+  if ("error" in parsed) return adminError(parsed.error, parsed.status);
+  const deleted = await deleteCallerKeys(parsed.ids);
+  return NextResponse.json({ ok: true, deleted });
 }

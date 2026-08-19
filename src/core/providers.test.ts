@@ -2,6 +2,13 @@ import { describe, it, expect } from "vitest";
 import { validateProviders } from "./providers";
 
 describe("validateProviders", () => {
+  it("should_normalize_google_maps_label_from_chatbox", () => {
+    process.env.PLACES_VENDOR_MODE = "fixture";
+    const result = validateProviders(["Google Maps", "AMAP"], "search");
+    expect(result.providers).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(result.skipped).toEqual([]);
+  });
+
   it("should_skip_unknown_vendor_without_silent_swap", () => {
     const result = validateProviders(["NOT_A_VENDOR", "GOOGLE_MAPS"], "search");
     expect(result.providers).toEqual(["GOOGLE_MAPS"]);
