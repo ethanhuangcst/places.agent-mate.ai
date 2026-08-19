@@ -827,6 +827,7 @@ input:focus {
 }
 
 .nav {
+  flex: 1;
   flex-direction: column;
   gap: 0.1rem;
   display: flex;
@@ -850,8 +851,8 @@ input:focus {
   font-weight: 500;
 }
 
-.nav a.nav-signout {
-  margin-top: 1.25rem;
+.nav .nav-signout {
+  margin-top: auto;
 }
 
 .content {
