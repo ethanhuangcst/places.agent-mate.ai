@@ -2,7 +2,8 @@ import { prisma } from "../src/db/client";
 import { hashPassword } from "../src/core/crypto";
 
 async function main() {
-  const password = process.env.DEV_ADMIN_PASSWORD ?? "";
+  const password =
+    process.env.DEV_ADMIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || "";
   const passwordHash = password ? await hashPassword(password) : "";
   await prisma.adminUser.upsert({
     where: { username: "admin" },

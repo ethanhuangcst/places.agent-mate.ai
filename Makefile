@@ -1,4 +1,4 @@
-.PHONY: help dev up down status reset-dev test test-e2e test-live test-coverage verify-gmaps-fallback verify-amap-live verify-tripadvisor-live verify-open-meteo-live lint typecheck quality db
+.PHONY: help dev up down status reset-dev test test-e2e test-live test-coverage verify-gmaps-fallback verify-amap-live verify-tripadvisor-live verify-open-meteo-live lint typecheck quality db db-up db-down db-migrate-test
 
 .DEFAULT_GOAL := help
 
@@ -7,16 +7,30 @@ help: ## Show available targets
 
 DEV_ADMIN_PASSWORD ?= devpass
 
-db: ## Apply SQLite schema and seed admin
-	@mkdir -p .data
-	DATABASE_URL="file:../.data/places-agent.db" npx prisma migrate deploy
-	DATABASE_URL="file:../.data/places-agent.db" DEV_ADMIN_PASSWORD="$(DEV_ADMIN_PASSWORD)" npx prisma db seed
+COMPOSE_DEV := docker compose -f docker-compose.dev.yml
+PG_PORT ?= $(shell pg_isready -h localhost -p 5436 >/dev/null 2>&1 && echo 5436 || echo 5435)
+DATABASE_URL ?= postgresql://places_agent:places_agent@localhost:$(PG_PORT)/places_agent
+TEST_DATABASE_URL ?= postgresql://places_agent:places_agent@localhost:$(PG_PORT)/places_agent_test
 
-dev: ## Start places-agent (foreground — keep this terminal open)
+db-up: ## Start local Postgres on :5436
+	@chmod +x scripts/pg-up.sh
+	@./scripts/pg-up.sh
+
+db-down: ## Stop local Postgres
+	$(COMPOSE_DEV) down
+
+db: db-up ## Apply Postgres schema and seed admin
+	DATABASE_URL="$(DATABASE_URL)" npx prisma migrate deploy
+	DATABASE_URL="$(DATABASE_URL)" DEV_ADMIN_PASSWORD="$(DEV_ADMIN_PASSWORD)" npx prisma db seed
+
+db-migrate-test: db-up ## Apply schema to places_agent_test
+	DATABASE_URL="$(TEST_DATABASE_URL)" npx prisma migrate deploy
+
+dev: db ## Start places-agent (foreground — keep this terminal open)
 	@chmod +x scripts/dev-server.sh
 	@./scripts/dev-server.sh
 
-up: ## Start local stack in the background (idempotent; waits for /v1/health)
+up: db ## Start local stack in the background (idempotent; waits for /v1/health)
 	@chmod +x scripts/dev-up.sh
 	@./scripts/dev-up.sh
 
@@ -39,10 +53,10 @@ reset-dev: ## Nuclear: stop server, delete .next cache, start fresh (fixes ENOEN
 	rm -rf .next
 	@echo "removed .next — run 'make dev' in a dedicated terminal"
 
-test: ## Unit + contract (fixture vendors)
-	npx vitest run
+test: db-migrate-test ## Unit + contract (fixture vendors)
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" npx vitest run
 
-test-e2e: ## Admin Playwright journeys (needs Chromium)
+test-e2e: db ## Admin Playwright journeys (needs Chromium)
 	python3 e2e/run.py
 
 test-live: ## Opt-in live vendor checks (TC-H15 Worker fallback; needs GMAPS_MCP_* in .env.local)
@@ -66,8 +80,8 @@ lint: ## ESLint (syntax + Next core-web-vitals; TypeScript 7 uses Babel parser)
 typecheck: ## Typecheck
 	npx tsc --noEmit
 
-test-coverage: ## Vitest with coverage thresholds
-	npx vitest run --coverage
+test-coverage: db-migrate-test ## Vitest with coverage thresholds
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" npx vitest run --coverage
 
 quality: ## typecheck + lint + coverage + admin Playwright
 	$(MAKE) typecheck

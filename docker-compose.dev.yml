@@ -1,0 +1,28 @@
+# Local Postgres for places-agent only. Started by `make db-up`.
+# Port registry: ../workspace-specs/6.deployment-plan.md §0
+# ADR-025 — do not reuse what2eat :5435 or other apps' Postgres DB names.
+
+name: places-agent-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: places-agent-postgres
+    restart: unless-stopped
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_USER: places_agent
+      POSTGRES_PASSWORD: places_agent
+      POSTGRES_DB: places_agent
+    volumes:
+      - places_agent_pg_data:/var/lib/postgresql/data
+      - ./scripts/pg-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U places_agent -d places_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  places_agent_pg_data:

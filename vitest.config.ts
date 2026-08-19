@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
-const testDb = `file:${path.resolve(__dirname, ".data/places-agent-test.db")}`;
+const testDb =
+  process.env.TEST_DATABASE_URL ??
+  "postgresql://places_agent:places_agent@localhost:5435/places_agent_test";
 
 export default defineConfig({
   test: {
