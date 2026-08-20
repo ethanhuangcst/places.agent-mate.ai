@@ -537,9 +537,11 @@ async function planTimed(
         return unused(pool);
       };
       try {
-        const lunch = await fillPool(false, pin, extraRestaurantQueries, 4);
-        const dinner = await fillPool(false, dinnerPin, extraRestaurantQueries, 4);
-        const cafe = await fillPool(true, dinnerPin, [], 2);
+        const [lunch, dinner, cafe] = await Promise.all([
+          fillPool(false, pin, extraRestaurantQueries, 4),
+          fillPool(false, dinnerPin, extraRestaurantQueries, 4),
+          fillPool(true, dinnerPin, [], 2),
+        ]);
         day = await insertMealBlocks(
           day,
           { lunch, dinner, cafe },

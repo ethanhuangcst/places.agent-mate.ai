@@ -79,6 +79,11 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
     process.env = { ...envSnapshot };
     resetGoogleLiveAdapterForTests();
     resetAmapLiveAdapterForTests();
+    // Clear search/geocode caches to prevent cross-test interference
+    const { clearSearchCache } = await import("../src/core/search-cache");
+    const { clearGeocodeCache } = await import("../src/core/geocode-cache");
+    clearSearchCache();
+    clearGeocodeCache();
     resetTripadvisorLiveForTests();
     resetOpenMeteoLiveForTests();
     vi.restoreAllMocks();
