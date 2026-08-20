@@ -824,6 +824,8 @@ input:focus {
   flex-direction: column;
   padding: 1.5rem 0;
   display: flex;
+  min-height: 0;
+  height: 100%;
 }
 
 .nav {
@@ -853,6 +855,18 @@ input:focus {
 
 .nav .nav-signout {
   margin-top: auto;
+  background: none;
+  border: none;
+  color: var(--mute);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 400;
+  padding: 0.7rem 1.35rem;
+  text-align: left;
+}
+
+.nav .nav-signout:hover {
+  color: var(--ink);
 }
 
 .content {

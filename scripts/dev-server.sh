@@ -15,4 +15,6 @@ if [[ -f .next/dev/lock ]]; then
   fi
 fi
 
+# Ensure dev mode so cookies are not marked Secure (breaks Safari on http://localhost).
+export NODE_ENV=development
 exec npx tsx --env-file=.env.local server.ts

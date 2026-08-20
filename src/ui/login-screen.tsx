@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { AdminApiError, adminJson } from "./admin-api";
@@ -20,7 +19,6 @@ type Values = z.infer<typeof schema>;
 
 export function LoginScreen() {
   const tt = useT();
-  const router = useRouter();
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const { register, handleSubmit } = useForm<Values>();
 
@@ -36,12 +34,10 @@ export function LoginScreen() {
         "/api/admin/login",
         { method: "POST", body: JSON.stringify(parsed.data) },
       );
-      if (result.mustSetPassword) {
-        router.push("/set-password");
-      } else {
-        router.push("/admin/api-keys");
-      }
-      router.refresh();
+      // Hard redirect — Safari's password-save dialog interrupts
+      // client-side router.push, so use location.href instead.
+      const dest = result.mustSetPassword ? "/set-password" : "/admin/api-keys";
+      window.location.href = dest;
     } catch (err) {
       setErrorKey(err instanceof AdminApiError ? err.key : "errors.login_failed");
     }
