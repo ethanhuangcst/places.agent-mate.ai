@@ -245,6 +245,8 @@ Each tool returns structured data. This section defines the **complete field con
 - Tripadvisor enrich 时如主 provider 无 `price_level`，使用 Terra 返回的 `price_level` 补充
 - 多 provider 合并时：主 provider 的 `price_level` 优先；无数据则取 enrich provider 的值
 
+**Live probe (2026-08-20, `PLACES_VENDOR_MODE=live`):** Clerkenwell Google **11/20** cards had `price_level`; Shanghai AMAP **12/20** had `price_level` + `price_per_person`; Central HK merge **6/21** `price_level`, **5/21** `price_per_person`. See [`workspace-specs/knowledge/maps/price-level-live.md`](../../workspace-specs/knowledge/maps/price-level-live.md).
+
 #### `get_place_details`
 
 Returns the same fields as search plus:
