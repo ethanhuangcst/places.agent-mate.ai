@@ -2,7 +2,7 @@ import { validateProviders, type Capability } from "./providers";
 import { getAdapter } from "../adapters";
 import { isDiningCategory } from "../adapters/fixtures";
 import { enrichWithTripadvisor } from "./enrich";
-import { resolveProviderStrategy } from "../adapters/provider-resolver";
+import { resolveProviderStrategy, type GeocodeFn } from "../adapters/provider-resolver";
 import { parseLocale, type Locale } from "./locales";
 import {
   type PlaceCard,
@@ -10,14 +10,37 @@ import {
   type ToolResult,
 } from "./types";
 
+/**
+ * Build a geocode function from the Google live adapter.
+ * Lazy-imported to avoid circular deps at module load time.
+ */
+function buildGeocodeFn(): GeocodeFn {
+  return async (query: string) => {
+    try {
+      const { getAdapter } = await import("../adapters");
+      const adapter = getAdapter("GOOGLE_MAPS");
+      if (!adapter?.geocode) return null;
+      const result = await adapter.geocode(query);
+      if (!result) return null;
+      return { address: result.address, lat: result.lat, lng: result.lng };
+    } catch {
+      return null;
+    }
+  };
+}
+
 /** When caller omits providers[], auto-select based on destination + locale. */
-function applyProviderStrategy(input: SearchInput): SearchInput {
+async function applyProviderStrategy(input: SearchInput): Promise<SearchInput> {
   if (input.providers?.length) return input;
-  const strategy = resolveProviderStrategy({
-    location: input.address,
-    near: input.near ? { lat: input.near.lat, lng: input.near.lng } : undefined,
-    locale: input.locale,
-  });
+  const strategy = await resolveProviderStrategy(
+    {
+      // Chat tools often pass only `query`; Decide HTTP passes `address`.
+      location: input.address ?? input.query,
+      near: input.near ? { lat: input.near.lat, lng: input.near.lng } : undefined,
+      locale: input.locale,
+    },
+    buildGeocodeFn(),
+  );
   const updated = { ...input, providers: strategy.searchProviders };
   if (strategy.enrichProviders.includes("TRIPADVISOR") && !input.enrich?.tripadvisor) {
     return { ...updated, enrich: { ...updated.enrich, tripadvisor: true } };
@@ -89,7 +112,7 @@ function filterPlaceSearchResults(cards: PlaceCard[], query?: string): PlaceCard
 export async function searchRestaurants(
   rawInput: SearchInput,
 ): Promise<ToolResult<PlaceCard[]>> {
-  const input = applyProviderStrategy(rawInput);
+  const input = await applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
   const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
     const adapter = getAdapter(id);
@@ -108,7 +131,7 @@ export async function searchRestaurants(
 }
 
 export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<PlaceCard[]>> {
-  const input = applyProviderStrategy(rawInput);
+  const input = await applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
   const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
     const adapter = getAdapter(id);
@@ -165,7 +188,22 @@ export async function geocode(input: {
   ToolResult<{ lat: number; lng: number; crs: string; address?: string } | null>
 > {
   const { locale, pair } = localesFrom(input);
-  const { values, skipped } = await fanOut(input.providers, "geocode", async (id) => {
+  let providers = input.providers;
+  if (!providers?.length) {
+    const strategy = await resolveProviderStrategy(
+      {
+        location: input.query,
+        near:
+          input.lat != null && input.lng != null
+            ? { lat: input.lat, lng: input.lng }
+            : undefined,
+        locale: input.locale,
+      },
+      buildGeocodeFn(),
+    );
+    providers = strategy.searchProviders;
+  }
+  const { values, skipped } = await fanOut(providers, "geocode", async (id) => {
     const adapter = getAdapter(id);
     if (!adapter) throw new Error("missing");
     if (input.query) return adapter.geocode(input.query);

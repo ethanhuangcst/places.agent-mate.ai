@@ -80,6 +80,16 @@ describe("searchRestaurants", () => {
     expect(result.data.length).toBeGreaterThan(0);
     expect(result.outcomeKey).toBeUndefined();
   });
+
+  it("should_auto_select_amap_when_query_is_shanghai_street_and_providers_omitted", async () => {
+    // Chat-style call: query only (no providers). 吴中路 → region mainland → AMAP.
+    const result = await searchRestaurants({
+      query: "吴中路",
+      locale: "CN",
+    });
+    expect(result.data.length).toBeGreaterThan(0);
+    expect(result.data.every((c) => c.provider === "AMAP")).toBe(true);
+  });
 });
 
 describe("searchPlaces", () => {

@@ -30,6 +30,7 @@ export async function POST(request: Request) {
     {
       message: result.message,
       tool_calls: result.tool_calls,
+      places: result.places ?? [],
     },
     result.locale,
   );

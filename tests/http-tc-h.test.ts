@@ -429,6 +429,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       getDetails: vi.fn(async () => liveCard),
       geocode: vi.fn(async () => ({ lat: 22.28, lng: 114.16, crs: "WGS84" as const, address: "Central" })),
       reverseGeocode: vi.fn(async () => "Central"),
+      directions: vi.fn(async () => null),
     };
 
     const direct = {
@@ -443,6 +444,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
         throw new EgressFailureError();
       }),
       reverseGeocode: vi.fn(async () => "Central"),
+      directions: vi.fn(async () => null),
     };
 
     const adapter = createGoogleLiveAdapter({
@@ -570,6 +572,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       getDetails: vi.fn(async () => liveCard),
       geocode: vi.fn(async () => ({ lat: 22.28, lng: 114.16, crs: "WGS84" as const })),
       reverseGeocode: vi.fn(async () => "Central"),
+      directions: vi.fn(async () => null),
     };
     setGoogleLiveAdapterForTests(
       createGoogleLiveAdapter({

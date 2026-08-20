@@ -34,6 +34,8 @@ export type ChatInput = {
 export type ChatResult = {
   message: { role: "assistant"; content: string; key?: string };
   tool_calls?: string[];
+  /** Place cards from search/details tools — for app BFF pick_ref hydrate. */
+  places?: PlaceCard[];
   locale: Locale;
   outcomeKey?: string;
 };
@@ -77,33 +79,90 @@ function truncateToolResult(data: unknown): unknown {
       location: card.location,
       rating: card.rating,
       category: card.category,
+      address: card.address,
+      photos: card.photos?.slice(0, 1),
       sources: card.sources?.map((s) => ({
         provider: s.provider,
         native_id: s.native_id,
       })),
-      skipped_reason: undefined,
     }));
   }
   return data;
 }
 
+function isPlaceCard(v: unknown): v is PlaceCard {
+  if (typeof v !== "object" || v === null) return false;
+  const c = v as PlaceCard;
+  return (
+    typeof c.name === "string" &&
+    typeof c.provider === "string" &&
+    Array.isArray(c.sources) &&
+    c.sources.length > 0
+  );
+}
+
+/** Collect venue cards from tool payloads for BFF hydrate (dedupe by provider:native_id). */
+export function collectPlacesFromToolData(data: unknown, into: PlaceCard[]): void {
+  if (Array.isArray(data)) {
+    for (const row of data) {
+      if (isPlaceCard(row)) into.push(row);
+    }
+    return;
+  }
+  if (isPlaceCard(data)) into.push(data);
+}
+
+export function dedupePlaces(cards: PlaceCard[]): PlaceCard[] {
+  const seen = new Set<string>();
+  const out: PlaceCard[] = [];
+  for (const card of cards) {
+    const id = card.sources[0]?.native_id;
+    if (!id) continue;
+    const key = `${card.provider}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(card);
+  }
+  return out;
+}
+
 async function executeTool(name: string, args: Record<string, unknown>) {
+  const normalized = omitChatToolProviders(name, args);
   switch (name) {
     case "search_restaurants":
-      return searchRestaurants(args as Parameters<typeof searchRestaurants>[0]);
+      return searchRestaurants(normalized as Parameters<typeof searchRestaurants>[0]);
     case "search_places":
-      return searchPlaces(args as Parameters<typeof searchPlaces>[0]);
+      return searchPlaces(normalized as Parameters<typeof searchPlaces>[0]);
     case "get_place_details":
-      return getPlaceDetails(args as Parameters<typeof getPlaceDetails>[0]);
+      return getPlaceDetails(normalized as Parameters<typeof getPlaceDetails>[0]);
     case "geocode":
-      return geocode(args as Parameters<typeof geocode>[0]);
+      return geocode(normalized as Parameters<typeof geocode>[0]);
     case "navigate":
-      return navigate(args as Parameters<typeof navigate>[0]);
+      return navigate(normalized as Parameters<typeof navigate>[0]);
     case "plan_itinerary":
-      return planItinerary(args as Parameters<typeof planItinerary>[0]);
+      return planItinerary(normalized as Parameters<typeof planItinerary>[0]);
     default:
       throw new Error(`unknown_tool:${name}`);
   }
+}
+
+/**
+ * Chat tool calls must match Decide HTTP behavior (ADR-026): never let the model
+ * hard-code providers[]. Strip so applyProviderStrategy can auto-select.
+ */
+export function omitChatToolProviders(
+  name: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (
+    name === "search_restaurants" ||
+    name === "search_places" ||
+    name === "geocode"
+  ) {
+    const { providers: _ignored, ...rest } = args;
+    return rest;
+  }
+  return args;
 }
 
 const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -111,16 +170,25 @@ const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "search_restaurants",
-      description: "Search restaurants near a location or keyword.",
+      description:
+        "Search restaurants near a location or keyword. Omit providers — the agent auto-selects AMAP/Google by destination (same as Decide).",
       parameters: {
         type: "object",
         properties: {
           query: { type: "string" },
+          address: {
+            type: "string",
+            description: "Area or address hint for region detection (e.g. 上海市吴中路).",
+          },
           near: {
             type: "object",
             properties: { lat: { type: "number" }, lng: { type: "number" } },
           },
-          providers: { type: "array", items: { type: "string" } },
+          providers: {
+            type: "array",
+            items: { type: "string" },
+            description: "Ignored in chat; do not set — agent auto-selects.",
+          },
           locale: { type: "string" },
         },
       },
@@ -130,16 +198,22 @@ const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "search_places",
-      description: "Search museums, parks, and non-restaurant POIs.",
+      description:
+        "Search museums, parks, and non-restaurant POIs. Omit providers — agent auto-selects by destination.",
       parameters: {
         type: "object",
         properties: {
           query: { type: "string" },
+          address: { type: "string" },
           near: {
             type: "object",
             properties: { lat: { type: "number" }, lng: { type: "number" } },
           },
-          providers: { type: "array", items: { type: "string" } },
+          providers: {
+            type: "array",
+            items: { type: "string" },
+            description: "Ignored in chat; do not set.",
+          },
           locale: { type: "string" },
         },
       },
@@ -243,7 +317,6 @@ function fixtureTurn(userText: string, toolCallsSoFar: string[]): FixtureTurn {
       name: "search_restaurants",
       args: {
         query: "ramen",
-        providers: ["GOOGLE_MAPS"],
         locale: "EN",
       },
     };
@@ -252,7 +325,7 @@ function fixtureTurn(userText: string, toolCallsSoFar: string[]): FixtureTurn {
     return {
       type: "tool",
       name: "search_places",
-      args: { query: "museum", providers: ["GOOGLE_MAPS"], locale: "EN" },
+      args: { query: "museum", locale: "EN" },
     };
   }
   return {
@@ -311,6 +384,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
   ];
 
   const toolCallsMade: string[] = [];
+  const collectedPlaces: PlaceCard[] = [];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     let assistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage;
@@ -334,6 +408,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
         return {
           message: { role: "assistant", content: turn.content },
           tool_calls: toolCallsMade,
+          places: dedupePlaces(collectedPlaces),
           locale,
         };
       }
@@ -353,6 +428,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
             key: "errors.chat_failed",
           },
           locale,
+          places: dedupePlaces(collectedPlaces),
           outcomeKey: "errors.chat_failed",
         };
       }
@@ -366,6 +442,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
       return {
         message: { role: "assistant", content: text },
         tool_calls: toolCallsMade,
+        places: dedupePlaces(collectedPlaces),
         locale,
       };
     }
@@ -382,6 +459,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
       }
       args.locale = args.locale ?? locale;
       const result = await executeTool(name, args);
+      collectPlacesFromToolData(result.data ?? result, collectedPlaces);
       history.push({
         role: "tool",
         tool_call_id: call.id,
@@ -397,6 +475,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
       key: "errors.chat_failed",
     },
     locale,
+    places: dedupePlaces(collectedPlaces),
     outcomeKey: "errors.chat_failed",
   };
 }

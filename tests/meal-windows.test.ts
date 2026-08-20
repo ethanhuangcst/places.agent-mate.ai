@@ -17,10 +17,11 @@ describe("areaHintFromText", () => {
     ).toMatch(/Lisboa/i);
   });
 
-  it("should_include_extra_lisboa_museum_queries", () => {
+  it("should_include_generic_museum_queries_for_lisboa (no city-specific hardcoding)", () => {
     const qs = timedAttractionQueries("Lisboa");
     expect(qs.some((q) => /museum/i.test(q))).toBe(true);
-    expect(qs.some((q) => /Castelo|Belem|Oceanario/i.test(q))).toBe(true);
+    // City-specific queries (Castelo, Belem) removed in MVP-4a; generic templates only
+    expect(qs.some((q) => q.includes("Lisboa"))).toBe(true);
   });
 
   it("should_emit_chinese_attraction_queries_when_locale_CN", () => {
@@ -36,12 +37,13 @@ describe("areaHintFromText", () => {
     expect(qs.every((q) => !/\bmuseums?\b/i.test(q))).toBe(true);
   });
 
-  it("should_emit_chinese_queries_when_origin_name_has_cjk_even_if_locale_EN", () => {
+  it("should_use_EN_queries_when_locale_EN_regardless_of_cjk_origin (MVP-4a: locale wins)", () => {
     const qs = timedAttractionQueries("Shanghai", "EN", {
       originName: "上海国际饭店",
     });
-    expect(qs.some((q) => q.includes("博物馆") || q.includes("公园"))).toBe(true);
-    expect(qs.every((q) => !/\bmuseums?\b/i.test(q))).toBe(true);
+    // MVP-4a: locale explicitly set → use that locale's keywords, not CJK detection
+    expect(qs.some((q) => /museum/i.test(q))).toBe(true);
+    expect(qs.every((q) => !q.includes("博物馆") && !q.includes("博物館"))).toBe(true);
   });
 
   it("should_keep_english_queries_when_locale_EN_and_no_cjk", () => {

@@ -55,6 +55,7 @@ function mockWorker(cards: PlaceCard[] = [sampleCard]): GoogleMcpClient {
     getDetails: vi.fn(async () => cards[0] ?? null),
     geocode: vi.fn(async () => ({ lat: 22.28, lng: 114.16, crs: "WGS84" as const, address: "Central" })),
     reverseGeocode: vi.fn(async () => "Central, Hong Kong"),
+    directions: vi.fn(async () => ({ duration_min: 15, distance_m: 1200 })),
   };
 }
 

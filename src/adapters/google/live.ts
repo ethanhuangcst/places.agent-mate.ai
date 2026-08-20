@@ -109,7 +109,13 @@ export function createGoogleLiveAdapter(deps: GoogleLiveAdapterDeps = {}): Place
       mode: TravelMode;
     }) {
       try {
-        return await fetchGoogleDirectionsEta(config, input);
+        return await withGoogleTransport(
+          config,
+          direct,
+          worker,
+          () => fetchGoogleDirectionsEta(config, input),
+          (w) => w.directions(input),
+        );
       } catch {
         return null;
       }

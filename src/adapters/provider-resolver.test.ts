@@ -1,172 +1,170 @@
 import { describe, it, expect } from "vitest";
-import { resolveProviderStrategy } from "./provider-resolver";
+import { resolveProviderStrategy, type GeocodeFn } from "./provider-resolver";
+
+/** No-op geocode — simulates offline / no geocode injected */
+const noGeocode = undefined;
+
+/** Mock geocode that returns formatted address based on known patterns */
+const mockGeocode: GeocodeFn = async (query) => {
+  const q = query.toLowerCase();
+  if (q.includes("紫藤路") || q.includes("三里屯") || q.includes("春熙路"))
+    return { address: "Shanghai, China", lat: 31.17, lng: 121.37 };
+  if (q.includes("中環") || q.includes("中环") || q.includes("深水埗"))
+    return { address: "Central, Hong Kong", lat: 22.28, lng: 114.16 };
+  if (q.includes("銀座") || q.includes("银座"))
+    return { address: "Ginza, Chuo City, Tokyo, Japan", lat: 35.67, lng: 139.76 };
+  if (q.includes("明洞"))
+    return { address: "Myeong-dong, Seoul, South Korea", lat: 37.56, lng: 126.99 };
+  if (q.includes("臺北") || q.includes("台北"))
+    return { address: "Taipei City, Taiwan", lat: 25.03, lng: 121.56 };
+  return null;
+};
+
+/** Failing geocode — simulates network error */
+const failingGeocode: GeocodeFn = async () => { throw new Error("network timeout"); };
 
 describe("resolveProviderStrategy", () => {
-  // === 大陆 → 策略2 only (AMAP) ===
 
-  it("should select AMAP only for Shanghai (text)", () => {
-    const r = resolveProviderStrategy({ location: "上海市南京西路" });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-    expect(r.enrichProviders).toEqual([]);
-  });
+  // === 坐标判断 (priority 1, no API call) ===
 
-  it("should select AMAP only for Beijing (text)", () => {
-    const r = resolveProviderStrategy({ location: "北京市朝阳区银河SOHO" });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-    expect(r.enrichProviders).toEqual([]);
-  });
-
-  it("should select AMAP only for mainland coordinates", () => {
-    const r = resolveProviderStrategy({ near: { lat: 39.9, lng: 116.4 } });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-    expect(r.enrichProviders).toEqual([]);
-  });
-
-  it("should select AMAP only for Kunming (English text)", () => {
-    const r = resolveProviderStrategy({ location: "Kunming hotel" });
+  it("mainland coordinates → AMAP", async () => {
+    const r = await resolveProviderStrategy({ near: { lat: 39.9, lng: 116.4 } });
     expect(r.searchProviders).toEqual(["AMAP"]);
   });
 
-  it("should select AMAP regardless of locale for mainland", () => {
-    const r = resolveProviderStrategy({ location: "上海市南京西路", locale: "EN" });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-    expect(r.enrichProviders).toEqual([]);
-  });
-
-  // === 香港 → 策略1 + 策略2 (Google + AMAP + TripAdvisor) ===
-
-  it("should select Google + AMAP for Hong Kong (text)", () => {
-    const r = resolveProviderStrategy({ location: "Hong Kong Central" });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google + AMAP for 香港 (Chinese text)", () => {
-    const r = resolveProviderStrategy({ location: "香港尖沙咀" });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google + AMAP for HK coordinates", () => {
-    const r = resolveProviderStrategy({ near: { lat: 22.28, lng: 114.17 } });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  // === 其他 → 策略1 only (Google + TripAdvisor) ===
-
-  it("should select Google only for Tokyo", () => {
-    const r = resolveProviderStrategy({ location: "Tokyo Tower" });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google only for Lisbon", () => {
-    const r = resolveProviderStrategy({ location: "Lisbon, Portugal" });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google only for Taiwan (台北)", () => {
-    const r = resolveProviderStrategy({ location: "台北市信義區" });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google only for Taiwan coordinates", () => {
-    const r = resolveProviderStrategy({ near: { lat: 25.03, lng: 121.56 } });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google only for Japan coordinates", () => {
-    const r = resolveProviderStrategy({ near: { lat: 35.68, lng: 139.69 } });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should default to Google when no location info", () => {
-    const r = resolveProviderStrategy({});
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  // === CJK heuristic ===
-
-  it("should detect mainland by CJK character ratio", () => {
-    const r = resolveProviderStrategy({ location: "昆明市五华区翠湖" });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-  });
-
-  // === 澳门 (Macau) — AMAP works, treated as mainland ===
-
-  it("should select AMAP for 澳门 (Chinese text)", () => {
-    const r = resolveProviderStrategy({ location: "澳门大三巴牌坊" });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-    expect(r.enrichProviders).toEqual([]);
-  });
-
-  it("should select AMAP for Macau (English text)", () => {
-    const r = resolveProviderStrategy({ location: "Macau Senado Square" });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-    expect(r.enrichProviders).toEqual([]);
-  });
-
-  it("should select AMAP for Macau coordinates", () => {
-    // Macau: lat 22.19, lng 113.54 — outside HK bounding box, inside China bounds
-    const r = resolveProviderStrategy({ near: { lat: 22.19, lng: 113.54 } });
-    expect(r.searchProviders).toEqual(["AMAP"]);
-    expect(r.enrichProviders).toEqual([]);
-  });
-
-  // === 新加坡 (Singapore) — overseas, Google only ===
-
-  it("should select Google for Singapore (English text)", () => {
-    const r = resolveProviderStrategy({ location: "Singapore Marina Bay" });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google for Singapore coordinates", () => {
-    const r = resolveProviderStrategy({ near: { lat: 1.35, lng: 103.8 } });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  it("should select Google for 新加坡 (CJK text, not misdetected as mainland)", () => {
-    const r = resolveProviderStrategy({ location: "新加坡滨海湾" });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
-  });
-
-  // === Coordinate boundary edge cases ===
-
-  it("should detect HK at bounding box edge (lat 22.15, lng 113.83)", () => {
-    const r = resolveProviderStrategy({ near: { lat: 22.15, lng: 113.83 } });
+  it("HK coordinates → Google + AMAP", async () => {
+    const r = await resolveProviderStrategy({ near: { lat: 22.28, lng: 114.17 } });
     expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
   });
 
-  it("should detect mainland just outside HK box (lat 22.20, lng 113.82)", () => {
-    // lng 113.82 < HK box min 113.83 → falls to China mainland check
-    const r = resolveProviderStrategy({ near: { lat: 22.20, lng: 113.82 } });
+  it("Taiwan coordinates → Google only", async () => {
+    const r = await resolveProviderStrategy({ near: { lat: 25.03, lng: 121.56 } });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("Japan coordinates → Google only", async () => {
+    const r = await resolveProviderStrategy({ near: { lat: 35.68, lng: 139.69 } });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  // === Google Geocode 判断 (priority 2) ===
+
+  it("紫藤路128弄 + geocode → China → AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "紫藤路128弄" }, mockGeocode);
     expect(r.searchProviders).toEqual(["AMAP"]);
   });
 
-  it("should detect 'other' below China bounds (lat 17.99)", () => {
-    const r = resolveProviderStrategy({ near: { lat: 17.99, lng: 110.0 } });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
-    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
+  it("short street label + geocode coords without country in address → mainland AMAP", async () => {
+    const streetGeocode: GeocodeFn = async () => ({
+      address: "吴中路",
+      lat: 31.17,
+      lng: 121.37,
+    });
+    const r = await resolveProviderStrategy({ location: "吴中路" }, streetGeocode);
+    expect(r.searchProviders).toEqual(["AMAP"]);
   });
 
-  // === Other overseas CJK cities ===
+  it("中環 + geocode → Hong Kong → Google + AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "中環" }, mockGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+  });
 
-  it("should select Google for 大阪 (CJK text)", () => {
-    const r = resolveProviderStrategy({ location: "大阪道頓堀" });
+  it("銀座 + geocode → Japan → Google only", async () => {
+    const r = await resolveProviderStrategy({ location: "銀座" }, mockGeocode);
     expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
-  it("should select Google for 曼谷 (CJK text)", () => {
-    const r = resolveProviderStrategy({ location: "曼谷暹罗广场" });
+  it("明洞 + geocode → Korea → Google only", async () => {
+    const r = await resolveProviderStrategy({ location: "明洞" }, mockGeocode);
     expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("臺北遠山 + geocode → Taiwan → Google only", async () => {
+    const r = await resolveProviderStrategy({ location: "臺北遠山" }, mockGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  // === Geocode failure → fallback to markers ===
+
+  it("geocode fails → falls back to markers → 上海 → AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "上海市南京西路" }, failingGeocode);
+    expect(r.searchProviders).toEqual(["AMAP"]);
+  });
+
+  it("geocode fails → falls back to markers → 香港 → Google + AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "香港尖沙咀" }, failingGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+  });
+
+  it("geocode fails → unknown CJK text → default Google (no CJK fallback)", async () => {
+    const r = await resolveProviderStrategy({ location: "銀座" }, failingGeocode);
+    // Without geocode, "銀座" matches no marker → default "other" → Google
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  // === Marker-only (no geocode injected) ===
+
+  it("Shanghai text, no geocode → markers → AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "上海市南京西路" }, noGeocode);
+    expect(r.searchProviders).toEqual(["AMAP"]);
+  });
+
+  it("Hong Kong text, no geocode → markers → Google + AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "Hong Kong Central" }, noGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+  });
+
+  it("中環 text, no geocode → HK marker → Google + AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "中環" }, noGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+  });
+
+  it("台北 text, no geocode → TW marker → Google only", async () => {
+    const r = await resolveProviderStrategy({ location: "台北市信義區" }, noGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("Tokyo text, no geocode → no marker match → default Google", async () => {
+    const r = await resolveProviderStrategy({ location: "Tokyo Tower" }, noGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("Macau text, no geocode → china-cities match → AMAP", async () => {
+    const r = await resolveProviderStrategy({ location: "澳门大三巴牌坊" }, noGeocode);
+    expect(r.searchProviders).toEqual(["AMAP"]);
+  });
+
+  // === CJK text with no marker match → default Google (NOT mainland) ===
+
+  it("銀座 without geocode → no marker → default Google (not AMAP)", async () => {
+    const r = await resolveProviderStrategy({ location: "銀座" }, noGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("明洞 without geocode → no marker → default Google (not AMAP)", async () => {
+    const r = await resolveProviderStrategy({ location: "明洞" }, noGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("新加坡滨海湾 without geocode → no marker → default Google", async () => {
+    const r = await resolveProviderStrategy({ location: "新加坡滨海湾" }, noGeocode);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  // === No input → default Google ===
+
+  it("empty input → default Google", async () => {
+    const r = await resolveProviderStrategy({});
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  // === Coordinates take priority over geocode ===
+
+  it("coords override geocode — HK coords + mainland text → hongkong", async () => {
+    const r = await resolveProviderStrategy(
+      { location: "上海", near: { lat: 22.28, lng: 114.17 } },
+      mockGeocode,
+    );
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
   });
 });

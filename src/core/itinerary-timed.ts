@@ -1,5 +1,6 @@
 import { type Locale } from "./locales";
 import { type ProviderId } from "./providers";
+import { getAttractionQueries, getMealQueries } from "../i18n/search-keywords";
 import {
   type ItineraryDayWeather,
   type ItineraryPreferences,
@@ -436,119 +437,26 @@ export function shouldUseChineseSearchQueries(opts: {
   return [opts.area, opts.originName, opts.destName, opts.naturalLanguage].some(hasCjkText);
 }
 
-function isTraditionalLocale(locale: Locale): boolean {
-  return locale === "HK" || locale === "TW";
-}
-
 /** Extra auto-search queries so timed plans can fill every calendar day. */
 export function timedAttractionQueries(
   area: string,
   locale: Locale = "EN",
-  hints?: SearchQueryHints,
+  _hints?: SearchQueryHints,
 ): string[] {
-  const a = area.trim();
-  const useZh = shouldUseChineseSearchQueries({ locale, area: a, ...hints });
-  if (!useZh) {
-    const queries = [
-      `museums landmarks historic sites in ${a}`,
-      `parks gardens viewpoints in ${a}`,
-      `castles palaces monuments in ${a}`,
-      `things to do in ${a}`,
-    ];
-    if (/lisboa|lisbon/i.test(a)) {
-      queries.push(
-        "museums in Lisbon Portugal",
-        "Castelo de Sao Jorge Belem Tower Jeronimos Monastery MAAT",
-        "Oceanario de Lisboa LX Factory miradouros",
-        "parks gardens in Lisboa",
-      );
-    }
-    if (/shanghai/i.test(a)) {
-      queries.push("museums yu garden the bund shanghai");
-    }
-    if (/beijing/i.test(a)) {
-      queries.push("forbidden city temple of heaven summer palace beijing");
-    }
-    if (/guangzhou/i.test(a)) {
-      queries.push("chen clan academy shamian yuexiu park guangzhou");
-    }
-    return queries;
-  }
-
-  const trad = isTraditionalLocale(locale);
-  const museum = trad ? "博物館" : "博物馆";
-  const park = trad ? "公園" : "公园";
-  const gallery = trad ? "美術館" : "美术馆";
-  const temple = trad ? "寺廟" : "寺庙";
-  const garden = trad ? "園林" : "园林";
-  const exhibit = trad ? "展覽" : "展览";
-  const historic = trad ? "古跡 名勝" : "古迹 名胜";
-  const poi = trad ? "景點" : "景点";
-  const queries = [
-    `${a} ${museum} ${historic}`,
-    `${a} ${park} ${poi}`,
-    `${a} ${gallery} ${temple} ${garden} ${exhibit}`,
-    `${a} ${poi}`,
-  ];
-  if (/lisboa|lisbon|里斯本/i.test(a)) {
-    queries.push(trad ? "里斯本 博物館 城堡 觀景台" : "里斯本 博物馆 城堡 观景台");
-  }
-  if (/上海|shanghai/i.test(a)) {
-    queries.push(trad ? "上海 博物館 外灘 豫園 公園" : "上海 博物馆 外滩 豫园 公园");
-  }
-  if (/北京|beijing/i.test(a)) {
-    queries.push(trad ? "北京 故宮 天壇 頤和園 北海" : "北京 故宫 天坛 颐和园 北海");
-  }
-  if (/广州|guangzhou|廣州/i.test(a)) {
-    queries.push(trad ? "廣州 陳家祠 沙面 越秀公園 博物館" : "广州 陈家祠 沙面 越秀公园 博物馆");
-  }
-  if (/香港|hong.?kong/i.test(a)) {
-    queries.push(trad ? "香港 博物館 公園 星光大道" : "香港 博物馆 公园 星光大道");
-  }
-  return queries;
+  return getAttractionQueries(area.trim(), locale);
 }
 
 export function timedMealQueries(
   area: string,
   locale: Locale,
-  hints: SearchQueryHints | undefined,
+  _hints: SearchQueryHints | undefined,
   kind: "restaurant" | "cafe" | "restaurantExtra",
   spend?: ItineraryPreferences["spend"],
   dayIndex = 1,
 ): string[] {
   const a = area.trim();
-  const useZh = shouldUseChineseSearchQueries({ locale, area: a, ...hints });
-  const trad = isTraditionalLocale(locale);
-  if (!useZh) {
-    if (kind === "cafe") {
-      return [
-        `cafe tea house in ${a}`,
-        `${a} 咖啡馆 茶馆`,
-        `more cafes tea houses in ${a} ${dayIndex}`,
-        `${a} 茶馆 ${dayIndex}`,
-      ];
-    }
-    if (kind === "restaurantExtra") {
-      return [`more restaurants in ${a}`, `${a} 更多餐厅 ${dayIndex}`];
-    }
-    return spend === "premium"
-      ? [`fine dining restaurants in ${a}`, `${a} 餐厅`, `restaurants in ${a}`]
-      : [`restaurants in ${a}`, `${a} 餐厅`, "restaurants"];
-  }
-  const restaurant = trad ? "餐廳" : "餐厅";
-  const more = trad ? "更多餐廳" : "更多餐厅";
-  const cafe = trad ? "咖啡館 茶館" : "咖啡馆 茶馆";
-  const tea = trad ? "茶館" : "茶馆";
-  const premium = trad ? "高級餐廳 米其林" : "高端餐厅 米其林";
-  if (kind === "cafe") {
-    return [`${a} ${cafe}`, `${a} ${tea} ${dayIndex}`];
-  }
-  if (kind === "restaurantExtra") {
-    return [`${a} ${more} ${dayIndex}`];
-  }
-  return spend === "premium"
-    ? [`${a} ${premium}`, `${a} ${restaurant}`]
-    : [`${a} ${restaurant}`];
+  const mealKind = kind === "restaurantExtra" ? "dinner" : kind === "restaurant" ? "lunch" : "cafe";
+  return getMealQueries(a, locale, mealKind, spend, dayIndex);
 }
 
 export function localizePlanningImpact(

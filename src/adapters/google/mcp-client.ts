@@ -4,6 +4,8 @@ import { type GoogleAdapterConfig } from "./config";
 import { workerPlaceToCard } from "./card-mapper";
 import { googleDeeplinks } from "./deeplinks";
 import { type FetchFn } from "./direct";
+import { type DirectionsEta } from "./directions";
+import { type TravelMode } from "../../core/itinerary-timed";
 import { EgressFailureError, isEgressFailure } from "./egress";
 
 type JsonRpcResponse = {
@@ -46,6 +48,7 @@ export type GoogleMcpClient = {
   getDetails(nativeId: string): Promise<PlaceCard | null>;
   geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
+  directions(input: { from: PlaceLocation; to: PlaceLocation; mode: TravelMode }): Promise<DirectionsEta | null>;
   /** Test hook: how many tools/call invocations */
   callCount: () => number;
 };
@@ -152,6 +155,38 @@ export function createGoogleMcpClient(
         near: { lat, lng },
       });
       return cards[0]?.address ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    },
+    async directions(input) {
+      await ensureToolsListed();
+      if (!cachedToolNames!.includes("compute_routes")) return null;
+      const travelMode = input.mode === "walk" ? "WALK" : "DRIVE";
+      const res = await rpc("tools/call", {
+        name: "compute_routes",
+        arguments: {
+          origin: { lat_lng: { latitude: input.from.lat, longitude: input.from.lng } },
+          destination: { lat_lng: { latitude: input.to.lat, longitude: input.to.lng } },
+          travel_mode: travelMode,
+        },
+      });
+      if (res.error) return null;
+      const text = res.result?.content?.find((c) => c.type === "text")?.text;
+      if (!text) return null;
+      try {
+        const parsed = JSON.parse(text) as {
+          routes?: { legs?: { duration?: string; distanceMeters?: number }[] }[];
+        };
+        const leg = parsed.routes?.[0]?.legs?.[0];
+        if (!leg?.duration) return null;
+        // Duration comes as "123s" string
+        const seconds = parseInt(leg.duration.replace(/s$/, ""), 10);
+        if (!Number.isFinite(seconds)) return null;
+        return {
+          duration_min: Math.round(seconds / 60),
+          distance_m: leg.distanceMeters,
+        };
+      } catch {
+        return null;
+      }
     },
   };
 }
