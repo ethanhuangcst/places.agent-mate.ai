@@ -10,12 +10,15 @@ import {
   type ToolResult,
 } from "./types";
 
+import { cachedGeocode } from "./geocode-cache";
+import { searchCacheKey, getCachedSearch, setCachedSearch } from "./search-cache";
+
 /**
- * Build a geocode function from the Google live adapter.
- * Lazy-imported to avoid circular deps at module load time.
+ * Build a geocode function from the Google live adapter, wrapped with cache.
+ * Same address within 10min returns instantly without API call.
  */
 function buildGeocodeFn(): GeocodeFn {
-  return async (query: string) => {
+  return cachedGeocode(async (query: string) => {
     try {
       const { getAdapter } = await import("../adapters");
       const adapter = getAdapter("GOOGLE_MAPS");
@@ -26,7 +29,7 @@ function buildGeocodeFn(): GeocodeFn {
     } catch {
       return null;
     }
-  };
+  });
 }
 
 /** When caller omits providers[], auto-select based on destination + locale. */
@@ -109,28 +112,71 @@ function filterPlaceSearchResults(cards: PlaceCard[], query?: string): PlaceCard
   return cards;
 }
 
+/**
+ * When ADR-026 auto-selects AMAP-only and it returns no hits, try Google once.
+ * Callers that explicitly pass providers[] are not retried (override stays absolute).
+ * Restores fuzzy POI matching (e.g. 定位 vs 定味) that Google often handles better.
+ */
+export function shouldTryGoogleAfterEmptyAmap(opts: {
+  callerForcedProviders: boolean;
+  providers: string[] | undefined;
+  cardCount: number;
+}): boolean {
+  return (
+    !opts.callerForcedProviders &&
+    opts.cardCount === 0 &&
+    opts.providers?.length === 1 &&
+    opts.providers[0] === "AMAP"
+  );
+}
+
 export async function searchRestaurants(
   rawInput: SearchInput,
 ): Promise<ToolResult<PlaceCard[]>> {
+  const callerForcedProviders = Boolean(rawInput.providers?.length);
   const input = await applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
+
+  // Check search cache
+  const cKey = searchCacheKey(input.query ?? "", input.near, input.providers);
+  const cached = getCachedSearch(cKey);
+  if (cached) {
+    return { data: cached, skipped: [], locale, locales: pair };
+  }
   const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
     const adapter = getAdapter(id);
     if (!adapter) throw new Error("missing");
     return adapter.searchRestaurants(input);
   });
   let cards = values.flat();
+  if (
+    shouldTryGoogleAfterEmptyAmap({
+      callerForcedProviders,
+      providers: input.providers,
+      cardCount: cards.length,
+    })
+  ) {
+    const fallback = await fanOut(["GOOGLE_MAPS"], "search", async (id) => {
+      const adapter = getAdapter(id);
+      if (!adapter) throw new Error("missing");
+      return adapter.searchRestaurants({ ...input, providers: ["GOOGLE_MAPS"] });
+    });
+    cards = fallback.values.flat();
+    skipped.push(...fallback.skipped);
+  }
   if (input.merge) cards = mergeCards(cards);
   if (input.enrich?.tripadvisor) {
     const enriched = await enrichWithTripadvisor(cards);
     cards = enriched.cards;
     skipped.push(...enriched.skipped);
   }
+  if (cards.length > 0) setCachedSearch(cKey, cards);
   const outcomeKey = cards.length === 0 ? "errors.empty_results" : undefined;
   return { data: cards, skipped, locale, locales: pair, outcomeKey };
 }
 
 export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<PlaceCard[]>> {
+  const callerForcedProviders = Boolean(rawInput.providers?.length);
   const input = await applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
   const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
@@ -140,6 +186,21 @@ export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<Pl
   });
   let cards = values.flat();
   cards = filterPlaceSearchResults(cards, input.query);
+  if (
+    shouldTryGoogleAfterEmptyAmap({
+      callerForcedProviders,
+      providers: input.providers,
+      cardCount: cards.length,
+    })
+  ) {
+    const fallback = await fanOut(["GOOGLE_MAPS"], "search", async (id) => {
+      const adapter = getAdapter(id);
+      if (!adapter) throw new Error("missing");
+      return adapter.searchPlaces({ ...input, providers: ["GOOGLE_MAPS"] });
+    });
+    cards = filterPlaceSearchResults(fallback.values.flat(), input.query);
+    skipped.push(...fallback.skipped);
+  }
   if (input.merge) cards = mergeCards(cards);
   if (input.enrich?.tripadvisor) {
     const enriched = await enrichWithTripadvisor(cards);

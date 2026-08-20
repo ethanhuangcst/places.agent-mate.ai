@@ -1,6 +1,52 @@
-import { describe, it, expect } from "vitest";
-import { searchRestaurants, searchPlaces, getPlaceDetails, navigate, geocode } from "./tools";
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+  searchRestaurants,
+  searchPlaces,
+  getPlaceDetails,
+  navigate,
+  geocode,
+  shouldTryGoogleAfterEmptyAmap,
+} from "./tools";
 import { isDiningCategory } from "../adapters/fixtures";
+import { clearSearchCache } from "./search-cache";
+import { clearGeocodeCache } from "./geocode-cache";
+
+beforeEach(() => {
+  clearSearchCache();
+  clearGeocodeCache();
+});
+
+describe("shouldTryGoogleAfterEmptyAmap", () => {
+  it("should_retry_google_when_auto_amap_empty", () => {
+    expect(
+      shouldTryGoogleAfterEmptyAmap({
+        callerForcedProviders: false,
+        providers: ["AMAP"],
+        cardCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("should_not_retry_when_caller_forced_amap", () => {
+    expect(
+      shouldTryGoogleAfterEmptyAmap({
+        callerForcedProviders: true,
+        providers: ["AMAP"],
+        cardCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("should_not_retry_when_amap_returned_hits", () => {
+    expect(
+      shouldTryGoogleAfterEmptyAmap({
+        callerForcedProviders: false,
+        providers: ["AMAP"],
+        cardCount: 2,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("searchRestaurants", () => {
   it("should_merge_google_and_amap_near_central_hk", async () => {
@@ -89,6 +135,27 @@ describe("searchRestaurants", () => {
     });
     expect(result.data.length).toBeGreaterThan(0);
     expect(result.data.every((c) => c.provider === "AMAP")).toBe(true);
+  });
+
+  it("should_fallback_to_google_when_auto_amap_empty_near_shanghai", async () => {
+    const result = await searchRestaurants({
+      query: "__amap_miss__",
+      near: { lat: 31.176, lng: 121.382 },
+      locale: "CN",
+    });
+    expect(result.data.length).toBeGreaterThan(0);
+    expect(result.data.every((c) => c.provider === "GOOGLE_MAPS")).toBe(true);
+  });
+
+  it("should_not_fallback_to_google_when_caller_forces_amap_empty", async () => {
+    const result = await searchRestaurants({
+      query: "__amap_miss__",
+      near: { lat: 31.176, lng: 121.382 },
+      providers: ["AMAP"],
+      locale: "CN",
+    });
+    expect(result.data).toEqual([]);
+    expect(result.outcomeKey).toBe("errors.empty_results");
   });
 });
 

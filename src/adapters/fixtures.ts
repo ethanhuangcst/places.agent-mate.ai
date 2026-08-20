@@ -325,6 +325,15 @@ export function filterFixtureRestaurants(
 ): PlaceCard[] {
   const rawQ = (input.query ?? "").toLowerCase();
   if (rawQ.includes("__empty__")) return [];
+  // Sentinel: AMAP list empty, Google Shanghai fixtures still match (empty-AMAP → Google fallback tests).
+  if (rawQ.includes("__amap_miss__")) {
+    return cards.filter(
+      (r) =>
+        (r.provider === "GOOGLE_MAPS" ||
+          r.sources.some((s) => s.provider === "GOOGLE_MAPS")) &&
+        (!input.near || haversineKm(input.near, r.location) <= 15),
+    );
+  }
   const cleanQ = rawQ.replace("__ta_fail__", "").replace("__fail__", "").trim();
 
   let filtered = [...cards];
