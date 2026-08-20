@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createPlacesMcpServer } from "./src/mcp/create-server";
+import { SessionManager } from "./src/mcp/session-manager";
 import { authenticateCaller } from "./src/auth/caller";
 import { errorEnvelope } from "./src/http/envelope";
 import { assertGoogleProductionSafety } from "./src/adapters/google/config";
@@ -18,8 +19,8 @@ const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "localhost";
 const port = Number(process.env.PORT || 3000);
 
-const mcpTransports = new Map<string, StreamableHTTPServerTransport>();
-const sseSessions = new Map<string, SSEServerTransport>();
+const mcpSessions = new SessionManager();
+const sseSessions = new SessionManager();
 
 function authorizationOf(req: IncomingMessage): string | null {
   const header = req.headers.authorization;
@@ -36,14 +37,18 @@ async function requireCaller(req: IncomingMessage, res: ServerResponse): Promise
   return false;
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readJsonBody(req: IncomingMessage): Promise<{ ok: true; data: unknown } | { ok: false }> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
   }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
-  if (!raw) return undefined;
-  return JSON.parse(raw) as unknown;
+  if (!raw) return { ok: true, data: undefined };
+  try {
+    return { ok: true, data: JSON.parse(raw) as unknown };
+  } catch {
+    return { ok: false };
+  }
 }
 
 async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -52,7 +57,9 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
   const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
 
   if (req.method === "GET" || req.method === "DELETE") {
-    const existing = sessionId ? mcpTransports.get(sessionId) : undefined;
+    const existing = sessionId
+      ? (mcpSessions.get(sessionId) as StreamableHTTPServerTransport | undefined)
+      : undefined;
     if (!existing) {
       res.statusCode = 400;
       res.end("Invalid or missing session ID");
@@ -68,18 +75,28 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
     return;
   }
 
-  const body = await readJsonBody(req);
-  let transport = sessionId ? mcpTransports.get(sessionId) : undefined;
+  const parsed = await readJsonBody(req);
+  if (!parsed.ok) {
+    res.statusCode = 400;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }));
+    return;
+  }
+  const body = parsed.data;
+
+  let transport = sessionId
+    ? (mcpSessions.get(sessionId) as StreamableHTTPServerTransport | undefined)
+    : undefined;
   if (!transport && isInitializeRequest(body)) {
     transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
-        mcpTransports.set(id, transport as StreamableHTTPServerTransport);
+        mcpSessions.add(id, transport as StreamableHTTPServerTransport);
       },
     });
     transport.onclose = () => {
       const id = transport?.sessionId;
-      if (id) mcpTransports.delete(id);
+      if (id) mcpSessions.delete(id);
     };
     const server = createPlacesMcpServer();
     await server.connect(transport);
@@ -103,7 +120,7 @@ async function handleSse(req: IncomingMessage, res: ServerResponse): Promise<voi
   if (!(await requireCaller(req, res))) return;
   const transport = new SSEServerTransport("/messages", res);
   const server = createPlacesMcpServer();
-  sseSessions.set(transport.sessionId, transport);
+  sseSessions.add(transport.sessionId, transport);
   transport.onclose = () => {
     sseSessions.delete(transport.sessionId);
   };
@@ -112,7 +129,9 @@ async function handleSse(req: IncomingMessage, res: ServerResponse): Promise<voi
 
 async function handleSseMessage(req: IncomingMessage, res: ServerResponse, sessionId: string | undefined) {
   if (!(await requireCaller(req, res))) return;
-  const transport = sessionId ? sseSessions.get(sessionId) : undefined;
+  const transport = sessionId
+    ? (sseSessions.get(sessionId) as SSEServerTransport | undefined)
+    : undefined;
   if (!transport) {
     res.statusCode = 404;
     res.end("Unknown SSE session");
@@ -126,7 +145,7 @@ const handle = app.getRequestHandler();
 
 async function main() {
   await app.prepare();
-  createServer(async (req, res) => {
+  const httpServer = createServer(async (req, res) => {
     try {
       const parsed = parse(req.url ?? "/", true);
       const pathname = parsed.pathname ?? "/";
@@ -158,9 +177,24 @@ async function main() {
         res.end("internal error");
       }
     }
-  }).listen(port, () => {
+  });
+
+  httpServer.listen(port, () => {
     console.log(`places-agent listening on http://${hostname}:${port}`);
   });
+
+  function gracefulShutdown(signal: string) {
+    console.log(`${signal} received, shutting down...`);
+    httpServer.close(() => {
+      mcpSessions.close();
+      sseSessions.close();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  }
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }
 
 main().catch((err) => {

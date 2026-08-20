@@ -2,12 +2,28 @@ import { validateProviders, type Capability } from "./providers";
 import { getAdapter } from "../adapters";
 import { isDiningCategory } from "../adapters/fixtures";
 import { enrichWithTripadvisor } from "./enrich";
+import { resolveProviderStrategy } from "../adapters/provider-resolver";
 import { parseLocale, type Locale } from "./locales";
 import {
   type PlaceCard,
   type SearchInput,
   type ToolResult,
 } from "./types";
+
+/** When caller omits providers[], auto-select based on destination + locale. */
+function applyProviderStrategy(input: SearchInput): SearchInput {
+  if (input.providers?.length) return input;
+  const strategy = resolveProviderStrategy({
+    location: input.address,
+    near: input.near ? { lat: input.near.lat, lng: input.near.lng } : undefined,
+    locale: input.locale,
+  });
+  const updated = { ...input, providers: strategy.searchProviders };
+  if (strategy.enrichProviders.includes("TRIPADVISOR") && !input.enrich?.tripadvisor) {
+    return { ...updated, enrich: { ...updated.enrich, tripadvisor: true } };
+  }
+  return updated;
+}
 
 function localesFrom(input: { locale?: Locale; locales?: Locale[] }): {
   locale: Locale;
@@ -71,8 +87,9 @@ function filterPlaceSearchResults(cards: PlaceCard[], query?: string): PlaceCard
 }
 
 export async function searchRestaurants(
-  input: SearchInput,
+  rawInput: SearchInput,
 ): Promise<ToolResult<PlaceCard[]>> {
+  const input = applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
   const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
     const adapter = getAdapter(id);
@@ -90,7 +107,8 @@ export async function searchRestaurants(
   return { data: cards, skipped, locale, locales: pair, outcomeKey };
 }
 
-export async function searchPlaces(input: SearchInput): Promise<ToolResult<PlaceCard[]>> {
+export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<PlaceCard[]>> {
+  const input = applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
   const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
     const adapter = getAdapter(id);
