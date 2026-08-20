@@ -49,6 +49,26 @@ const TAIWAN_MARKERS = [
 
 const HK_MARKERS = ["香港", "Hong Kong", "Hongkong"];
 
+/** Overseas cities with CJK names — must not be caught by the CJK ratio heuristic */
+const OVERSEAS_CJK_MARKERS = [
+  "新加坡", "Singapore",
+  "吉隆坡", "Kuala Lumpur",
+  "曼谷", "Bangkok",
+  "首尔", "Seoul",
+  "大阪", "Osaka",
+  "京都", "Kyoto",
+  "名古屋", "Nagoya",
+  "札幌", "Sapporo",
+  "福岡", "Fukuoka",
+  "清邁", "清迈", "Chiang Mai",
+  "河内", "河內", "Hanoi",
+  "胡志明", "Ho Chi Minh",
+  "雅加达", "雅加達", "Jakarta",
+  "馬尼拉", "马尼拉", "Manila",
+  "仰光", "Yangon",
+  "金边", "金邊", "Phnom Penh",
+];
+
 function detectRegion(input: ProviderResolverInput): DestinationRegion {
   // --- Text-based detection ---
   if (input.location) {
@@ -66,6 +86,11 @@ function detectRegion(input: ProviderResolverInput): DestinationRegion {
 
     // Mainland China city names
     if (matchesChinaCity(input.location)) return "mainland";
+
+    // Exclude overseas CJK city names before applying CJK ratio heuristic
+    if (OVERSEAS_CJK_MARKERS.some((m) => input.location!.includes(m) || lower.includes(m.toLowerCase()))) {
+      return "other";
+    }
 
     // CJK > 30% suggests mainland Chinese address
     const cjkCount = (input.location.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;

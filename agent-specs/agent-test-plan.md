@@ -245,6 +245,7 @@ Beyond admin UI E2E, the agent must be tested from the **caller perspective** �
 | `make verify-tripadvisor-live` | Opt-in | `scripts/verify-tripadvisor-live.sh` — sidecar with `GOOGLE_DIRECT_FORCE_FAIL=0` (does not reuse a Worker-only daemon); live Terra enrich on HK pin; asserts numeric `tripadvisor.rating` and no fixture Ichiran URL |
 | `make verify-open-meteo-live` | Opt-in | `scripts/verify-open-meteo-live.sh` — live forecast on HK pin itinerary; asserts numeric `weather_code` 0–99 and not the fixture signature (80 + 24/18 °C) |
 | Operator UAT timed itinerary | Per story A/B/C | HTTP `POST /v1/plan_itinerary` with `detail:"timed"`; operator supplies origin/bounds; agent dumps JSON; operator judges. Story A pack: Hyatt Lisbon, `2026-08-25`→`2026-08-30`, relaxed/premium, `GOOGLE_MAPS` |
+| `make test-e2e-caller` | Opt-in | TC-E2E-01~08 in `scripts/test-e2e-caller.sh` — live vendor caller simulation; Chinese restaurant, auto-provider, Tokyo POI, 成都 itinerary, chat, photos, mixed-lang, meal context |
 | Coverage | When the stack can measure | Critical path **100%**; overall **≥ 80%** |
 
 ### Coverage measurement (Vitest v8)
@@ -329,6 +330,7 @@ Meet **all applicable** common-test-strategy items, plus:
 - [ ] `photos` field populated when provider supports it; omitted (not empty array) otherwise
 - [ ] No hardcoded Chinese keywords in English-locale query strings
 - [ ] No mixed-language search queries (e.g., `"cafe tea house"` + `"咖啡馆"` in one query)
+- [ ] `make test-e2e-caller` passes with live keys before release (opt-in, not in default CI)
 
 ---
 
@@ -794,7 +796,7 @@ curl -s -H "Authorization: Bearer $CALLER_KEY" -H "Content-Type: application/jso
 | --- | --- |
 | **Pre-condition** | Caller key set. Both vendors available. |
 | **Test steps** | 1. `POST /v1/search_restaurants` — body: `{"query":"restaurant","near":{"lat":22.2819,"lng":114.158},"providers":["GOOGLE_MAPS","AMAP"],"merge":true,"locale":"EN"}` |
-| **Expected result** | ≥1 card (fixture: Yat Lok, Tim Ho Wan, 太興燒味). Merged cards may have multiple `sources[]`. Partial vendor failure → `skipped[]`; other vendor's cards remain. |
+| **Expected result** | `"ok": true`, `"agent": "places-agent"`, ≥1 card. Merge reduces count vs sum of single-provider results. Both `GOOGLE_MAPS` and `AMAP` appear in `sources[]`. Every card has name, location, and sources. `skipped` empty. |
 
 ---
 
@@ -894,7 +896,7 @@ curl -s -H "Authorization: Bearer $CALLER_KEY" -H "Content-Type: application/jso
 | --- | --- |
 | **Pre-condition** | Caller key set. Same server/mode as Step 1 (TC-H04 / TC-C05). |
 | **Test steps** | 1. Optional: `POST /v1/geocode` — `{"query":"Central Hong Kong","locale":"EN"}`. 2. `POST /v1/search_restaurants` — body: `{"query":"restaurant","near":{"lat":22.2819,"lng":114.158},"providers":["GOOGLE_MAPS"],"locale":"EN"}` |
-| **Expected result** | `"ok": true`, `"agent": "places-agent"`. **`data` count 2** in fixture (Yat Lok Roast Goose, Tim Ho Wan). All cards `provider` / `sources[].provider` = `GOOGLE_MAPS`. No AMAP cards. `skipped` empty. |
+| **Expected result** | `"ok": true`, `"agent": "places-agent"`. ≥1 card. All cards `provider` / `sources[].provider` = `GOOGLE_MAPS`. No AMAP cards. `skipped` empty. |
 
 **Dev baseline (2026-08-18, fixture, HTTP):** 2 Google cards; subtract from Step 1's 3 cards = the 1 AMAP card (太興燒味).
 

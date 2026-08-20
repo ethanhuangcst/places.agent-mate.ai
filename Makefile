@@ -1,4 +1,4 @@
-.PHONY: help dev up down status reset-dev test test-e2e test-live test-coverage verify-gmaps-fallback verify-amap-live verify-tripadvisor-live verify-open-meteo-live lint typecheck quality db db-up db-down db-migrate-test
+.PHONY: help dev up down status reset-dev test test-e2e test-e2e-caller test-live test-coverage verify-gmaps-fallback verify-amap-live verify-tripadvisor-live verify-open-meteo-live lint typecheck quality db db-up db-down db-migrate-test
 
 .DEFAULT_GOAL := help
 
@@ -73,6 +73,9 @@ verify-tripadvisor-live: ## Opt-in live Tripadvisor Terra enrich (needs TRIPADVI
 
 verify-open-meteo-live: ## Opt-in live Open-Meteo forecast on plan_itinerary (free host needs no key)
 	@bash ./scripts/verify-open-meteo-live.sh
+
+test-e2e-caller: ## Opt-in caller simulation E2E (TC-E2E-01~08; needs live vendor keys in .env.local)
+	@bash ./scripts/test-e2e-caller.sh
 
 lint: ## ESLint (syntax + Next core-web-vitals; TypeScript 7 uses Babel parser)
 	npx eslint .

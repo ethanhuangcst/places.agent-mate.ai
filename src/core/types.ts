@@ -27,6 +27,8 @@ export type PlaceCard = {
   category?: string;
   phone?: string;
   photos?: string[];
+  price_level?: string;
+  price_per_person?: number;
   sources: PlaceSource[];
   tripadvisor?: {
     rating?: number;

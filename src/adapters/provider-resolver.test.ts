@@ -97,4 +97,76 @@ describe("resolveProviderStrategy", () => {
     const r = resolveProviderStrategy({ location: "昆明市五华区翠湖" });
     expect(r.searchProviders).toEqual(["AMAP"]);
   });
+
+  // === 澳门 (Macau) — AMAP works, treated as mainland ===
+
+  it("should select AMAP for 澳门 (Chinese text)", () => {
+    const r = resolveProviderStrategy({ location: "澳门大三巴牌坊" });
+    expect(r.searchProviders).toEqual(["AMAP"]);
+    expect(r.enrichProviders).toEqual([]);
+  });
+
+  it("should select AMAP for Macau (English text)", () => {
+    const r = resolveProviderStrategy({ location: "Macau Senado Square" });
+    expect(r.searchProviders).toEqual(["AMAP"]);
+    expect(r.enrichProviders).toEqual([]);
+  });
+
+  it("should select AMAP for Macau coordinates", () => {
+    // Macau: lat 22.19, lng 113.54 — outside HK bounding box, inside China bounds
+    const r = resolveProviderStrategy({ near: { lat: 22.19, lng: 113.54 } });
+    expect(r.searchProviders).toEqual(["AMAP"]);
+    expect(r.enrichProviders).toEqual([]);
+  });
+
+  // === 新加坡 (Singapore) — overseas, Google only ===
+
+  it("should select Google for Singapore (English text)", () => {
+    const r = resolveProviderStrategy({ location: "Singapore Marina Bay" });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
+  });
+
+  it("should select Google for Singapore coordinates", () => {
+    const r = resolveProviderStrategy({ near: { lat: 1.35, lng: 103.8 } });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
+  });
+
+  it("should select Google for 新加坡 (CJK text, not misdetected as mainland)", () => {
+    const r = resolveProviderStrategy({ location: "新加坡滨海湾" });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
+  });
+
+  // === Coordinate boundary edge cases ===
+
+  it("should detect HK at bounding box edge (lat 22.15, lng 113.83)", () => {
+    const r = resolveProviderStrategy({ near: { lat: 22.15, lng: 113.83 } });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+  });
+
+  it("should detect mainland just outside HK box (lat 22.20, lng 113.82)", () => {
+    // lng 113.82 < HK box min 113.83 → falls to China mainland check
+    const r = resolveProviderStrategy({ near: { lat: 22.20, lng: 113.82 } });
+    expect(r.searchProviders).toEqual(["AMAP"]);
+  });
+
+  it("should detect 'other' below China bounds (lat 17.99)", () => {
+    const r = resolveProviderStrategy({ near: { lat: 17.99, lng: 110.0 } });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+    expect(r.enrichProviders).toEqual(["TRIPADVISOR"]);
+  });
+
+  // === Other overseas CJK cities ===
+
+  it("should select Google for 大阪 (CJK text)", () => {
+    const r = resolveProviderStrategy({ location: "大阪道頓堀" });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("should select Google for 曼谷 (CJK text)", () => {
+    const r = resolveProviderStrategy({ location: "曼谷暹罗广场" });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
 });

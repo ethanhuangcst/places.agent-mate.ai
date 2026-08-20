@@ -62,6 +62,8 @@ export function createGoogleDirectClient(
     "places.primaryType",
     "places.types",
     "places.regularOpeningHours",
+    "places.priceLevel",
+    "places.photos",
   ].join(",");
 
   async function searchText(
@@ -107,7 +109,7 @@ export function createGoogleDirectClient(
     const json = (await res.json()) as { places?: unknown[] };
     const category = kind === "restaurant" ? "restaurant" : undefined;
     return (json.places ?? [])
-      .map((p) => directPlaceToCard(p as Parameters<typeof directPlaceToCard>[0], category))
+      .map((p) => directPlaceToCard(p as Parameters<typeof directPlaceToCard>[0], category, config.apiKey))
       .filter((c): c is PlaceCard => c != null);
   }
 
@@ -138,7 +140,7 @@ export function createGoogleDirectClient(
       }
 
       const place = (await res.json()) as Parameters<typeof directPlaceToCard>[0];
-      return directPlaceToCard(place);
+      return directPlaceToCard(place, undefined, config.apiKey);
     },
     async geocode(query, locale) {
       if (!config.apiKey) throw new EgressFailureError("no_api_key");

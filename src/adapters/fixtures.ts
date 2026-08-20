@@ -32,6 +32,8 @@ export const FIXTURE_RESTAURANTS: PlaceCard[] = [
     location: { lat: 22.2826, lng: 114.1553, crs: "WGS84" },
     rating: 4.4,
     category: "restaurant",
+    photos: ["https://example.com/yat_lok_1.jpg", "https://example.com/yat_lok_2.jpg"],
+    price_level: "$$",
     sources: [
       {
         provider: "GOOGLE_MAPS",
@@ -291,6 +293,24 @@ export function resolveFixtureGeocode(
   }
   if (/东京|東京|tokyo|ueno|上野/i.test(q)) {
     return { lat: 35.7153, lng: 139.7758, crs: "WGS84", address: q };
+  }
+  if (/北京|beijing|三里屯|sanlitun|天安门/i.test(q)) {
+    return { lat: 39.9334, lng: 116.4551, crs, address: q };
+  }
+  if (/成都|chengdu|春熙路/i.test(q)) {
+    return { lat: 30.6571, lng: 104.0836, crs, address: q };
+  }
+  if (/广州|guangzhou|广州塔/i.test(q)) {
+    return { lat: 23.1066, lng: 113.3245, crs, address: q };
+  }
+  if (/澳[门門]|macau|macao/i.test(q)) {
+    return { lat: 22.1937, lng: 113.539, crs, address: q };
+  }
+  if (/lisbo[na]|boavista|葡萄牙/i.test(q)) {
+    return { lat: 38.7223, lng: -9.1393, crs, address: q };
+  }
+  if (/新加坡|singapore|marina bay/i.test(q)) {
+    return { lat: 1.2816, lng: 103.8636, crs, address: q };
   }
   const hkDefault =
     crs === "GCJ-02"

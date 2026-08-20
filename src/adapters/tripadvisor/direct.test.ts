@@ -171,6 +171,68 @@ describe("Tripadvisor Terra direct client", () => {
     expect(cards[0]?.tripadvisor?.rating).toBe(4.1);
     expect(urls.some((u) => u.pathname.endsWith("/locations/104001"))).toBe(true);
   });
+
+  it("should_pick_best_name_match_when_nearby_returns_multiple_partial_matches", async () => {
+    const multiResult = {
+      data: [
+        {
+          distance_kilometers: 0.5,
+          location: {
+            id: 200001,
+            names: [{ language: "en", value: "Yat Lok BBQ & Grill", primary: true }],
+            traveler_ratings: { overall: { rating: 3.8, count: 50 } },
+            urls: { tripadvisor: { main: "https://www.tripadvisor.com/yat-lok-bbq" } },
+          },
+        },
+        {
+          distance_kilometers: 0.03,
+          location: {
+            id: 104001,
+            names: [{ language: "en", value: "Yat Lok Roast Goose", primary: true }],
+            traveler_ratings: { overall: { rating: 4.3, count: 890 } },
+            urls: { tripadvisor: { main: "https://www.tripadvisor.com/yat-lok" } },
+          },
+        },
+        {
+          distance_kilometers: 0.01,
+          location: {
+            id: 300001,
+            names: [{ language: "en", value: "Some Other Place", primary: true }],
+            traveler_ratings: { overall: { rating: 4.9, count: 2000 } },
+            urls: { tripadvisor: { main: "https://www.tripadvisor.com/other" } },
+          },
+        },
+      ],
+    };
+    const { fetchFn } = recordFetch(() => multiResult);
+    const client = createTripadvisorDirectClient(testConfig(), fetchFn);
+    const { cards } = await client.enrichCards([yatLok]);
+    // Should pick exact name match ("Yat Lok Roast Goose"), not partial ("Yat Lok BBQ")
+    // or closest-but-unrelated ("Some Other Place")
+    expect(cards[0]?.tripadvisor?.rating).toBe(4.3);
+    expect(cards[0]?.tripadvisor?.url).toContain("yat-lok");
+  });
+
+  it("should_not_match_when_all_nearby_results_have_different_names", async () => {
+    const noMatch = {
+      data: [
+        {
+          distance_kilometers: 0.01,
+          location: {
+            id: 300001,
+            names: [{ language: "en", value: "Completely Different Restaurant", primary: true }],
+            traveler_ratings: { overall: { rating: 4.9, count: 2000 } },
+            urls: { tripadvisor: { main: "https://www.tripadvisor.com/different" } },
+          },
+        },
+      ],
+    };
+    const { fetchFn } = recordFetch(() => noMatch);
+    const client = createTripadvisorDirectClient(testConfig(), fetchFn);
+    const { cards } = await client.enrichCards([yatLok]);
+    expect(cards[0]?.tripadvisor).toBeUndefined();
+    expect(cards[0]?.name).toBe("Yat Lok Roast Goose");
+  });
 });
 
 describe("attachTripadvisorEnrichment", () => {

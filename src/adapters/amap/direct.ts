@@ -135,13 +135,13 @@ export function createAmapDirectClient(
           radius: dining ? DINING_AROUND_RADIUS_M : PLACES_AROUND_RADIUS_M,
           sortrule: "distance",
           page_size: PAGE_SIZE,
-          show_fields: "business",
+          show_fields: "business,cost,photos",
         })
       : await getJson("/v5/place/text", {
           keywords,
           types,
           page_size: PAGE_SIZE,
-          show_fields: "business",
+          show_fields: "business,cost,photos",
         });
     assertAmapOk(json, dining ? "restaurants" : "places");
     const category = dining ? "restaurant" : undefined;
@@ -158,7 +158,7 @@ export function createAmapDirectClient(
       if (!id) return null;
       const json = await getJson("/v5/place/detail", {
         id,
-        show_fields: "business",
+        show_fields: "business,cost,photos",
       });
       assertAmapOk(json, "detail");
       const poi = asList(json.pois)[0];

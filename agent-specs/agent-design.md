@@ -730,3 +730,5 @@ Two product slices **by agent capability** — see [`agent-stories.md`](./agent-
 - Hardcoded city-specific attraction lists instead of generic templates
 - Returning empty `photos: []` instead of omitting the field
 - Mixed-language search queries (e.g., `"cafe tea house" + "咖啡馆"` in one query)
+- CJK heuristic misdetecting overseas Chinese city names (新加坡, 大阪, 曼谷) as mainland — use exclusion list
+- Fixture geocode resolving all unknown cities to Hong Kong default — expand coverage

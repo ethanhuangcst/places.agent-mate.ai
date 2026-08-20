@@ -1,4 +1,5 @@
 import { type PlaceCard, type PlaceLocation } from "../../core/types";
+import { normalizeAmapCost } from "../../core/price";
 
 export function amapDeeplinks(loc: PlaceLocation, name: string): Record<string, string> {
   const nameQ = encodeURIComponent(name);
@@ -12,6 +13,7 @@ export type AmapBusiness = {
   tel?: string;
   opentime_today?: string;
   opentime_week?: string;
+  cost?: string;
 };
 
 export type AmapPoi = {
@@ -22,6 +24,7 @@ export type AmapPoi = {
   type?: string;
   tel?: string;
   business?: AmapBusiness;
+  photos?: Array<{ url?: string }>;
 };
 
 /** Prefer today, then week; undefined when AMAP omits both. */
@@ -46,6 +49,12 @@ export function amapPoiToCard(poi: AmapPoi, category?: string): PlaceCard | null
   const rating = ratingRaw != null && ratingRaw !== "" ? Number(ratingRaw) : undefined;
   const hours = formatAmapOpeningHours(poi.business);
 
+  const costNum = Number(poi.business?.cost);
+  const price = normalizeAmapCost(Number.isFinite(costNum) && costNum > 0 ? costNum : undefined);
+  const photoUrls = poi.photos
+    ?.map((p) => p.url)
+    .filter((u): u is string => !!u);
+
   return {
     provider: "AMAP",
     name,
@@ -55,6 +64,9 @@ export function amapPoiToCard(poi: AmapPoi, category?: string): PlaceCard | null
     category: category ?? poi.type ?? "place",
     phone: poi.business?.tel ?? poi.tel,
     ...(hours ? { hours } : {}),
+    ...(photoUrls?.length ? { photos: photoUrls } : {}),
+    ...(price.price_level ? { price_level: price.price_level } : {}),
+    ...(price.price_per_person ? { price_per_person: price.price_per_person } : {}),
     sources: [
       {
         provider: "AMAP",
