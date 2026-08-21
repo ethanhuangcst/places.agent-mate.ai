@@ -161,6 +161,156 @@ export function buildUserMessage(input: {
   return parts.join("\n");
 }
 
-// --- Exports for the main itinerary module ---
+// --- LLM call + full pipeline ---
+
+import OpenAI from "openai";
+import { searchPlaces, searchRestaurants } from "./tools";
+import { parseLocale } from "./locales";
+import { loadGlossary } from "../agent/loop";
+
+function useFixtureLlm(): boolean {
+  return !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === "fixture";
+}
+
+function createOpenAI(): OpenAI | null {
+  if (useFixtureLlm()) return null;
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_BASE_URL ?? "https://quanzil.com/v1",
+  });
+}
+
+/** Extract JSON from LLM response that may contain markdown fencing. */
+function extractJson(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) return fenced[1].trim();
+  // Try to find { ... } directly
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) return text.slice(start, end + 1);
+  return text.trim();
+}
+
+export type LlmPlanInput = {
+  city: string;
+  numDays: number;
+  bounds: { start: string; end: string };
+  origin?: { name?: string; lat?: number; lng?: number };
+  destination?: { name?: string; lat?: number; lng?: number };
+  pace?: string;
+  budget?: "budget" | "premium";
+  locale: Locale;
+  /** Injected for testing — skips real search */
+  _testCandidates?: { places: PlaceCard[]; restaurants: PlaceCard[] };
+};
+
+/**
+ * Full LLM-based itinerary pipeline.
+ * Phase 1: search candidates → Phase 2: LLM call → Phase 3: Zod validate → Phase 4: format
+ */
+export async function llmPlanItinerary(
+  input: LlmPlanInput,
+): Promise<LlmItineraryOutput> {
+  const locale = parseLocale(input.locale);
+
+  // Phase 1: Search candidates
+  const candidates = input._testCandidates ?? await searchCandidates(input);
+
+  // Build candidate name set for validation
+  const candidateNames = new Set([
+    ...candidates.places.map((p) => p.name),
+    ...candidates.restaurants.map((r) => r.name),
+  ]);
+
+  // Phase 2: LLM call
+  const systemPrompt = assembleSystemPrompt({
+    locale,
+    intent: "itinerary",
+    budget: input.budget,
+    glossary: loadGlossary(locale) ?? undefined,
+  });
+
+  const userMessage = buildUserMessage({
+    city: input.city,
+    numDays: input.numDays,
+    candidates,
+    pace: input.pace,
+    budget: input.budget,
+    origin: input.origin,
+    destination: input.destination,
+    locale,
+  });
+
+  const openai = createOpenAI();
+  if (!openai) {
+    throw new Error("LLM not configured (fixture mode)");
+  }
+
+  // Attempt LLM call with one retry on Zod failure
+  let lastError: string | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: attempt === 0
+        ? userMessage
+        : `${userMessage}\n\nYour previous response had validation errors:\n${lastError}\n\nPlease fix and return valid JSON.`
+      },
+    ];
+
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
+      messages,
+      max_completion_tokens: 4096,
+      temperature: 0.7,
+    });
+
+    const raw = completion.choices[0]?.message?.content;
+    if (!raw) continue;
+
+    const jsonStr = extractJson(raw);
+    const parsed = LlmItinerarySchema.safeParse(JSON.parse(jsonStr));
+    if (!parsed.success) {
+      lastError = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      continue;
+    }
+
+    // Phase 3: Validate hard constraints
+    const errors = validateItinerary(parsed.data, candidateNames, paceLimit(input.pace));
+    if (errors.length > 0) {
+      lastError = errors.map((e) => `${e.field}: ${e.message}`).join("; ");
+      continue;
+    }
+
+    return parsed.data;
+  }
+
+  throw new Error(`LLM itinerary validation failed after 2 attempts: ${lastError}`);
+}
+
+async function searchCandidates(input: LlmPlanInput): Promise<{
+  places: PlaceCard[];
+  restaurants: PlaceCard[];
+}> {
+  const searchInput = {
+    address: input.city,
+    query: "attractions landmarks",
+    locale: parseLocale(input.locale),
+    near: input.origin?.lat != null && input.origin?.lng != null
+      ? { lat: input.origin.lat, lng: input.origin.lng }
+      : undefined,
+  };
+
+  const [placesResult, restaurantsResult] = await Promise.all([
+    searchPlaces({ ...searchInput, query: "attractions landmarks museums parks" }),
+    searchRestaurants({ ...searchInput, query: "restaurant" }),
+  ]);
+
+  return {
+    places: placesResult.data ?? [],
+    restaurants: restaurantsResult.data ?? [],
+  };
+}
+
+// --- Exports ---
 
 export { paceLimit };

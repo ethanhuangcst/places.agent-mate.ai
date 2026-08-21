@@ -657,11 +657,33 @@ export async function planItinerary(
   deps: PlanItineraryDeps = {},
 ): Promise<ToolResult<ItineraryPlan | TimedItineraryPlan | null>> {
   if (input.detail === "timed") {
-    const mode = process.env.ITINERARY_MODE ?? "legacy"; // default legacy until LLM planner is wired
+    const mode = process.env.ITINERARY_MODE ?? "legacy";
     if (mode === "llm") {
       try {
-        return await planTimed(input, deps); // TODO: replace with llmPlanItinerary when wired
-      } catch {
+        const { llmPlanItinerary } = await import("./itinerary-planner");
+        const locale = parseLocale(input.locale);
+        const city = input.origin?.name ?? input.destination?.name ?? "city";
+        const startStr = input.bounds?.start ?? new Date().toISOString().slice(0, 10);
+        const endStr = input.bounds?.end ?? startStr;
+        const numDays = dayCount(new Date(startStr), new Date(endStr));
+        const llmResult = await llmPlanItinerary({
+          city,
+          numDays,
+          bounds: input.bounds ?? { start: new Date().toISOString().slice(0, 10), end: new Date().toISOString().slice(0, 10) },
+          origin: input.origin,
+          destination: input.destination,
+          pace: input.preferences?.pace,
+          budget: input.preferences?.spend,
+          locale,
+        });
+        return {
+          data: { detail: "timed", ...llmResult } as unknown as TimedItineraryPlan,
+          skipped: [],
+          locale,
+          locales: input.locales as Locale[],
+        };
+      } catch (err) {
+        console.error("LLM itinerary failed, falling back to legacy:", err);
         const result = await planTimed(input, deps);
         return { ...result, outcomeKey: "info.itinerary_basic_mode" };
       }

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import OpenAI from "openai";
+import { assembleSystemPrompt } from "./prompt-assembler";
 import {
   geocode,
   getPlaceDetails,
@@ -56,7 +57,7 @@ function loadPrompt(): string {
   return "You are places-agent. Use tools for place facts.";
 }
 
-function loadGlossary(locale: Locale): string {
+export function loadGlossary(locale: Locale): string {
   if (locale !== "HK" && locale !== "TW") return "";
   const id = process.env.GLOSSARY_ID ?? "travel.v1";
   const file = path.join(process.cwd(), "prompts/glossaries", `${id.replace("travel.", "")}.json`);
@@ -366,13 +367,11 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
   }
 
   const glossary = loadGlossary(locale);
-  const system = [
-    loadPrompt(),
-    `Output locale: ${locale}`,
-    glossary ? `Travel glossary:\n${glossary}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const system = assembleSystemPrompt({
+    locale,
+    intent: "chat",
+    glossary: glossary || undefined,
+  }) + `\n\nOutput locale: ${locale}`;
 
   const lastUser = [...input.messages].reverse().find((m) => m.role === "user");
   const userText = `${lastUser?.content ?? ""} ${attachmentHint(input.attachments)}`.trim();
