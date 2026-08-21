@@ -7,15 +7,19 @@ import {
   searchRestaurants,
 } from "../core/tools";
 import { planItinerary } from "../core/itinerary";
-import { type PlanItineraryInput } from "../core/types";
+import { arrangeDay, discoverPlaces } from "../core/itinerary-planner";
+import { type PlanItineraryInput, type PlaceCard } from "../core/types";
 import { parseLocale, type Locale } from "../core/locales";
 import {
   errorEnvelope,
+  okEnvelope,
   statusForOutcome,
   toolToEnvelope,
   type Envelope,
 } from "./envelope";
 import {
+  arrangeDayBody,
+  discoverPlacesBody,
   geocodeBody,
   getPlaceDetailsBody,
   navigateBody,
@@ -30,7 +34,9 @@ export type ToolName =
   | "plan_itinerary"
   | "get_place_details"
   | "geocode"
-  | "navigate";
+  | "navigate"
+  | "discover_places"
+  | "arrange_day";
 
 export type DispatchResult = { status: number; envelope: Envelope };
 
@@ -89,6 +95,49 @@ export async function dispatchTool(
     if (!parsed.success) return invalid(locale, extra);
     const result = await geocode(parsed.data);
     return { status: statusForOutcome(result.outcomeKey), envelope: toolToEnvelope(result) };
+  }
+  if (tool === "discover_places") {
+    const parsed = discoverPlacesBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    try {
+      const result = await discoverPlaces({
+        city: parsed.data.city,
+        bounds: parsed.data.bounds,
+        origin: parsed.data.origin,
+        locale,
+      });
+      return { status: 200, envelope: okEnvelope(result, locale, { locales: extra }) };
+    } catch {
+      return {
+        status: 502,
+        envelope: errorEnvelope("errors.discover_places_failed", locale, extra),
+      };
+    }
+  }
+  if (tool === "arrange_day") {
+    const parsed = arrangeDayBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    try {
+      const result = await arrangeDay({
+        candidates: {
+          places: parsed.data.candidates.places as PlaceCard[],
+          restaurants: parsed.data.candidates.restaurants as PlaceCard[],
+        },
+        dayIndex: parsed.data.dayIndex,
+        date: parsed.data.date,
+        origin: parsed.data.origin,
+        destination: parsed.data.destination,
+        pace: parsed.data.pace,
+        budget: parsed.data.budget,
+        locale,
+      });
+      return { status: 200, envelope: okEnvelope(result, locale, { locales: extra }) };
+    } catch {
+      return {
+        status: 502,
+        envelope: errorEnvelope("errors.arrange_day_failed", locale, extra),
+      };
+    }
   }
   const parsed = navigateBody.safeParse(body ?? {});
   if (!parsed.success) return invalid(locale, extra);

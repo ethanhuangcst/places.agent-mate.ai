@@ -101,6 +101,8 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       "get_place_details",
       "geocode",
       "navigate",
+      "discover_places",
+      "arrange_day",
       "chat",
     ]);
   });

@@ -110,6 +110,38 @@ export const planItineraryBody = z.object({
   ...shared,
 });
 
+const originSchema = z
+  .object({
+    name: z.string().optional(),
+    lat: z.number().optional(),
+    lng: z.number().optional(),
+  })
+  .optional();
+
+export const discoverPlacesBody = z.object({
+  city: z.string().min(1),
+  bounds: z.object({
+    start: z.string(),
+    end: z.string(),
+  }),
+  origin: originSchema,
+  ...shared,
+});
+
+export const arrangeDayBody = z.object({
+  candidates: z.object({
+    places: z.array(z.object({ name: z.string() }).passthrough()),
+    restaurants: z.array(z.object({ name: z.string() }).passthrough()),
+  }),
+  dayIndex: z.number().int().min(1),
+  date: z.string().optional(),
+  origin: originSchema,
+  destination: originSchema,
+  pace: z.enum(["tight", "medium", "relaxed"]).optional(),
+  budget: z.enum(["budget", "premium"]).optional(),
+  ...shared,
+});
+
 export const chatBody = z.object({
   messages: z.array(
     z.object({
@@ -136,3 +168,5 @@ export type GetPlaceDetailsBody = z.infer<typeof getPlaceDetailsBody>;
 export type GeocodeBody = z.infer<typeof geocodeBody>;
 export type NavigateBody = z.infer<typeof navigateBody>;
 export type PlanItineraryBody = z.infer<typeof planItineraryBody>;
+export type DiscoverPlacesBody = z.infer<typeof discoverPlacesBody>;
+export type ArrangeDayBody = z.infer<typeof arrangeDayBody>;

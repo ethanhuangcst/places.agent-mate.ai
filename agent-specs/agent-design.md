@@ -152,11 +152,11 @@ HTTP `/v1` 和 MCP 调用**相同的函数**。传输层负责认证、解析与
 | `navigate` | `navigate` | 是 |
 | `geocode` | `geocode` | 是（必须保持公开） |
 | `planItinerary` | `plan_itinerary` | 仅当对话请求生成行程时 |
-| `discoverPlaces` | `discover_places` | MCP 为主（HTTP 待 MVP-7） |
-| `arrangeDay` | `arrange_day` | MCP 为主（HTTP 待 MVP-7） |
+| `discoverPlaces` | `discover_places` | 否（结构化拆分） |
+| `arrangeDay` | `arrange_day` | 否（结构化拆分） |
 | `getWeather` | 非公开 | 行程辅助函数 |
 
-面向调用方的核心公开工具仍是上表前六项（双传输契约）。`discover_places` / `arrange_day` 为 MVP-6 新增的 **MCP 行程拆分工具**（见 §9.2）；勿再增加无关工具。单个工具内部并行调用 AMAP+Google 属于**适配器扇出**。Tripadvisor 富化和 Open-Meteo 均在**服务端**处理。定时行程（`detail: "timed"`）在 `plan_itinerary` **内部**编排 geocode / search / weather — 仍然是一个公开 HTTP/MCP 工具。
+面向调用方的核心公开工具为上表 HTTP+MCP 名称列（双传输契约）。`discover_places` / `arrange_day` 为行程拆分工具（见 §9.2）。单个工具内部并行调用 AMAP+Google 属于**适配器扇出**。Tripadvisor 富化和 Open-Meteo 均在**服务端**处理。定时行程（`detail: "timed"`）在 `plan_itinerary` **内部**编排 geocode / search / weather — 仍然是一个公开 HTTP/MCP 工具。
 
 共享输入：`providers[]`、`locale` 或 `locales[]`、`enrich.tripadvisor?`、`merge?`。核心层根据环境变量与能力矩阵校验 `providers[]`；**绝不**地理强制使用 AMAP（ADR-005）。
 
@@ -503,12 +503,12 @@ function assembleSystemPrompt(ctx: PromptContext): string;
 
 | 工具 | 职责 | MCP | HTTP |
 |------|------|-----|------|
-| `discover_places` | 搜景点+餐厅+天气，返回候选列表 | ✅ | ❌（待 MVP-7；当前无 `app/v1/discover_places`） |
-| `arrange_day` | 从候选中为第 N 天安排路线 | ✅ | ❌（待 MVP-7；当前无 `app/v1/arrange_day`） |
+| `discover_places` | 搜景点+餐厅+天气，返回候选列表 | ✅ | ✅ `/v1/discover_places` |
+| `arrange_day` | 从候选中为第 N 天安排路线 | ✅ | ✅ `/v1/arrange_day` |
 | `plan_itinerary` | 一次返回完整行程（内部可走 LLM 或 legacy） | ✅ | ✅ `/v1/plan_itinerary` |
 
-**MCP 客户端流程：** `discover_places` → `arrange_day(day=1)` → `arrange_day(day=2)` → …（每步 ~10s）  
-**HTTP caller（what2eat）流程：** `plan_itinerary`（一次返回；内部搜索 + LLM/legacy）
+**MCP / HTTP 分步流程：** `discover_places` → `arrange_day(day=1)` → `arrange_day(day=2)` → …  
+**一站式：** `plan_itinerary`（内部搜索 + LLM/legacy）
 
 **Token 优化：**
 
@@ -550,10 +550,10 @@ plan_itinerary(input):
 | | 设计意图 | **当前实现**（`src/core/itinerary.ts`） |
 |--|----------|----------------------------------------|
 | 环境变量 | `ITINERARY_MODE=llm` \| `legacy` | 同名 |
-| 默认值 | **`llm`** | **`legacy`**（`process.env.ITINERARY_MODE ?? "legacy"`） |
-| 生产启用 LLM | 默认即 LLM | 须显式设置 `ITINERARY_MODE=llm` |
+| 默认值 | **`llm`** | **`llm`**（`process.env.ITINERARY_MODE ?? "llm"`） |
+| 生产启用 LLM | 默认即 LLM | 旧路径测试须显式 `ITINERARY_MODE=legacy` |
 
-旧代码路径保留不删。默认值对齐列入 MVP-7。
+旧代码路径保留不删。
 
 **搜索范围：** 有城市名 → 5km 半径；无城市名 → `errors.location_too_broad`。
 

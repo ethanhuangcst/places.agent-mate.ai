@@ -78,7 +78,7 @@ export function SetPasswordScreen({ tokenValid, resetToken = "" }: Props) {
             <p className="callout-eyebrow" data-i18n="admin.set_password.done_eyebrow">
               {tt("admin.set_password.done_eyebrow")}
             </p>
-            <p className="callout-title" data-i18n="admin.set_password.done_title">
+            <p className="callout-title" data-i18n="admin.set_password.done_title" data-testid="set-password-done">
               {tt("admin.set_password.done_title")}
             </p>
             <p className="callout-body" data-i18n="admin.set_password.done_lead">
@@ -175,7 +175,7 @@ export function SetPasswordScreen({ tokenValid, resetToken = "" }: Props) {
             <input type="password" autoComplete="new-password" required {...register("confirm")} />
           </label>
           <div className="form-actions">
-            <button className="btn" type="submit" data-i18n="admin.set_password.submit">
+            <button className="btn" type="submit" data-i18n="admin.set_password.submit" data-testid="set-password-submit">
               {tt("admin.set_password.submit")}
             </button>
           </div>

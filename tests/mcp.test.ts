@@ -43,6 +43,8 @@ describe("MCP tools", () => {
         "get_place_details",
         "geocode",
         "navigate",
+        "discover_places",
+        "arrange_day",
       ]),
     );
     await client.close();

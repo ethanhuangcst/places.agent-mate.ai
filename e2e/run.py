@@ -44,7 +44,12 @@ def main() -> int:
     env["PORT"] = str(port)
     env["NEXT_DIST_DIR"] = ".next-e2e"
     env["QUANZIL_MODE"] = "fixture"
-    server = f"PORT={port} NEXT_DIST_DIR=.next-e2e QUANZIL_MODE=fixture npx tsx server.ts"
+    env["PLACES_VENDOR_MODE"] = "fixture"
+    env["NODE_ENV"] = "development"
+    server = (
+        f"PORT={port} NEXT_DIST_DIR=.next-e2e QUANZIL_MODE=fixture "
+        f"PLACES_VENDOR_MODE=fixture npx tsx server.ts"
+    )
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "with_server.py"),

@@ -121,7 +121,7 @@ export function LoginScreen() {
               >
                 {tt("admin.login.submit")}
               </button>
-              <Link className="btn-text" href="/reset-password" data-i18n="admin.login.reset_link">
+              <Link className="btn-text" href="/reset-password" data-i18n="admin.login.reset_link" data-testid="login-reset-link">
                 {tt("admin.login.reset_link")}
               </Link>
             </div>

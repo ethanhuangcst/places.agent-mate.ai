@@ -1,9 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db/client";
 import { generateCallerSecret, hashPassword } from "../src/core/crypto";
 import { authenticateCaller } from "../src/auth/caller";
 import { dispatchTool } from "../src/http/dispatch";
 import { AGENT_ID } from "../src/core/locales";
+import { arrangeDay, discoverPlaces } from "../src/core/itinerary-planner";
+
+vi.mock("../src/core/itinerary-planner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/core/itinerary-planner")>();
+  return {
+    ...actual,
+    discoverPlaces: vi.fn(),
+    arrangeDay: vi.fn(),
+  };
+});
 
 const ADMIN = {
   username: "admin",
@@ -163,5 +173,134 @@ describe("caller auth and HTTP dispatch", () => {
     expect(okDetails.status).toBe(200);
     const badPlan = await dispatchTool("plan_itinerary", auth, { bounds: { start: 1 } });
     expect(badPlan.status).toBe(400);
+  });
+
+  it("should_return_candidates_when_discover_places_http_is_valid", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    vi.mocked(discoverPlaces).mockResolvedValue({
+      candidates: { places: [{ name: "Museum" } as never], restaurants: [] },
+      weather: [{ date: "2026-08-25", label: "sunny" }],
+    });
+    const result = await dispatchTool("discover_places", `Bearer ${generated.secret}`, {
+      city: "Shanghai",
+      bounds: { start: "2026-08-25T00:00:00Z", end: "2026-08-25T23:59:59Z" },
+      locale: "EN",
+    });
+    expect(result.status).toBe(200);
+    expect(result.envelope.ok).toBe(true);
+    expect(result.envelope.agent).toBe(AGENT_ID);
+    const data = result.envelope.data as { candidates: { places: { name: string }[] } };
+    expect(data.candidates.places[0]?.name).toBe("Museum");
+  });
+
+  it("should_reject_discover_places_when_city_missing", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    const result = await dispatchTool("discover_places", `Bearer ${generated.secret}`, {
+      bounds: { start: "2026-08-25T00:00:00Z", end: "2026-08-25T23:59:59Z" },
+    });
+    expect(result.status).toBe(400);
+    expect(result.envelope.outcome?.key).toBe("errors.invalid_input");
+  });
+
+  it("should_return_day_when_arrange_day_http_is_valid", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    vi.mocked(arrangeDay).mockResolvedValue({
+      day_index: 1,
+      blocks: [{ name: "Museum", type: "attraction", start_time: "10:00", duration_min: 90, reason: "ok" }],
+    } as never);
+    const result = await dispatchTool("arrange_day", `Bearer ${generated.secret}`, {
+      candidates: { places: [{ name: "Museum" }], restaurants: [] },
+      dayIndex: 1,
+      locale: "EN",
+    });
+    expect(result.status).toBe(200);
+    expect(result.envelope.ok).toBe(true);
+    const data = result.envelope.data as { day_index: number; blocks: { reason: string }[] };
+    expect(data.day_index).toBe(1);
+    expect(data.blocks[0]?.reason).toBe("ok");
+  });
+
+  it("should_return_502_when_discover_places_throws", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    vi.mocked(discoverPlaces).mockRejectedValue(new Error("vendor down"));
+    const result = await dispatchTool("discover_places", `Bearer ${generated.secret}`, {
+      city: "Shanghai",
+      bounds: { start: "2026-08-25T00:00:00Z", end: "2026-08-25T23:59:59Z" },
+      locale: "EN",
+    });
+    expect(result.status).toBe(502);
+    expect(result.envelope.ok).toBe(false);
+    expect(result.envelope.outcome?.key).toBe("errors.discover_places_failed");
+  });
+
+  it("should_return_502_when_arrange_day_throws", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    vi.mocked(arrangeDay).mockRejectedValue(new Error("llm down"));
+    const result = await dispatchTool("arrange_day", `Bearer ${generated.secret}`, {
+      candidates: { places: [{ name: "Museum" }], restaurants: [] },
+      dayIndex: 1,
+      locale: "EN",
+    });
+    expect(result.status).toBe(502);
+    expect(result.envelope.ok).toBe(false);
+    expect(result.envelope.outcome?.key).toBe("errors.arrange_day_failed");
+  });
+
+  it("should_reject_arrange_day_when_candidates_missing", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    const result = await dispatchTool("arrange_day", `Bearer ${generated.secret}`, {
+      dayIndex: 1,
+      locale: "EN",
+    });
+    expect(result.status).toBe(400);
+    expect(result.envelope.outcome?.key).toBe("errors.invalid_input");
   });
 });

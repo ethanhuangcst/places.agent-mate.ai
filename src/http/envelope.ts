@@ -53,6 +53,8 @@ export function healthEnvelope(): Envelope<{ tools: string[] }> {
         "get_place_details",
         "geocode",
         "navigate",
+        "discover_places",
+        "arrange_day",
         "chat",
       ],
     },
@@ -83,6 +85,12 @@ export function statusForOutcome(outcomeKey: string | undefined): number {
   if (outcomeKey === "errors.place_not_found") return 404;
   if (outcomeKey === "errors.bounds_invalid" || outcomeKey === "errors.no_places_to_plan") {
     return 400;
+  }
+  if (
+    outcomeKey === "errors.arrange_day_failed" ||
+    outcomeKey === "errors.discover_places_failed"
+  ) {
+    return 502;
   }
   return 200;
 }

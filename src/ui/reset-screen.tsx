@@ -49,7 +49,7 @@ export function ResetScreen() {
         ) : null}
         {sent ? (
           <div className="callout callout-success">
-            <p className="callout-body" data-i18n="admin.reset.sent">
+            <p className="callout-body" data-i18n="admin.reset.sent" data-testid="reset-sent">
               {tt("admin.reset.sent")}
             </p>
           </div>
@@ -66,7 +66,7 @@ export function ResetScreen() {
               <input type="email" autoComplete="email" required {...register("email")} />
             </label>
             <div className="form-actions">
-              <button className="btn" type="submit" data-i18n="admin.reset.submit">
+              <button className="btn" type="submit" data-i18n="admin.reset.submit" data-testid="reset-submit">
                 {tt("admin.reset.submit")}
               </button>
             </div>

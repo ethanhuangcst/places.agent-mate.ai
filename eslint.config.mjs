@@ -32,6 +32,7 @@ export default defineConfig([
   },
   globalIgnores([
     ".next/**",
+    ".next-e2e/**",
     "out/**",
     "node_modules/**",
     "agent-specs/**",

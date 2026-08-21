@@ -61,10 +61,8 @@ Itinerary modes (`ITINERARY_MODE`):
 
 | Value | Behavior |
 |-------|----------|
-| `legacy` | **Current code default** if unset (`?? "legacy"`) |
-| `llm` | Single LLM + Zod + fallback (design intent default) |
-
-Set `ITINERARY_MODE=llm` explicitly in production to enable the LLM planner.
+| `llm` | **Code default** if unset (`?? "llm"`). Single LLM + Zod + fallback. |
+| `legacy` | Heuristic planner. Tests that need this path set `ITINERARY_MODE=legacy`. |
 
 ---
 
@@ -81,9 +79,9 @@ Set `ITINERARY_MODE=llm` explicitly in production to enable the LLM planner.
 | `POST /v1/geocode` | Bearer |
 | `POST /v1/navigate` | Bearer |
 | `POST /v1/plan_itinerary` | Bearer |
+| `POST /v1/discover_places` | Bearer |
+| `POST /v1/arrange_day` | Bearer |
 | `POST /v1/chat` | Bearer (NL loop) |
-
-**Not implemented (MCP only today):** `/v1/discover_places`, `/v1/arrange_day` (see MVP-7 in refactor plan).
 
 ### MCP (selected)
 
@@ -110,6 +108,15 @@ Copy from `.env.example`. Do **not** put real secrets in git.
 
 ---
 
+## Deploy
+
+Production release steps (Portainer / GHCR / NPM / smoke):  
+[`../0.2.release-bot/svr_hk_vps_3/places.family/places-agent-instruction.md`](../0.2.release-bot/svr_hk_vps_3/places.family/places-agent-instruction.md)
+
+Compose env includes `ITINERARY_MODE` (default `llm`). After deploy, smoke **H3c** for `POST /v1/discover_places` and `POST /v1/arrange_day`.
+
+---
+
 ## Docs map
 
 | Doc | Purpose |
@@ -117,4 +124,5 @@ Copy from `.env.example`. Do **not** put real secrets in git.
 | [`agent-specs/agent-stories.md`](./agent-specs/agent-stories.md) | User stories / AC (incl. F24–31) |
 | [`agent-specs/agent-design.md`](./agent-specs/agent-design.md) | Design (§9 prompt + itinerary) |
 | [`agent-specs/agent-test-plan.md`](./agent-specs/agent-test-plan.md) | Test matrices (TC-M5, TC-M6…) |
-| [`agent-specs/0.refactor-plan.md`](./agent-specs/0.refactor-plan.md) | Batch status + MVP-7 backlog |
+| [`agent-specs/0.refactor-plan.md`](./agent-specs/0.refactor-plan.md) | Batch status (MVP-7 ✅) |
+| [places-agent-instruction.md](../0.2.release-bot/svr_hk_vps_3/places.family/places-agent-instruction.md) | Production deploy checklist |

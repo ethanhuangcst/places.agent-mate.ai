@@ -32,6 +32,8 @@ describe("guide literals", () => {
     expect(httpSearchCurlExample()).toContain(GUIDE_BASE_URL);
     expect(httpEndpointsBlock()).toContain("GET  /v1/health");
     expect(httpEndpointsBlock()).toContain("POST /v1/chat");
+    expect(httpEndpointsBlock()).toContain("POST /v1/discover_places");
+    expect(httpEndpointsBlock()).toContain("POST /v1/arrange_day");
   });
 
   it("should_list_shared_tools_and_http_only_capabilities", () => {
@@ -42,6 +44,8 @@ describe("guide literals", () => {
       "geocode",
       "navigate",
       "plan_itinerary",
+      "discover_places",
+      "arrange_day",
       "Tripadvisor.enrich",
     ]);
     const httpOnly = GUIDE_CAPABILITIES.filter((cap) => cap.channel === "http");

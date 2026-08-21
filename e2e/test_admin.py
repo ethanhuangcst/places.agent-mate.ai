@@ -90,6 +90,48 @@ def run_invite_accept_journey(page) -> None:
     page.get_by_test_id("nav-keys").wait_for()
 
 
+def seed_reset() -> dict[str, str]:
+    env_file = ROOT / ".env.local"
+    cmd = ["npx", "tsx", "--env-file=.env.local", "scripts/seed-e2e-reset.ts"]
+    if not env_file.exists():
+        cmd = ["npx", "tsx", "scripts/seed-e2e-reset.ts"]
+    result = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(result.stdout.strip())
+
+
+def run_password_reset_journey(page) -> None:
+    page.goto(f"{BASE}/login/fresh", wait_until="networkidle")
+    page.get_by_test_id("login-reset-link").wait_for()
+    page.get_by_test_id("login-reset-link").click()
+    page.get_by_test_id("reset-submit").wait_for()
+    seeded = seed_reset()
+    page.locator('input[type="email"]').fill(seeded["email"])
+    page.get_by_test_id("reset-submit").click()
+    page.get_by_test_id("reset-sent").wait_for()
+    seeded = seed_reset()
+    page.goto(f"{BASE}/set-password?token={seeded['token']}", wait_until="networkidle")
+    page.get_by_test_id("set-password-submit").wait_for()
+    page.locator("#new-password").fill(seeded["password"])
+    page.locator('input[name="confirm"]').fill(seeded["password"])
+    page.get_by_test_id("set-password-submit").click()
+    page.get_by_test_id("set-password-done").wait_for()
+    page.goto(f"{BASE}/login/fresh", wait_until="networkidle")
+    page.get_by_test_id("login-submit").wait_for()
+    page.locator('input[name="identity"]').fill(seeded["username"])
+    page.locator('input[autocomplete="current-password"]').fill(seeded["password"])
+    page.get_by_test_id("login-submit").click()
+    page.wait_for_url("**/admin/api-keys", timeout=30000)
+    page.get_by_test_id("nav-keys").wait_for()
+    page.get_by_test_id("nav-sign-out").click()
+    page.get_by_test_id("admin-login").wait_for()
+
+
 def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -97,6 +139,7 @@ def main() -> None:
 
         page.set_default_timeout(60_000)
         run_invite_accept_journey(page)
+        run_password_reset_journey(page)
 
         page.goto(f"{BASE}/", wait_until="domcontentloaded")
         page.get_by_test_id("admin-home-instructions").wait_for()
@@ -111,6 +154,10 @@ def main() -> None:
         assert "Authorization: Bearer" in instructions.content()
         assert instructions.get_by_test_id("guide-capabilities").is_visible()
         assert "search_restaurants" in instructions.content()
+        assert "discover_places" in instructions.content()
+        assert "arrange_day" in instructions.content()
+        assert "POST /v1/discover_places" in instructions.content()
+        assert "POST /v1/arrange_day" in instructions.content()
         assert "POST /v1/chat" in instructions.content()
         assert "Tripadvisor.enrich" in instructions.content()
         instructions.close()
@@ -165,7 +212,8 @@ def main() -> None:
         )
         assert places_status == 200
         assert places_body.get("ok") is True
-        assert places_body.get("data")
+        places_data = places_body.get("data")
+        assert isinstance(places_data, list) and len(places_data) > 0, places_body
 
         unsigned_status, unsigned_body = delete_json("/api/admin/api-keys", {"ids": ["not-a-key"]})
         assert unsigned_status == 401

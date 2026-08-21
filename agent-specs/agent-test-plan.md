@@ -1547,7 +1547,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M5-AUTH01 | Unit | 密码重置 token TTL = 4h | 已覆盖 |
 | TC-M5-AUTH02 | Unit | Session payload 含 `iat` | 已覆盖 |
 | TC-M5-E2E01 | E2E | 邀请 → 设密码 → 登录 | 已覆盖（`e2e/test_admin.py`） |
-| TC-M5-E2E02 | E2E | 密码重置 → 邮件 → 设密码 → 登录 | **pending（MVP-7）** |
+| TC-M5-E2E02 | E2E | 密码重置 → 邮件 → 设密码 → 登录 | 已覆盖（`e2e/test_admin.py` + `scripts/seed-e2e-reset.ts`） |
 
 ---
 
@@ -1556,7 +1556,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 > **与 Claude Code Plan**（`~/.claude/plans/flickering-humming-gizmo.md`）对照：  
 > Plan 中的 TC-M6-PA*（prompt-assembler）/ IT*（itinerary Zod）由单测覆盖（`prompt-assembler.test.ts`、`itinerary-planner.test.ts`）。  
 > 下表为落地后续增的 MCP/token/photos 矩阵。  
-> **阻塞：** TC-M6-DP05 / AD08 需 HTTP 路由（当前仅 MCP）→ 标 pending。  
+> **阻塞：** 无（HTTP DP05/AD08 已落地）。  
 > Plan 中大量 E2E-live 边界（R*/T*/B*/E*）未全部自动化 → MVP-7 backlog，不虚构已绿。
 
 ### discover_places MCP 工具
@@ -1567,7 +1567,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M6-DP02 | Unit | discover_places 返回候选餐厅 ≤ 8 个 | 目标 |
 | TC-M6-DP03 | Unit | 候选含 name, type, rating, lat/lng（不含 hours/price） | 目标 |
 | TC-M6-DP04 | Unit | 天气数据包含在返回中 | 目标 |
-| TC-M6-DP05 | HTTP | /v1/discover_places 返回 JSON 含 candidates + weather | **pending（无 HTTP 路由）** |
+| TC-M6-DP05 | HTTP | /v1/discover_places 返回 JSON 含 candidates + weather | `tests/dispatch.test.ts` |
 
 ### arrange_day MCP 工具
 
@@ -1580,7 +1580,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M6-AD05 | Unit | Zod 校验失败 → 重试一次 | 目标 |
 | TC-M6-AD06 | Unit | 2 次失败 → fallback 旧代码 + outcomeKey | 目标 |
 | TC-M6-AD07 | Unit | 候选 name 不在列表 → Zod 拒绝 | 目标 |
-| TC-M6-AD08 | HTTP | /v1/arrange_day 返回单天 JSON | **pending（无 HTTP 路由）** |
+| TC-M6-AD08 | HTTP | /v1/arrange_day 返回单天 JSON | `tests/dispatch.test.ts` |
 
 ### Token 优化
 
@@ -1621,6 +1621,4 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | 来源 | 说明 |
 |------|------|
 | TC-M6-PA* / IT* 索引 | 已有单测文件；可在索引表补正式 ID 映射 |
-| Plan E2E-live R/T/B/E | 范围过宽、交通边界、冷门城市等 — 未全部脚本化 |
-| TC-M5-E2E02 | 密码重置 E2E |
-| TC-M6-DP05 / AD08 | HTTP discover/arrange |
+| Plan E2E-live R/T/B/E | 范围过宽、交通边界、冷门城市等 — 未全部脚本化；opt-in live |

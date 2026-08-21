@@ -17,6 +17,7 @@ services:
       APP_URL: ${APP_URL:-https://places.agent-mate.ai}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
       PLACES_VENDOR_MODE: ${PLACES_VENDOR_MODE:-live}
+      ITINERARY_MODE: ${ITINERARY_MODE:-llm}
       PROMPT_ID: ${PROMPT_ID:-chat.v1}
       GLOSSARY_ID: ${GLOSSARY_ID:-}
       CATALOG_PACK: ${CATALOG_PACK:-catalogs.v1}

@@ -18,7 +18,7 @@
 | 用户测试用例（ChatBox MCP） | [`agent-test-plan.md`](./agent-test-plan.md) §13–§19 |
 | 技术设计 | [`agent-design.md`](./agent-design.md) |
 
-**状态：** MVP-1 / **MVP-2** 已验收（2026-08-19）。**MVP-3a～MVP-6** 代码已落地（见 [`0.refactor-plan.md`](./0.refactor-plan.md)）；本文件 Feature **24–31** 补齐对应 AC。文档债收尾属 **MVP-7**。
+**状态：** MVP-1 / **MVP-2** 已验收（2026-08-19）。**MVP-3a～MVP-7** 代码与收尾已落地（见 [`0.refactor-plan.md`](./0.refactor-plan.md)）；本文件 Feature **24–31** 对应 AC。
 
 ### Given-When-Then 约定
 
@@ -115,7 +115,7 @@
 | **MVP-4b — 性能** | Geocode/search 缓存 + itinerary 并行（目标 <15s） | **27** |
 | **MVP-5 — Admin 加固** | API 错误映射、Error Boundary、reset 4h、session iat；邀请 E2E 已有，密码重置 E2E 待补 | **28** |
 | **MVP-6 — Prompt + LLM 行程** | Prompt assembler、LLM itinerary+Zod、MCP `discover_places`/`arrange_day` | **29, 30, 31** |
-| **MVP-7 — 收尾** | Specs/README 对齐、password-reset E2E、HTTP discover/arrange 决策、`ITINERARY_MODE` 默认值诚实化 | — |
+| **MVP-7 — 收尾** | HTTP discover/arrange、password-reset E2E、`make quality`（Branches≥80%）、Guide + release-bot 部署清单 | — |
 
 **MVP-1 说明**
 
@@ -170,7 +170,7 @@
 | 28 | app | Admin API 加固 | `places-agent-admin-hardening` | Prisma 错误→404/409、Admin Error Boundary、reset token 4h、session iat；邀请 E2E 已有，密码重置 E2E 待补 | 见下文 | **5** |
 | 29 | agent | Prompt 组装器 | `places-agent-prompt-assembler` | base.{en,zh} + overlays 拼接系统 prompt；budget/time-of-day 内联 | 见下文 | **6** |
 | 30 | agent | LLM 行程规划 | `places-agent-itinerary-llm` | 单 LLM+自查+Zod；`ITINERARY_MODE=llm\|legacy`；失败 fallback 旧路径 | 见下文 | **6** |
-| 31 | agent | 行程 MCP 拆分 | `places-agent-itinerary-mcp-split` | MCP `discover_places` / `arrange_day`；HTTP 对等路由待 MVP-7 | 见下文 | **6** |
+| 31 | agent | 行程 MCP 拆分 | `places-agent-itinerary-mcp-split` | MCP `discover_places` / `arrange_day`；HTTP 对等路由 ✅ MVP-7 | 见下文 | **6** |
 
 ---
 
@@ -2397,7 +2397,7 @@ When E2E
 Then 邀请 → 设密码 → 登录 通过
 
 Given 密码重置全流程 E2E  
-Then **pending（MVP-7）** — 规格要求存在，自动化尚未落地
+Then 申请重置 → seed token → 设新密码 → 登录 通过（`e2e/test_admin.py` + `scripts/seed-e2e-reset.ts`，MVP-7）
 
 ---
 
@@ -2484,9 +2484,8 @@ Then fallback legacy 路径 + outcomeKey
 
 Given 未设置环境变量  
 When 读取模式  
-Then **当前实现** 默认为 `legacy`（`process.env.ITINERARY_MODE ?? "legacy"`）  
-And 设计意图为默认 `llm` — 生产启用 LLM 须显式设置 `ITINERARY_MODE=llm`  
-（对齐工作列入 MVP-7）
+Then 默认为 `llm`（`process.env.ITINERARY_MODE ?? "llm"`）  
+And 旧路径测试须显式设置 `ITINERARY_MODE=legacy`
 
 ### US4 — 范围过宽
 
@@ -2522,12 +2521,13 @@ Given `arrange_day`
 When 调用成功  
 Then 返回单天 blocks（含 reason）；可选 `from_origin` / `to_destination`
 
-### US2 — HTTP 对等（未交付）
+### US2 — HTTP 对等
 
 **AC2**
 
-Given 设计曾标 `/v1/discover_places`、`/v1/arrange_day`  
-Then **当前仅 MCP**；HTTP 路由 **pending（MVP-7）**  
+Given HTTP `POST /v1/discover_places` 与 `POST /v1/arrange_day`  
+When 使用有效 caller Bearer  
+Then 返回与 MCP 同义的 JSON envelope（`agent`、`ok`、`data`）  
 And `plan_itinerary` 的 HTTP 路径保持可用
 
 ### US3 — 配图
