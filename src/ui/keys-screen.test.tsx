@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { ApiKeyRow } from "./admin-api";
 import { LocaleProvider } from "./locale";
@@ -13,6 +13,7 @@ const keys: ApiKeyRow[] = [
     name: "alpha",
     description: "",
     prefix: "pa_aaaa",
+    secret: "pa_aaaa_full_secret_value_alpha",
     status: "ACTIVE",
     issued: "2026-08-18",
   },
@@ -21,6 +22,7 @@ const keys: ApiKeyRow[] = [
     name: "beta",
     description: "",
     prefix: "pa_bbbb",
+    secret: null,
     status: "ACTIVE",
     issued: "2026-08-18",
   },
@@ -122,5 +124,30 @@ describe("KeysScreen bulk select", () => {
     const confirm = screen.getByTestId("keys-delete-selected-confirm");
     expect(confirm.getAttribute("data-i18n")).toBe("admin.keys.delete_selected_submit");
     expect(document.querySelector(".dialog-backdrop.is-open")).toBeTruthy();
+  });
+});
+
+describe("KeysScreen copy secret", () => {
+  it("should_copy_full_secret_when_copy_clicked", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderKeys();
+    const copy = await screen.findByTestId("keys-copy-alpha");
+    expect((copy as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(copy);
+    expect(writeText).toHaveBeenCalledWith("pa_aaaa_full_secret_value_alpha");
+    await waitFor(() => {
+      expect(copy.textContent).toBe("Copied");
+    });
+  });
+
+  it("should_disable_copy_when_secret_is_null", async () => {
+    renderKeys();
+    const copy = await screen.findByTestId("keys-copy-beta");
+    expect((copy as HTMLButtonElement).disabled).toBe(true);
+    expect(copy.getAttribute("title")).toMatch(/Regenerate/i);
   });
 });

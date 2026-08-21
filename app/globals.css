@@ -874,6 +874,11 @@ input:focus {
   padding: 2.25rem 2rem 4rem;
 }
 
+/* Keys table needs room for Copy + Edit + Regenerate + Delete on one line */
+.content--keys {
+  max-width: min(100%, 56rem);
+}
+
 .app-body .guide-body {
   margin: 0;
   max-width: var(--guide-max);
@@ -1085,7 +1090,8 @@ td.table-check {
 [data-testid="keys-table"] tbody td,
 [data-testid="keys-table"] tbody td .mono,
 [data-testid="keys-table"] tbody td .status,
-[data-testid="keys-table"] tbody td .row-actions a {
+[data-testid="keys-table"] tbody td .row-actions a,
+[data-testid="keys-table"] tbody td .row-actions button {
   font-family: inherit;
   font-size: 1rem;
   font-weight: 400;
@@ -1093,14 +1099,27 @@ td.table-check {
   line-height: 1.4;
 }
 
+[data-testid="keys-table"] th:nth-child(5),
+[data-testid="keys-table"] td:nth-child(5) {
+  white-space: nowrap;
+}
+
+[data-testid="keys-table"] th:last-child,
+[data-testid="keys-table"] td:last-child {
+  width: 1%;
+  padding-right: 0;
+  white-space: nowrap;
+}
+
 .status.is-on {
   color: var(--ink);
 }
 
 .row-actions {
-  flex-wrap: wrap;
-  gap: 1.15rem;
   display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.85rem;
 }
 
 .row-actions a,
@@ -1113,11 +1132,19 @@ td.table-check {
   border-bottom: 1px solid var(--line-strong);
   cursor: pointer;
   padding: 0;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .row-actions a:hover,
 .row-actions button:hover {
   border-bottom-color: var(--ink);
+}
+
+.row-actions button:disabled {
+  color: var(--mute-soft);
+  border-bottom-color: transparent;
+  cursor: not-allowed;
 }
 
 .empty {

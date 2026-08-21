@@ -89,11 +89,15 @@
     document.querySelectorAll("[data-copy]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var text = btn.getAttribute("data-copy");
+        var idleKey = btn.getAttribute("data-i18n-idle") || btn.getAttribute("data-i18n") || "admin.keys.copy";
+        if (!btn.getAttribute("data-i18n-idle")) {
+          btn.setAttribute("data-i18n-idle", idleKey);
+        }
         var done = function () {
           btn.setAttribute("data-i18n", "admin.common.copied");
           applyI18n();
           setTimeout(function () {
-            btn.setAttribute("data-i18n", "admin.keys.copy");
+            btn.setAttribute("data-i18n", btn.getAttribute("data-i18n-idle") || "admin.keys.copy");
             applyI18n();
           }, 1600);
         };

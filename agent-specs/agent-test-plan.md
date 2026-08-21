@@ -1548,6 +1548,8 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M5-AUTH02 | Unit | Session payload 含 `iat` | 已覆盖 |
 | TC-M5-E2E01 | E2E | 邀请 → 设密码 → 登录 | 已覆盖（`e2e/test_admin.py`） |
 | TC-M5-E2E02 | E2E | 密码重置 → 邮件 → 设密码 → 登录 | 已覆盖（`e2e/test_admin.py` + `scripts/seed-e2e-reset.ts`） |
+| TC-M5-KEY01 | Unit / HTTP | create/regenerate 写入 `CallerApiKey.secret`；list 返回 secret | `tests/keys-secret-persist.test.ts` |
+| TC-M5-KEY02 | Component | Keys 列表 Copy 写入剪贴板；null secret 禁用 | `src/ui/keys-screen.test.tsx` |
 
 ---
 

@@ -18,15 +18,22 @@ describe("caller key rotation", () => {
         name: "rotate",
         keyHash: first.keyHash,
         prefix: first.prefix,
+        secret: first.secret,
         status: "ACTIVE",
       },
     });
     const second = generateCallerSecret();
     await prisma.callerApiKey.update({
       where: { id: row.id },
-      data: { keyHash: second.keyHash, prefix: second.prefix },
+      data: {
+        keyHash: second.keyHash,
+        prefix: second.prefix,
+        secret: second.secret,
+      },
     });
     expect((await authenticateCaller(`Bearer ${first.secret}`)).ok).toBe(false);
     expect((await authenticateCaller(`Bearer ${second.secret}`)).ok).toBe(true);
+    const stored = await prisma.callerApiKey.findUnique({ where: { id: row.id } });
+    expect(stored?.secret).toBe(second.secret);
   });
 });

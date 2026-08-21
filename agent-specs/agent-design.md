@@ -588,12 +588,12 @@ PostgreSQL + Prisma。本地 `DATABASE_URL=postgresql://places_agent:places_agen
 | 实体 | 字段 |
 | --- | --- |
 | `AdminUser` | `id`、`username` 唯一、`email` 唯一、`passwordHash`（设置前为空）、邀请/重置 token **哈希值** + 过期时间 |
-| `CallerApiKey` | `id`、`name`、`description`、`keyHash` 唯一、`prefix`、`status` `ACTIVE`\|`REVOKED`、`lastUsedAt` |
+| `CallerApiKey` | `id`、`name`、`description`、`keyHash` 唯一、`prefix`、可选 `secret`（明文，供管理后台列表 Copy；迁移前行为 `null`）、`status` `ACTIVE`\|`REVOKED`、`lastUsedAt` |
 | Session | **封装 Cookie**，非数据表。后续可选：用户上的 `sessionVersion` 字段用于全部吊销 |
 
 种子数据：用户名 `admin`，邮箱 `me@ethanhuang.com`。**不**将密码内置到镜像中。空哈希 → `/set-password` 或 Resend 重置。
 
-密码：使用 `node:crypto` scrypt 算法。调用方密钥：`pa_` + 32 字节随机数；存储 SHA-256 哈希；明文仅在创建/重新生成时返回**一次**。
+密码：使用 `node:crypto` scrypt 算法。调用方密钥：`pa_` + 32 字节随机数；存储 SHA-256 `keyHash` 用于 Bearer 鉴权，并持久化明文 `secret` 供管理后台列表 Copy（[ADR-034](../../workspace-specs/adr/ADR-034-caller-api-key-secret-at-rest.md)）。创建/重新生成响应仍返回 `secret`；`GET /api/admin/api-keys`（仅会话）亦返回 `secret`（旧行可为 `null`）。
 
 ---
 
@@ -630,7 +630,7 @@ CSRF（仅 Cookie 写操作）：`SameSite=Lax` **加上** `Origin` / `Referer` 
 | `/admin/api-keys/[id]` | 17 US2–4 | `09-key-edit.html` | 会话 |
 | `/admin/users` | 15 US4 | `10-admins.html` | 会话 |
 
-**一次性密钥：** 非 URL。`POST` 创建/重新生成在变更载荷中返回 `secret` → `SecretOncePanel`。卸载时清除。`GET` 不返回明文。不使用 `localStorage`。
+**密钥展示与复制：** 非 URL。`POST` 创建/重新生成在变更载荷中返回 `secret` → `SecretOncePanel`。列表 `GET /api/admin/api-keys` 返回 `secret`（或 `null`）供行内 **Copy**（`admin.keys.copy_list`）；表格单元格不展开完整明文。`secret == null` 时 Copy 禁用。不使用 `localStorage`。
 
 **国际化：** 自定义目录 `messages/{EN,CN,HK,TW}.json` + `t(locale, key, vars)`。**不添加 `next-intl`。** 缺失 key → `EN` → 原始 key。从 `ui-mockup/assets/i18n.js` 初始化（去掉画廊 key）。HK 与 TW 必须有所区别。邮件复用相同文件（`admin.reset.mail_body`、`admin.users.invite_mail_body`，含 `{url}`）。邀请/重置 `{url}` 为绝对路径：依次使用 `PUBLIC_BASE_URL`、`APP_URL`，本地回退 `http://localhost:${PORT}`，生产环境为 `https://places.agent-mate.ai`。`POST /api/admin/locale` 后调用 `router.refresh()`。`html lang`：`en` / `zh-CN` / `zh-HK` / `zh-TW`。
 
@@ -639,8 +639,8 @@ CSRF（仅 Cookie 写操作）：`SameSite=Lax` **加上** `Origin` / `Referer` 
 | 界面操作 | 接口 |
 | --- | --- |
 | 页头问候语 | `GET /api/admin/session` → `{ name, email, mustSetPassword }` |
-| 密钥列表 | `GET /api/admin/api-keys`（前缀，不含密钥） |
-| 签发/重新生成 | `POST` / `POST …/regenerate` **一次性**返回 `secret` |
+| 密钥列表 | `GET /api/admin/api-keys`（含 `prefix` + 可选 `secret`） |
+| 签发/重新生成 | `POST` / `POST …/regenerate` 返回 `secret` 并写入库 |
 | 编辑 | 仅 `PATCH` name/description |
 | 删除单个 | `DELETE /api/admin/api-keys/[id]` |
 | 批量删除 | `DELETE /api/admin/api-keys`，请求体 `{ ids }`（最多 100 个） |
@@ -649,9 +649,9 @@ CSRF（仅 Cookie 写操作）：`SameSite=Lax` **加上** `Origin` / `Referer` 
 
 错误格式：`{ error: { key } }`。在全部四种语言目录中新增以下 key：`admin.common.loading`、`admin.common.retry`、`admin.keys.loading`、`admin.keys.error`、`admin.users.loading`、`admin.users.error`、`admin.users.invite_sent`、`errors.session_expired`、`errors.invite_failed`、`errors.csrf`。保留原型 key（`admin.keys.empty`、`errors.login_failed`、`errors.password_required`、`admin.reset.sent`、`admin.register.disabled_prefix`、`admin.register.contact_admin`、`admin.register.disabled_suffix`、`admin.register.wechat_qr_alt`、`admin.register.wechat_qr_caption`……）。加载时不得清空页面框架。登录注册关闭提示板使用上述 key，协议为 `api-key`；资源文件 `public/EthanWeChat.png`（与 kb.agent-mate.ai 使用同一文件）。
 
-**选择器（`data-testid`）：** `admin-home-instructions`、`admin-login`、`register-disabled`、`contact-admin`、`contact-admin-qr`、`login-submit`、`login-error`、`accept-invite-submit`、`accept-invite-done`、`accept-invite-sign-in`、`accept-invite-error`、`landing-instructions`、`admin-hello`、`nav-keys`、`nav-users`、`nav-sign-out`、`issue-key`、`keys-table`、`keys-empty`、`copy-secret`、`users-table`、`delete-admin-confirm`、`locale-EN` … `locale-TW`、`guide-capabilities`、`guide-toc-capabilities`、`guide-capabilities-table`。按行删除：`delete-admin-{id}`。
+**选择器（`data-testid`）：** `admin-home-instructions`、`admin-login`、`register-disabled`、`contact-admin`、`contact-admin-qr`、`login-submit`、`login-error`、`accept-invite-submit`、`accept-invite-done`、`accept-invite-sign-in`、`accept-invite-error`、`landing-instructions`、`admin-hello`、`nav-keys`、`nav-users`、`nav-sign-out`、`issue-key`、`keys-table`、`keys-empty`、`keys-copy-{name}`、`copy-secret`、`users-table`、`delete-admin-confirm`、`locale-EN` … `locale-TW`、`guide-capabilities`、`guide-toc-capabilities`、`guide-capabilities-table`。按行删除：`delete-admin-{id}`。
 
-**不得**出现在客户端包中：地图密钥、`OPENAI_*`、`GMAPS_MCP_*`、`RESEND_*`、`SESSION_SECRET`、`OPEN_METEO_API_KEY`、变更后的调用方密钥明文。路由处理器：`import "server-only"`。不使用 `NEXT_PUBLIC_` 暴露密钥。
+**不得**出现在客户端静态包 / `NEXT_PUBLIC_*` 中：地图密钥、`OPENAI_*`、`GMAPS_MCP_*`、`RESEND_*`、`SESSION_SECRET`、`OPEN_METEO_API_KEY`。调用方 `secret` 仅经管理会话 API 下发至运营者后台，不写入公开 `/v1` 响应。路由处理器：`import "server-only"`。
 
 ```text
 app/

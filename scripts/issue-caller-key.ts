@@ -14,6 +14,7 @@ async function main() {
       name,
       keyHash: generated.keyHash,
       prefix: generated.prefix,
+      secret: generated.secret,
       status: "ACTIVE",
     },
   });

@@ -47,6 +47,7 @@ export async function issueTestCallerKey(): Promise<string> {
       name: "http-tc-h",
       keyHash: generated.keyHash,
       prefix: generated.prefix,
+      secret: generated.secret,
       status: "ACTIVE",
     },
   });

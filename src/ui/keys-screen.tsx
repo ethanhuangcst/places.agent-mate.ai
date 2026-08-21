@@ -57,7 +57,7 @@ export function KeysScreen() {
   }
 
   return (
-    <main id="content" className="content">
+    <main id="content" className="content content--keys">
       <div className="page-head">
         <p className="eyebrow" data-i18n="admin.keys.eyebrow">
           {tt("admin.keys.eyebrow")}
@@ -154,6 +154,7 @@ export function KeysScreen() {
                   <td>{formatIssuedDate(locale, row.issued)}</td>
                   <td>
                     <div className="row-actions">
+                      <KeyCopyButton name={row.name} secret={row.secret} />
                       <Link href={`/admin/api-keys/${row.id}`} data-i18n="admin.keys.edit">
                         {tt("admin.keys.edit")}
                       </Link>
@@ -224,5 +225,42 @@ export function KeysScreen() {
         </button>
       </Dialog>
     </main>
+  );
+}
+
+function KeyCopyButton({ name, secret }: { name: string; secret: string | null }) {
+  const tt = useT();
+  const [copied, setCopied] = useState(false);
+  const available = Boolean(secret);
+
+  async function onCopy() {
+    if (!secret) return;
+    try {
+      await navigator.clipboard.writeText(secret);
+    } catch {
+      /* clipboard may be unavailable; still acknowledge */
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  return (
+    <button
+      type="button"
+      data-i18n={copied ? "admin.common.copied" : "admin.keys.copy_list"}
+      data-testid={`keys-copy-${name}`}
+      disabled={!available}
+      title={available ? undefined : tt("admin.keys.copy_unavailable")}
+      aria-label={
+        !available
+          ? tt("admin.keys.copy_unavailable")
+          : copied
+            ? tt("admin.keys.copied_to_clipboard")
+            : tt("admin.keys.copy_list")
+      }
+      onClick={() => void onCopy()}
+    >
+      {copied ? tt("admin.common.copied") : tt("admin.keys.copy_list")}
+    </button>
   );
 }

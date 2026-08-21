@@ -28,6 +28,8 @@ model CallerApiKey {
   description String    @default("")
   keyHash     String    @unique
   prefix      String
+  /** Plaintext caller secret for admin Copy; null on pre-migration rows. */
+  secret      String?
   status      String    @default("ACTIVE")
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())

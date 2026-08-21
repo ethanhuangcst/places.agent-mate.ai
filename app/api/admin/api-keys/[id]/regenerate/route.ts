@@ -12,7 +12,11 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
     const generated = generateCallerSecret();
     const row = await prisma.callerApiKey.update({
       where: { id },
-      data: { keyHash: generated.keyHash, prefix: generated.prefix },
+      data: {
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        secret: generated.secret,
+      },
     });
     return NextResponse.json({
       id: row.id,

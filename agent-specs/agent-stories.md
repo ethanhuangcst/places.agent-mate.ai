@@ -1674,7 +1674,7 @@ Scenario: 删除通知邮件失败
 
 ## `places-agent-admin-api-keys` — 调用方 API 密钥
 
-类别：**app**。签发功能 12 所检查的**调用方 API 密钥**。不显示地图供应商密钥。明文密钥仅在创建和重新生成时显示；复制使用带 i18n 标签的控件。所有其他 UI 文案为 i18n 键。
+类别：**app**。签发功能 12 所检查的**调用方 API 密钥**。不显示地图供应商密钥。明文 `secret` 入库供列表 Copy（[ADR-034](../../workspace-specs/adr/ADR-034-caller-api-key-secret-at-rest.md)）；创建/重新生成面板仍可立即复制。所有其他 UI 文案为 i18n 键。
 
 ### 用户故事 1 — 创建调用方 API 密钥
 
@@ -1691,6 +1691,7 @@ Scenario: 创建带名称、描述、生成和复制的密钥
   Then 生成新密钥
   And 管理员可通过键 admin.keys.copy 将密钥复制到剪贴板
   And 明文密钥在创建时显示
+  And 该密钥写入 CallerApiKey.secret，之后可在列表再次 Copy
 ```
 
 #### AC2
@@ -1700,6 +1701,33 @@ Scenario: 已创建的密钥可调用智能体
   Given 管理员已创建调用方 API 密钥
   When 调用方使用该密钥搜索餐厅
   Then 调用方通过认证
+```
+
+### 用户故事 1b — 列表复制调用方 API 密钥
+
+**作为** 管理员
+**我希望** 在 Keys 列表一键复制完整密钥
+**以便** 无需重新签发即可粘贴到调用方配置
+
+#### AC1
+
+```gherkin
+Scenario: 列表 Copy 写入剪贴板
+  Given 已登录管理员
+  And 列表中存在带入库 secret 的密钥"what2eat-prod"
+  When 管理员点击该行 Copy（admin.keys.copy_list）
+  Then 完整 secret 写入剪贴板
+  And 按钮短暂显示 admin.common.copied
+```
+
+#### AC2
+
+```gherkin
+Scenario: 无入库 secret 的旧密钥不能 Copy
+  Given 列表中存在 secret 为 null 的遗留密钥
+  When 管理员查看该行
+  Then Copy 禁用
+  And 提示需重新签发（admin.keys.copy_unavailable）
 ```
 
 ### 用户故事 2 — 编辑调用方 API 密钥
@@ -1733,6 +1761,7 @@ Scenario: 重新生成使旧密钥失效
   Then 显示新密钥
   And"old-secret"被拒绝，返回 errors.caller_unauthorized
   And 新密钥认证调用方
+  And 新密钥写入 CallerApiKey.secret
 ```
 
 ### 用户故事 4 — 删除调用方 API 密钥

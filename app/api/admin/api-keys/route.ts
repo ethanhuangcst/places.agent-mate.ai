@@ -18,6 +18,7 @@ export async function GET(request: Request) {
       name: k.name,
       description: k.description,
       prefix: k.prefix,
+      secret: k.secret,
       status: k.status,
       issued: k.createdAt.toISOString().slice(0, 10),
     })),
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
         description: body.description?.trim() ?? "",
         keyHash: generated.keyHash,
         prefix: generated.prefix,
+        secret: generated.secret,
         status: "ACTIVE",
       },
     });

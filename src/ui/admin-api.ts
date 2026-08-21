@@ -52,6 +52,8 @@ export type ApiKeyRow = {
   name: string;
   description: string;
   prefix: string;
+  /** Full secret when stored; null for pre-migration rows. */
+  secret: string | null;
   status: string;
   issued: string;
 };

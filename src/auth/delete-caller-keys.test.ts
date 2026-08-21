@@ -52,6 +52,7 @@ describe("deleteCallerKeys", () => {
         name: "bulk-a",
         keyHash: first.keyHash,
         prefix: first.prefix,
+        secret: first.secret,
         status: "ACTIVE",
       },
     });
@@ -60,6 +61,7 @@ describe("deleteCallerKeys", () => {
         name: "bulk-b",
         keyHash: second.keyHash,
         prefix: second.prefix,
+        secret: second.secret,
         status: "ACTIVE",
       },
     });
@@ -68,6 +70,7 @@ describe("deleteCallerKeys", () => {
         name: "keep",
         keyHash: keep.keyHash,
         prefix: keep.prefix,
+        secret: keep.secret,
         status: "ACTIVE",
       },
     });
