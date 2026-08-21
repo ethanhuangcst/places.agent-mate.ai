@@ -477,6 +477,141 @@ function assembleToolPrompt(ctx: PromptContext): string;
 
 环境变量：`PROMPT_ID`、`GLOSSARY_ID`（`EN`/`CN` 时为 null）、`CATALOG_PACK`。回滚 = 锁定 id。发布后不得原地修改 `v1`。
 
+### 9.1 Prompt 组装器 (MVP-6)
+
+**模式：** 基础模板 + 场景片段拼接。按 locale 选 base prompt，按 intent 追加 overlay。
+
+```
+prompts/
+  base.en.md                    — 角色定义 + 通用规则（英文）
+  base.zh.md                    — 角色定义 + 通用规则（中文）
+  overlays/
+    meal-search.md               — 餐厅搜索场景指引
+    place-search.md              — 景点搜索场景指引
+    itinerary-planner.md         — 行程规划 prompt（给 Planner LLM）
+    itinerary-reviewer.md        — 行程审核 prompt（给 Reviewer LLM）
+    budget.md                    — 预算上下文
+    time-of-day.md               — 时段上下文（早午晚）
+```
+
+```typescript
+// src/agent/prompt-assembler.ts
+interface PromptContext {
+  locale: Locale;
+  intent: "meal" | "place" | "itinerary-planner" | "itinerary-reviewer" | "chat";
+  budget?: "budget" | "premium";
+  timeOfDay?: "morning" | "afternoon" | "evening";
+  glossary?: string;
+}
+
+function assembleSystemPrompt(ctx: PromptContext): string;
+```
+
+`prompts/chat/v1.md` 迁移为 `prompts/base.en.md`，内容作为英文 base 模板。
+
+拼接顺序：`base.{locale}.md` → `overlays/{intent}.md` → `overlays/budget.md`（可选）→ `overlays/time-of-day.md`（可选）→ glossary（HK/TW 时）。
+
+### 9.2 行程规划重构：单 LLM + 自查 + Zod (MVP-6)
+
+**当前架构（代码主导）：** 搜索景点 → 按距离排序 → 硬编码插入餐厅槽位 → 计算路线。问题：不像人类旅行者思维，缺乏路线顺畅度、体验多样性、时段匹配、推荐理由。
+
+**新架构（单 LLM + 自查 + Zod 校验）：**
+
+```
+Phase 1: 代码搜索
+  searchPlaces(城市) → top 15 候选景点（含 lat/lng, hours, rating）
+  searchRestaurants(城市) → top 15 候选餐厅（含 price_level）
+  getWeather(日期) → 天气
+  候选含 lat/lng，LLM 自行判断远近
+
+Phase 2: LLM 规划 + 自查（一次调用）
+  system: assembleSystemPrompt({ intent: "itinerary", locale, budget })
+  user: 候选列表 + 天气 + 约束 + origin/destination
+
+  itinerary-planner.md 指令：
+    规划：路线顺序、体验多样性、时段匹配、停留时间、推荐理由、A/B 选项
+    自查：相邻景点坐标靠近、开门时间匹配、每天不超上限、所有地点来自候选
+
+Phase 3: 代码 Zod 校验
+  校验 JSON 结构 + 硬约束（name 在候选中、每天点数 ≤ pace 上限）
+  失败 → 重试一次（反馈错误给 LLM）→ 仍失败 → fallback 旧代码
+
+Phase 4: 代码格式化
+  保留推荐理由 + A/B 选项
+```
+
+**新旧切换（Feature flag）：** `ITINERARY_MODE=llm`（默认）| `legacy`。旧代码保留不删。
+
+**搜索默认范围（两级判断）：**
+
+| 情况 | 处理 |
+|------|------|
+| 有城市名（geocode address 含 city/市） | 正常搜索，统一半径 5km |
+| 无城市名（国家/大洲级） | → `errors.location_too_broad` |
+
+**出发地/返回地交通逻辑：**
+
+有 origin 时 → Planner 推荐出发地到 place 1 的交通 + place N 到返回地的交通。JSON 含 `from_origin` / `to_destination`（含 transport, duration_min, depart_time/arrive_time）。
+
+无 origin 时 → 不推荐出发/返回交通。第一个景点 start_time 预留交通缓冲（≥ 10:00）。JSON 中 `from_origin` / `to_destination` 不出现。
+
+**LLM fallback：** `ITINERARY_MODE=llm` 下 LLM 失败 → 自动降级到旧代码 + 返回 `outcomeKey = "info.itinerary_basic_mode"`，caller 显示提示 banner。
+
+**其他边界条件：**
+
+| 边界 | 处理 |
+|------|------|
+| origin ≠ destination（单程） | 搜索锚点逐天偏移 |
+| 候选不足 | Planner prompt 说明"候选有限" |
+| 天气极端 | prompt 中提示优先室内 |
+| Zod 校验 2 次失败 | fallback 旧代码 + `outcomeKey = "info.itinerary_basic_mode"` |
+
+**新旧切换（Feature flag）：**
+
+```typescript
+// itinerary.ts 入口
+const mode = process.env.ITINERARY_MODE ?? "llm"; // 默认新流程
+if (mode === "llm") return llmPlanItinerary(input);
+else return legacyTimedItinerary(input); // 旧代码保留，不删除
+```
+
+**LLM 实例：** 使用同一 Quanzil 实例（`OPENAI_*`），一次调用完成规划+自查。
+
+**LLM 输出 schema（在 `itinerary-planner.md` 中约束，代码用 Zod 校验）：**
+
+```json
+{
+  "days": [{
+    "day_index": 1, "date": "2026-08-25",
+    "blocks": [{
+      "name": "精确匹配候选列表中的 name",
+      "type": "attraction | lunch | dinner | cafe",
+      "start_time": "10:00",
+      "duration_min": 90,
+      "reason": "推荐理由",
+      "alternatives": [{ "name": "...", "reason": "..." }]
+    }]
+  }]
+}
+```
+
+代码用 Zod 校验 LLM 返回。Zod 失败 → 重试一次（反馈错误信息）→ 仍失败 → fallback 旧代码。
+
+**与现有代码的关系：**
+
+| 现有模块 | 变化 |
+|---------|------|
+| `itinerary.ts` | 新增 feature flag 切换入口；旧逻辑保留为 `legacyTimedItinerary` |
+| `itinerary-timed.ts` | 旧代码保留不删；新流程不调用其排序/分组函数 |
+| `agent/loop.ts` | 集成 prompt-assembler |
+| `search-keywords.ts` | 保留（搜索候选仍需多语言关键词） |
+
+**新增文件：**
+- `src/agent/prompt-assembler.ts` — base + overlay 拼接（budget/time-of-day 内联）
+- `src/core/itinerary-planner.ts` — 单 LLM 行程规划（搜索 → LLM → Zod → fallback）
+- `prompts/base.en.md` / `base.zh.md` — 从 v1.md 迁移
+- `prompts/overlays/itinerary-planner.md` / `meal-search.md` / `place-search.md`
+
 ---
 
 ## 10. 数据（[ADR-025](../../workspace-specs/adr/ADR-025-places-agent-postgres-prisma.md)）

@@ -657,6 +657,15 @@ export async function planItinerary(
   deps: PlanItineraryDeps = {},
 ): Promise<ToolResult<ItineraryPlan | TimedItineraryPlan | null>> {
   if (input.detail === "timed") {
+    const mode = process.env.ITINERARY_MODE ?? "legacy"; // default legacy until LLM planner is wired
+    if (mode === "llm") {
+      try {
+        return await planTimed(input, deps); // TODO: replace with llmPlanItinerary when wired
+      } catch {
+        const result = await planTimed(input, deps);
+        return { ...result, outcomeKey: "info.itinerary_basic_mode" };
+      }
+    }
     return planTimed(input, deps);
   }
   return planStops(input, deps);
