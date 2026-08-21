@@ -1480,3 +1480,64 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 - 晚餐块在 17:30–20:00 之间
 - 下午茶块（如有）在 14:00–18:00 之间
 - 整个行程中无餐饮场所重复出现
+
+---
+
+## MVP-6 续：MCP 工具拆分 + Token 优化 + 行程配图
+
+### discover_places MCP 工具
+
+| ID | 类型 | 主题 |
+|----|------|------|
+| TC-M6-DP01 | Unit | discover_places 返回候选景点 ≤ 8 个 |
+| TC-M6-DP02 | Unit | discover_places 返回候选餐厅 ≤ 8 个 |
+| TC-M6-DP03 | Unit | 候选含 name, type, rating, lat/lng（不含 hours/price） |
+| TC-M6-DP04 | Unit | 天气数据包含在返回中 |
+| TC-M6-DP05 | HTTP | /v1/discover_places 返回 JSON 含 candidates + weather |
+
+### arrange_day MCP 工具
+
+| ID | 类型 | 主题 |
+|----|------|------|
+| TC-M6-AD01 | Integration | arrange_day 返回单天 JSON（mock LLM） |
+| TC-M6-AD02 | Integration | 每个 block 含 reason 字段 |
+| TC-M6-AD03 | Integration | 有 origin 时含 from_origin 交通段 |
+| TC-M6-AD04 | Integration | 无 origin 时无 from_origin，start_time ≥ 10:00 |
+| TC-M6-AD05 | Unit | Zod 校验失败 → 重试一次 |
+| TC-M6-AD06 | Unit | 2 次失败 → fallback 旧代码 + outcomeKey |
+| TC-M6-AD07 | Unit | 候选 name 不在列表 → Zod 拒绝 |
+| TC-M6-AD08 | HTTP | /v1/arrange_day 返回单天 JSON |
+
+### Token 优化
+
+| ID | 类型 | 主题 |
+|----|------|------|
+| TC-M6-TK01 | Unit | user message 候选数 ≤ 8 per type |
+| TC-M6-TK02 | Unit | user message 不含 hours/price 详情 |
+| TC-M6-TK03 | Unit | max_completion_tokens = 2048 |
+| TC-M6-TK04 | Unit | LLM 超时 45s + AbortController |
+
+### 行程配图
+
+| ID | 类型 | 主题 |
+|----|------|------|
+| TC-M6-PH01 | Unit | block.photos 从候选 photos 字段匹配 |
+| TC-M6-PH02 | Unit | 无 photos 的候选 → block.photos 为 undefined |
+| TC-M6-PH03 | Unit | 封面图 = Day 1 第一个 attraction 的首张 photo |
+
+### 性能回归
+
+| ID | 类型 | 主题 |
+|----|------|------|
+| TC-M6-PF01 | E2E-live | discover_places 耗时 < 10s |
+| TC-M6-PF02 | E2E-live | arrange_day 单天耗时 < 30s |
+| TC-M6-PF03 | E2E-live | plan_itinerary 1天 < 40s（discover + arrange） |
+| TC-M6-PF04 | E2E-live | plan_itinerary 2天 < 60s |
+
+### MCP 集成
+
+| ID | 类型 | 主题 |
+|----|------|------|
+| TC-M6-MCP01 | HTTP | MCP tools/list 包含 discover_places + arrange_day |
+| TC-M6-MCP02 | HTTP | MCP tools/call discover_places 返回候选 |
+| TC-M6-MCP03 | HTTP | MCP tools/call arrange_day 返回单天行程 |

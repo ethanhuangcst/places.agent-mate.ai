@@ -10,6 +10,7 @@ import {
 } from "../core/tools";
 import { planItinerary } from "../core/itinerary";
 import { type PlanItineraryInput } from "../core/types";
+import { discoverPlaces, arrangeDay } from "../core/itinerary-planner";
 import { toolToEnvelope, type Envelope } from "../http/envelope";
 import { localeSchema, providerIdSchema } from "../http/schemas";
 
@@ -134,6 +135,49 @@ export function createPlacesMcpServer(): McpServer {
     },
     async (args) =>
       jsonResult(toolToEnvelope(await planItinerary(args as PlanItineraryInput))),
+  );
+
+  server.registerTool(
+    "discover_places",
+    {
+      description:
+        "places-agent: Search attraction and restaurant candidates for itinerary planning. Returns candidates list + weather. Use before arrange_day.",
+      inputSchema: {
+        city: z.string(),
+        bounds: z.object({ start: z.string(), end: z.string() }),
+        origin: z.object({ name: z.string().optional(), lat: z.number().optional(), lng: z.number().optional() }).optional(),
+        locale: localeSchema,
+      },
+    },
+    async (args) => {
+      const result = await discoverPlaces(args);
+      return jsonResult({ agent: AGENT_ID, ok: true, data: result });
+    },
+  );
+
+  server.registerTool(
+    "arrange_day",
+    {
+      description:
+        "places-agent: Arrange a single day itinerary from candidates (returned by discover_places). LLM selects and orders places with reasons. Call once per day.",
+      inputSchema: {
+        candidates: z.object({
+          places: z.array(z.any()),
+          restaurants: z.array(z.any()),
+        }),
+        dayIndex: z.number().int().min(1),
+        date: z.string().optional(),
+        origin: z.object({ name: z.string().optional(), lat: z.number().optional(), lng: z.number().optional() }).optional(),
+        destination: z.object({ name: z.string().optional(), lat: z.number().optional(), lng: z.number().optional() }).optional(),
+        pace: z.enum(["tight", "medium", "relaxed"]).optional(),
+        budget: z.enum(["budget", "premium"]).optional(),
+        locale: localeSchema,
+      },
+    },
+    async (args) => {
+      const result = await arrangeDay(args);
+      return jsonResult({ agent: AGENT_ID, ok: true, data: result });
+    },
   );
 
   server.registerTool(

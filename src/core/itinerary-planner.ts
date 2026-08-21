@@ -29,6 +29,7 @@ const BlockSchema = z.object({
   duration_min: z.number().int().min(10).max(480),
   reason: z.string(),
   alternatives: z.array(AlternativeSchema).optional(),
+  photos: z.array(z.string()).optional(), // attached from candidates in Phase 4
 });
 
 const TransportSchema = z.object({
@@ -135,17 +136,16 @@ export function buildUserMessage(input: {
   constraints.push(`max places per day: ${paceLimit(input.pace)}`);
   parts.push(`\nConstraints: ${constraints.join(", ")}`);
 
-  // Candidates
-  parts.push(`\n## Attraction candidates (${input.candidates.places.length}):\n`);
-  for (const p of input.candidates.places.slice(0, 15)) {
-    const hours = p.hours ? ` hours: ${p.hours}` : "";
-    parts.push(`- ${p.name} (${p.category}, rating: ${p.rating ?? "N/A"}, lat: ${p.location.lat.toFixed(4)}, lng: ${p.location.lng.toFixed(4)}${hours})`);
+  // Candidates (max 8 per type — token optimization)
+  const MAX_CANDIDATES = 8;
+  parts.push(`\n## Attraction candidates (${Math.min(input.candidates.places.length, MAX_CANDIDATES)}):\n`);
+  for (const p of input.candidates.places.slice(0, MAX_CANDIDATES)) {
+    parts.push(`- ${p.name} (${p.category}, rating: ${p.rating ?? "N/A"}, lat: ${p.location.lat.toFixed(4)}, lng: ${p.location.lng.toFixed(4)})`);
   }
 
-  parts.push(`\n## Restaurant candidates (${input.candidates.restaurants.length}):\n`);
-  for (const r of input.candidates.restaurants.slice(0, 15)) {
-    const price = r.price_level ? ` price: ${r.price_level}` : "";
-    parts.push(`- ${r.name} (${r.category}, rating: ${r.rating ?? "N/A"}, lat: ${r.location.lat.toFixed(4)}, lng: ${r.location.lng.toFixed(4)}${price})`);
+  parts.push(`\n## Restaurant candidates (${Math.min(input.candidates.restaurants.length, MAX_CANDIDATES)}):\n`);
+  for (const r of input.candidates.restaurants.slice(0, MAX_CANDIDATES)) {
+    parts.push(`- ${r.name} (${r.category}, rating: ${r.rating ?? "N/A"}, lat: ${r.location.lat.toFixed(4)}, lng: ${r.location.lng.toFixed(4)})`);
   }
 
   // Weather
@@ -257,37 +257,53 @@ export async function llmPlanItinerary(
       },
     ];
 
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
-      messages,
-      max_completion_tokens: 4096,
-      temperature: 0.7,
-    });
+    try {
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
+        messages,
+        max_completion_tokens: 2048,
+        temperature: 0.7,
+      }, { timeout: 45_000 });
 
-    const raw = completion.choices[0]?.message?.content;
-    if (!raw) continue;
+      const raw = completion.choices[0]?.message?.content;
+      if (!raw) continue;
 
-    const jsonStr = extractJson(raw);
-    const parsed = LlmItinerarySchema.safeParse(JSON.parse(jsonStr));
-    if (!parsed.success) {
-      lastError = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      continue;
+      const jsonStr = extractJson(raw);
+      const parsed = LlmItinerarySchema.safeParse(JSON.parse(jsonStr));
+      if (!parsed.success) {
+        lastError = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+        continue;
+      }
+
+      // Phase 3: Validate hard constraints
+      const errors = validateItinerary(parsed.data, candidateNames, paceLimit(input.pace));
+      if (errors.length > 0) {
+        lastError = errors.map((e) => `${e.field}: ${e.message}`).join("; ");
+        continue;
+      }
+
+      // Phase 4: Attach photos from candidates
+      const allCandidates = [...candidates.places, ...candidates.restaurants];
+      const enriched: LlmItineraryOutput = {
+        days: parsed.data.days.map((day) => ({
+          ...day,
+          blocks: day.blocks.map((block) => {
+            const candidate = allCandidates.find((c) => c.name === block.name);
+            return { ...block, photos: candidate?.photos };
+          }),
+        })),
+      };
+
+      return enriched;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
     }
-
-    // Phase 3: Validate hard constraints
-    const errors = validateItinerary(parsed.data, candidateNames, paceLimit(input.pace));
-    if (errors.length > 0) {
-      lastError = errors.map((e) => `${e.field}: ${e.message}`).join("; ");
-      continue;
-    }
-
-    return parsed.data;
   }
 
   throw new Error(`LLM itinerary validation failed after 2 attempts: ${lastError}`);
 }
 
-async function searchCandidates(input: LlmPlanInput): Promise<{
+export async function searchCandidates(input: LlmPlanInput): Promise<{
   places: PlaceCard[];
   restaurants: PlaceCard[];
 }> {
@@ -309,6 +325,143 @@ async function searchCandidates(input: LlmPlanInput): Promise<{
     places: placesResult.data ?? [],
     restaurants: restaurantsResult.data ?? [],
   };
+}
+
+// --- MCP tool functions ---
+
+export type DiscoverPlacesInput = {
+  city: string;
+  bounds: { start: string; end: string };
+  origin?: { name?: string; lat?: number; lng?: number };
+  locale: Locale;
+};
+
+export type DiscoverPlacesResult = {
+  candidates: { places: PlaceCard[]; restaurants: PlaceCard[] };
+  weather?: Array<{ date: string; label: string; temp_max_c?: number }>;
+};
+
+/**
+ * MCP tool: discover_places — search candidates for itinerary planning.
+ */
+export async function discoverPlaces(input: DiscoverPlacesInput): Promise<DiscoverPlacesResult> {
+  const candidates = await searchCandidates({
+    city: input.city,
+    numDays: 1,
+    bounds: input.bounds,
+    origin: input.origin,
+    locale: input.locale,
+  });
+  return { candidates };
+}
+
+export type ArrangeDayInput = {
+  candidates: { places: PlaceCard[]; restaurants: PlaceCard[] };
+  dayIndex: number;
+  origin?: { name?: string; lat?: number; lng?: number };
+  destination?: { name?: string; lat?: number; lng?: number };
+  pace?: string;
+  budget?: "budget" | "premium";
+  locale: Locale;
+  date?: string;
+};
+
+export type ArrangeDayResult = LlmItineraryOutput["days"][number] & {
+  photos_cover?: string;
+};
+
+/**
+ * MCP tool: arrange_day — LLM plans a single day from candidates.
+ */
+export async function arrangeDay(input: ArrangeDayInput): Promise<ArrangeDayResult> {
+  const locale = parseLocale(input.locale);
+  const candidateNames = new Set([
+    ...input.candidates.places.map((p) => p.name),
+    ...input.candidates.restaurants.map((r) => r.name),
+  ]);
+  const allCandidates = [...input.candidates.places, ...input.candidates.restaurants];
+
+  const systemPrompt = assembleSystemPrompt({
+    locale,
+    intent: "itinerary",
+    budget: input.budget,
+    glossary: loadGlossary(locale) ?? undefined,
+  });
+
+  const userMessage = buildUserMessage({
+    city: "city",
+    numDays: 1,
+    candidates: input.candidates,
+    pace: input.pace,
+    budget: input.budget,
+    origin: input.origin,
+    destination: input.destination,
+    locale,
+  });
+
+  const openai = createOpenAI();
+  if (!openai) throw new Error("LLM not configured");
+
+  let lastError: string | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: attempt === 0
+        ? userMessage
+        : `${userMessage}\n\nPrevious errors:\n${lastError}\n\nFix and return valid JSON.`
+      },
+    ];
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45_000);
+    try {
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
+        messages,
+        max_completion_tokens: 2048,
+        temperature: 0.7,
+      }, { timeout: 45_000 });
+
+      const raw = completion.choices[0]?.message?.content;
+      if (!raw) continue;
+
+      const jsonStr = extractJson(raw);
+      const parsed = LlmItinerarySchema.safeParse(JSON.parse(jsonStr));
+      if (!parsed.success) {
+        lastError = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+        continue;
+      }
+
+      const day = parsed.data.days[0];
+      if (!day) continue;
+
+      const errors = validateItinerary({ days: [day] }, candidateNames, paceLimit(input.pace));
+      if (errors.length > 0) {
+        lastError = errors.map((e) => `${e.field}: ${e.message}`).join("; ");
+        continue;
+      }
+
+      // Attach photos from candidates
+      const blocksWithPhotos = day.blocks.map((block) => {
+        const candidate = allCandidates.find((c) => c.name === block.name);
+        return { ...block, photos: candidate?.photos };
+      });
+
+      const coverPhoto = blocksWithPhotos.find((b) => b.type === "attraction" && b.photos?.length)?.photos?.[0];
+
+      return {
+        ...day,
+        day_index: input.dayIndex,
+        date: input.date,
+        blocks: blocksWithPhotos,
+        photos_cover: coverPhoto,
+      };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  throw new Error(`arrange_day failed after 2 attempts: ${lastError}`);
 }
 
 // --- Exports ---

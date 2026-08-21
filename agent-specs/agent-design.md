@@ -511,106 +511,79 @@ function assembleSystemPrompt(ctx: PromptContext): string;
 
 拼接顺序：`base.{locale}.md` → `overlays/{intent}.md` → `overlays/budget.md`（可选）→ `overlays/time-of-day.md`（可选）→ glossary（HK/TW 时）。
 
-### 9.2 行程规划重构：单 LLM + 自查 + Zod (MVP-6)
+### 9.2 行程规划：MCP 工具拆分 + Token 优化 (MVP-6)
 
-**当前架构（代码主导）：** 搜索景点 → 按距离排序 → 硬编码插入餐厅槽位 → 计算路线。问题：不像人类旅行者思维，缺乏路线顺畅度、体验多样性、时段匹配、推荐理由。
+**MCP 工具拆分：** 将行程规划拆为两个独立 MCP 工具，支持逐天返回：
 
-**新架构（单 LLM + 自查 + Zod 校验）：**
+| 工具 | 职责 | MCP | HTTP |
+|------|------|-----|------|
+| `discover_places` | 搜景点+餐厅+天气，返回候选列表 | ✅ | ✅ `/v1/discover_places` |
+| `arrange_day` | 从候选中为第 N 天安排路线 | ✅ | ✅ `/v1/arrange_day` |
+| `plan_itinerary` | 一次返回完整行程（内部调 discover + arrange × N） | ✅ | ✅ `/v1/plan_itinerary` |
+
+**MCP 客户端流程：** discover_places → arrange_day(day=1) → arrange_day(day=2) → ...（每步 ~10s）
+**HTTP caller（what2eat）流程：** plan_itinerary（一次返回，内部串行 arrange × N）
+
+**Token 优化：**
+
+| 参数 | 旧值 | 新值 | 效果 |
+|------|------|------|------|
+| 候选数 | 15/type | **8/type** | user message -50% |
+| max_completion_tokens | 4096 | **2048** | 输出生成 -50% |
+| 候选描述 | name+type+rating+lat/lng+hours+price | **name+type+rating+lat/lng** | -30% |
+| LLM 超时 | 无限制 | **45s** + fallback | 用户最多等 ~50s |
+
+**行程配图：** Phase 4 格式化时，用 block.name 匹配候选的 `photos` 字段（来自 MVP-3b），挂回每个 block。封面图 = Day 1 第一个 attraction 的第一张 photo。零额外 API 调用。
+
+**架构流程（单 LLM + 自查 + Zod）：**
 
 ```
-Phase 1: 代码搜索
-  searchPlaces(城市) → top 15 候选景点（含 lat/lng, hours, rating）
-  searchRestaurants(城市) → top 15 候选餐厅（含 price_level）
-  getWeather(日期) → 天气
-  候选含 lat/lng，LLM 自行判断远近
+discover_places(city, bounds):
+  searchPlaces(city) → top 8 候选景点
+  searchRestaurants(city) → top 8 候选餐厅
+  getWeather(dates) → 天气
+  → { candidates, weather }
 
-Phase 2: LLM 规划 + 自查（一次调用）
-  system: assembleSystemPrompt({ intent: "itinerary", locale, budget })
-  user: 候选列表 + 天气 + 约束 + origin/destination
+arrange_day(candidates, day_index, origin, destination, pace, budget, locale):
+  LLM 规划 + 自查（一次调用，max_tokens=2048）
+  Zod 校验 → 失败重试一次 → 仍失败 → fallback 旧代码
+  匹配候选 photos → 挂回 blocks
+  → { day: { blocks, from_origin?, to_destination? } }
 
-  itinerary-planner.md 指令：
-    规划：路线顺序、体验多样性、时段匹配、停留时间、推荐理由、A/B 选项
-    自查：相邻景点坐标靠近、开门时间匹配、每天不超上限、所有地点来自候选
-
-Phase 3: 代码 Zod 校验
-  校验 JSON 结构 + 硬约束（name 在候选中、每天点数 ≤ pace 上限）
-  失败 → 重试一次（反馈错误给 LLM）→ 仍失败 → fallback 旧代码
-
-Phase 4: 代码格式化
-  保留推荐理由 + A/B 选项
+plan_itinerary(input):
+  discover = await discover_places(...)
+  days = []
+  for each day:
+    day = await arrange_day(discover.candidates, day_index, ...)
+    days.push(day)
+  → { days }
 ```
 
-**新旧切换（Feature flag）：** `ITINERARY_MODE=llm`（默认）| `legacy`。旧代码保留不删。
+**新旧切换：** `ITINERARY_MODE=llm`（默认）| `legacy`。旧代码保留不删。
 
-**搜索默认范围（两级判断）：**
+**搜索范围：** 有城市名 → 5km 半径；无城市名 → `errors.location_too_broad`。
 
-| 情况 | 处理 |
-|------|------|
-| 有城市名（geocode address 含 city/市） | 正常搜索，统一半径 5km |
-| 无城市名（国家/大洲级） | → `errors.location_too_broad` |
+**出发地/返回地交通：** 有 origin → 含 `from_origin` / `to_destination`；无 → 不含，第一个 block start_time ≥ 10:00。
 
-**出发地/返回地交通逻辑：**
-
-有 origin 时 → Planner 推荐出发地到 place 1 的交通 + place N 到返回地的交通。JSON 含 `from_origin` / `to_destination`（含 transport, duration_min, depart_time/arrive_time）。
-
-无 origin 时 → 不推荐出发/返回交通。第一个景点 start_time 预留交通缓冲（≥ 10:00）。JSON 中 `from_origin` / `to_destination` 不出现。
-
-**LLM fallback：** `ITINERARY_MODE=llm` 下 LLM 失败 → 自动降级到旧代码 + 返回 `outcomeKey = "info.itinerary_basic_mode"`，caller 显示提示 banner。
-
-**其他边界条件：**
-
-| 边界 | 处理 |
-|------|------|
-| origin ≠ destination（单程） | 搜索锚点逐天偏移 |
-| 候选不足 | Planner prompt 说明"候选有限" |
-| 天气极端 | prompt 中提示优先室内 |
-| Zod 校验 2 次失败 | fallback 旧代码 + `outcomeKey = "info.itinerary_basic_mode"` |
-
-**新旧切换（Feature flag）：**
-
-```typescript
-// itinerary.ts 入口
-const mode = process.env.ITINERARY_MODE ?? "llm"; // 默认新流程
-if (mode === "llm") return llmPlanItinerary(input);
-else return legacyTimedItinerary(input); // 旧代码保留，不删除
-```
-
-**LLM 实例：** 使用同一 Quanzil 实例（`OPENAI_*`），一次调用完成规划+自查。
-
-**LLM 输出 schema（在 `itinerary-planner.md` 中约束，代码用 Zod 校验）：**
+**LLM 输出 schema（per day，Zod 校验）：**
 
 ```json
 {
-  "days": [{
-    "day_index": 1, "date": "2026-08-25",
-    "blocks": [{
-      "name": "精确匹配候选列表中的 name",
-      "type": "attraction | lunch | dinner | cafe",
-      "start_time": "10:00",
-      "duration_min": 90,
-      "reason": "推荐理由",
-      "alternatives": [{ "name": "...", "reason": "..." }]
-    }]
-  }]
+  "day_index": 1, "date": "2026-08-25",
+  "from_origin": { "transport": "metro", "duration_min": 25, "depart_time": "09:30" },
+  "blocks": [{
+    "name": "精确匹配候选 name",
+    "type": "attraction | lunch | dinner | cafe",
+    "start_time": "10:00",
+    "duration_min": 90,
+    "reason": "推荐理由",
+    "alternatives": [{ "name": "...", "reason": "..." }]
+  }],
+  "to_destination": { "transport": "taxi", "duration_min": 40, "arrive_time": "18:30" }
 }
 ```
 
-代码用 Zod 校验 LLM 返回。Zod 失败 → 重试一次（反馈错误信息）→ 仍失败 → fallback 旧代码。
-
-**与现有代码的关系：**
-
-| 现有模块 | 变化 |
-|---------|------|
-| `itinerary.ts` | 新增 feature flag 切换入口；旧逻辑保留为 `legacyTimedItinerary` |
-| `itinerary-timed.ts` | 旧代码保留不删；新流程不调用其排序/分组函数 |
-| `agent/loop.ts` | 集成 prompt-assembler |
-| `search-keywords.ts` | 保留（搜索候选仍需多语言关键词） |
-
-**新增文件：**
-- `src/agent/prompt-assembler.ts` — base + overlay 拼接（budget/time-of-day 内联）
-- `src/core/itinerary-planner.ts` — 单 LLM 行程规划（搜索 → LLM → Zod → fallback）
-- `prompts/base.en.md` / `base.zh.md` — 从 v1.md 迁移
-- `prompts/overlays/itinerary-planner.md` / `meal-search.md` / `place-search.md`
+**边界条件：** origin ≠ destination → 搜索锚点逐天偏移；候选不足 → prompt 说明；Zod 2 次失败 → fallback + `outcomeKey`。
 
 ---
 
