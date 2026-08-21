@@ -18,7 +18,7 @@
 | 用户测试用例（ChatBox MCP） | [`agent-test-plan.md`](./agent-test-plan.md) §13–§19 |
 | 技术设计 | [`agent-design.md`](./agent-design.md) |
 
-**状态：** MVP-1 和 **MVP-2 已验收** 2026-08-19（运营商确认可用）。本文件中的用户故事及 Given-When-Then 验收标准。
+**状态：** MVP-1 / **MVP-2** 已验收（2026-08-19）。**MVP-3a～MVP-6** 代码已落地（见 [`0.refactor-plan.md`](./0.refactor-plan.md)）；本文件 Feature **24–31** 补齐对应 AC。文档债收尾属 **MVP-7**。
 
 ### Given-When-Then 约定
 
@@ -108,6 +108,14 @@
 | --- | --- | --- |
 | **MVP-1 — 运营、调用、搜索餐厅** | 管理 UI 完整。密钥在 HTTP 和 MCP 上均可用。what2eat 可以搜索餐厅、打开详情并获取地图链接。无 Quanzil 循环。 | **14–19** · **11, 12** · **1, 3, 4, 5, 6, 7, 13** |
 | **MVP-2 — 地点、行程、丰富化、聊天** | where2play 可搜索 POI 并请求结构化行程（功能 13 中的天气键）。卡片上的 Tripadvisor 匹配。ChatBox 自然语言聊天复用工具核心。 | **2, 9, 8, 10** |
+| **MVP-3a — 稳定与自动供应商** | 服务器稳定 + 目的地/语言驱动的 provider 自动选择 | **20, 21** |
+| **MVP-3b — 卡片富化** | 搜索结果 Photos + Price Level | **24** |
+| **MVP-3c — Resolver / Directions** | Geocode-first provider + Directions Worker fallback | **25** |
+| **MVP-4a — 语言与关键词** | Language router + 多语言搜索关键词 | **26** |
+| **MVP-4b — 性能** | Geocode/search 缓存 + itinerary 并行（目标 <15s） | **27** |
+| **MVP-5 — Admin 加固** | API 错误映射、Error Boundary、reset 4h、session iat；邀请 E2E 已有，密码重置 E2E 待补 | **28** |
+| **MVP-6 — Prompt + LLM 行程** | Prompt assembler、LLM itinerary+Zod、MCP `discover_places`/`arrange_day` | **29, 30, 31** |
+| **MVP-7 — 收尾** | Specs/README 对齐、password-reset E2E、HTTP discover/arrange 决策、`ITINERARY_MODE` 默认值诚实化 | — |
 
 **MVP-1 说明**
 
@@ -126,7 +134,7 @@
 - Tripadvisor 丰富化在搜索/详情上可选；切勿将 Google `place_id` 作为 Tripadvisor id 传递。
 - 自然语言聊天是在 MVP-1 和本切片工具上的 Quanzil 循环。不得发明第二个工具核心。
 
-**切片内构建顺序：** 每次将一个用户故事推至 DoD（[`agent-design.md`](./agent-design.md) §16）。建议 MVP-1 顺序：**14 → 15 → 16 → 19 → 18 → 17 → 12 → 11 → 6 → 5 → 1 → 3 → 7 → 4 → 13**。建议 MVP-2 顺序：**2 → 9 → 8 → 10**。**MVP-3a：** 20 → 21。
+**切片内构建顺序：** 每次将一个用户故事推至 DoD（[`agent-design.md`](./agent-design.md) §16）。建议 MVP-1：**14 → 15 → 16 → 19 → 18 → 17 → 12 → 11 → 6 → 5 → 1 → 3 → 7 → 4 → 13**。MVP-2：**2 → 9 → 8 → 10**。MVP-3a：**20 → 21**。MVP-3b→6：**24 → 25 → 26 → 27 → 28 → 29 → 30 → 31**。
 
 ---
 
@@ -155,6 +163,14 @@
 | 19 | app | 管理应用 i18n | `places-agent-admin-i18n` | 管理 UI 和邮件支持 `EN` / `CN` / `HK` / `TW`；语言环境切换；缺失键回退 | 见下文 | **1** |
 | 20 | agent | 供应商自动选择 | `places-agent-provider-auto` | 智能体根据目的地+语言自动选择 provider 组合（策略1 Google+TA / 策略2 AMAP），caller 可覆盖 | 见下文 | **3a** |
 | 21 | infra | 服务器稳定性 | `places-agent-server-stability` | JSON 解析安全、graceful shutdown、session TTL 清理 | 见下文 | **3a** |
+| 24 | agent | 照片与价格档 | `places-agent-photos-price` | 搜索卡片返回 photos 与归一化 price_level（$/$$/$$$）；无图时省略字段 | 见下文 | **3b** |
+| 25 | agent | Geocode-first 与 Directions fallback | `places-agent-geocode-directions` | Provider 判定以 Geocode 为准；Google Directions 全方法支持 Worker MCP fallback | 见下文 | **3c** |
+| 26 | agent | 语言路由与搜索关键词 | `places-agent-language-keywords` | 按 locale/CJK 路由语言；搜索关键词多语言映射，去掉行程硬编码文案 | 见下文 | **4a** |
+| 27 | agent | 搜索缓存与并行 | `places-agent-perf-cache` | Geocode/search 短期缓存；行程餐食/多天搜索并行，目标端到端 <15s | 见下文 | **4b** |
+| 28 | app | Admin API 加固 | `places-agent-admin-hardening` | Prisma 错误→404/409、Admin Error Boundary、reset token 4h、session iat；邀请 E2E 已有，密码重置 E2E 待补 | 见下文 | **5** |
+| 29 | agent | Prompt 组装器 | `places-agent-prompt-assembler` | base.{en,zh} + overlays 拼接系统 prompt；budget/time-of-day 内联 | 见下文 | **6** |
+| 30 | agent | LLM 行程规划 | `places-agent-itinerary-llm` | 单 LLM+自查+Zod；`ITINERARY_MODE=llm\|legacy`；失败 fallback 旧路径 | 见下文 | **6** |
+| 31 | agent | 行程 MCP 拆分 | `places-agent-itinerary-mcp-split` | MCP `discover_places` / `arrange_day`；HTTP 对等路由待 MVP-7 | 见下文 | **6** |
 
 ---
 
@@ -2211,3 +2227,306 @@ And TTL 为 30 分钟
 When 清理定时器触发
 Then 该 session 从 SessionManager 中移除
 And SessionManager.size 减少 1
+
+---
+
+# 照片与价格档 — `places-agent-photos-price`
+
+**类别：** agent · **MVP-3b** · Feature **24**
+
+**作为** 调用方应用  
+**我希望** 搜索结果卡片带有照片 URL 与归一化价格档  
+**以便** 用户在列表中快速判断观感与消费水平
+
+### US1 — Google / AMAP 照片
+
+**AC1**
+
+Given 供应商 live 返回含 photos 的 POI  
+When `search_restaurants` 或 `search_places`  
+Then 卡片含 `photos[]`（URL 可请求）  
+And 无图时省略 `photos`（不为空数组）
+
+### US2 — 价格档归一化
+
+**AC2**
+
+Given Google `priceLevel` 或 AMAP `cost` 可用  
+When 映射为 PlaceCard  
+Then `price_level` 为 `$` / `$$` / `$$$`（或产品约定档位）  
+And 不可用时省略字段，不编造
+
+---
+
+# Geocode-first 与 Directions fallback — `places-agent-geocode-directions`
+
+**类别：** agent · **MVP-3c** · Feature **25**
+
+**作为** 调用方  
+**我希望** provider 选择基于可靠地理编码，且 Google Directions 在直连失败时可走 Worker  
+**以便** 中国/海外判定准确、路线工具不因单点失败而全挂
+
+### US1 — Geocode-first（无 CJK 占比捷径）
+
+**AC1**
+
+Given caller 未显式传 `providers[]`  
+When 解析目的地  
+Then 使用 Geocode 结果（地址文本优先于粗坐标）决定 provider 策略  
+And 不再使用「CJK 字符占比」作为主规则
+
+### US2 — Directions Worker fallback
+
+**AC2**
+
+Given Google Directions 直连失败或 `GOOGLE_DIRECT_FORCE_FAIL=1`  
+When 调用导航/路线相关方法  
+Then 回退到 GMaps Worker MCP  
+And 成功时仍返回可用路线结果
+
+---
+
+# 语言路由与搜索关键词 — `places-agent-language-keywords`
+
+**类别：** agent · **MVP-4a** · Feature **26**
+
+**作为** 多语言调用方  
+**我希望** 工具定义与搜索关键词按 locale 路由  
+**以便** 中英文 prompt/关键词不混杂，本地化搜索更准
+
+### US1 — Language router
+
+**AC1**
+
+Given 请求 locale 为 `CN` / `EN` / `HK` / `TW`  
+When 组装 chat/tool 定义或搜索  
+Then 使用对应语言路由（含 CJK 检测辅助）  
+And tool defs 经 locale 感知 API 提供
+
+### US2 — 关键词映射、去硬编码
+
+**AC2**
+
+Given 行程或搜索需要「餐厅/景点」类查询词  
+When 构建搜索 query  
+Then 从多语言关键词表取值  
+And timed itinerary 路径不再内嵌大段硬编码中文词
+
+---
+
+# 搜索缓存与并行 — `places-agent-perf-cache`
+
+**类别：** agent · **MVP-4b** · Feature **27**
+
+**作为** 调用方  
+**我希望** 重复 geocode/搜索更快，行程规划减少串行等待  
+**以便** 常见路径接近 <15s 体验目标
+
+### US1 — 短期缓存
+
+**AC1**
+
+Given 相同 address 在 TTL 内再次 geocode  
+When 第二次请求  
+Then 命中 geocode 缓存（不重复打供应商）
+
+Given 相同 query+near 在 TTL 内再次搜索  
+When 第二次请求  
+Then 命中 search 缓存
+
+### US2 — 并行搜索
+
+**AC2**
+
+Given 规划含景点与餐厅（或多天）  
+When `plan_itinerary`（legacy 或 llm 路径的搜索阶段）  
+Then 独立搜索并行执行  
+And 不无故串行等待
+
+**验收备注：** 端到端 <5s / <15s / 二次 <1s 的 live 勾选见 [`0.refactor-plan.md`](./0.refactor-plan.md) MVP-4b；CI 默认 fixture。
+
+---
+
+# Admin API 加固 — `places-agent-admin-hardening`
+
+**类别：** app · **MVP-5** · Feature **28**
+
+**作为** 运营商  
+**我希望** Admin API 错误可预期、页面有 Error Boundary、重置/会话更安全  
+**以便** 后台操作稳定、可诊断
+
+### US1 — Prisma 错误映射
+
+**AC1**
+
+Given DELETE 不存在的资源  
+When Admin API  
+Then HTTP 404 + `{ error: { key } }`
+
+Given 违反唯一约束的 PATCH/POST  
+When Admin API  
+Then HTTP 409 + 稳定 error key
+
+### US2 — Error Boundary
+
+**AC2**
+
+Given Admin 子树渲染抛错  
+When 打开 `/admin/*`  
+Then 显示可恢复的错误 UI  
+And 不白屏
+
+### US3 — Reset TTL 与 session iat
+
+**AC3**
+
+Given 密码重置 token  
+When 签发  
+Then 过期时间为 **4h**
+
+Given 登录会话  
+When 签发 cookie payload  
+Then 含 `iat`
+
+### US4 — E2E
+
+**AC4**
+
+Given 邀请流  
+When E2E  
+Then 邀请 → 设密码 → 登录 通过
+
+Given 密码重置全流程 E2E  
+Then **pending（MVP-7）** — 规格要求存在，自动化尚未落地
+
+---
+
+# Prompt 组装器 — `places-agent-prompt-assembler`
+
+**类别：** agent · **MVP-6** · Feature **29**  
+（Claude Code Plan Feature 24）
+
+**作为** 智能体运行时  
+**我希望** 按 locale + intent 拼接 base 与 overlay  
+**以便** 中英文 system prompt 分离且场景指引可组合
+
+### US1 — base + overlay
+
+**AC1**
+
+Given locale=`EN`、intent=`meal`  
+When 组装 system prompt  
+Then 加载 `prompts/base.en.md` + `prompts/overlays/meal-search.md`
+
+Given locale=`CN`、intent=`itinerary`  
+When 组装  
+Then 加载 `base.zh.md` + `overlays/itinerary-planner.md`
+
+### US2 — budget / time-of-day 内联
+
+**AC2**
+
+Given `budget` 或 `timeOfDay` 有值  
+When 组装  
+Then 追加内联常量提示（**无**独立 `budget.md` / `time-of-day.md` 文件）
+
+### US3 — 接入 loop
+
+**AC3**
+
+Given chat/agent loop  
+When 构建 system prompt  
+Then 经 prompt-assembler，而非手工拼接旧单文件 chat prompt
+
+---
+
+# LLM 行程规划 — `places-agent-itinerary-llm`
+
+**类别：** agent · **MVP-6** · Feature **30**  
+（Claude Code Plan Feature 25）
+
+**作为** 调用方  
+**我希望** 行程由单次 LLM 规划并经 Zod 校验，失败可回退  
+**以便** 理由更自然，同时保持结构安全
+
+### US1 — 单 LLM + Zod
+
+**AC1**
+
+Given `ITINERARY_MODE=llm` 且 detail=timed  
+When `plan_itinerary`  
+Then 代码搜索候选 → LLM 规划+自查 → Zod  
+And 每个 block 含推荐理由  
+And name 必须落在候选列表
+
+### US2 — 重试与 fallback
+
+**AC2**
+
+Given Zod 失败  
+When 首次失败  
+Then 带着错误反馈重试 LLM 一次
+
+Given 两次仍失败或超时  
+Then fallback legacy 路径 + outcomeKey
+
+### US3 — 开关默认值（文档诚实）
+
+**AC3**
+
+Given 未设置环境变量  
+When 读取模式  
+Then **当前实现** 默认为 `legacy`（`process.env.ITINERARY_MODE ?? "legacy"`）  
+And 设计意图为默认 `llm` — 生产启用 LLM 须显式设置 `ITINERARY_MODE=llm`  
+（对齐工作列入 MVP-7）
+
+### US4 — 范围过宽
+
+**AC4**
+
+Given 仅国家级/大洲级地址且无可用城市  
+When discover/plan  
+Then 返回 `errors.location_too_broad`（或等价 key），不盲搜
+
+---
+
+# 行程 MCP 拆分 — `places-agent-itinerary-mcp-split`
+
+**类别：** agent · **MVP-6** · Feature **31**
+
+**作为** MCP 客户端  
+**我希望** 先 `discover_places` 再按天 `arrange_day`  
+**以便** 长行程可逐步返回、控制 token
+
+### US1 — MCP 工具
+
+**AC1**
+
+Given MCP `tools/list`  
+When 查询  
+Then 包含 `discover_places` 与 `arrange_day`（及既有 `plan_itinerary`）
+
+Given `discover_places`  
+When 调用成功  
+Then 返回候选（每类 ≤8）+ weather；候选不含 hours/price 细节（token 优化）
+
+Given `arrange_day`  
+When 调用成功  
+Then 返回单天 blocks（含 reason）；可选 `from_origin` / `to_destination`
+
+### US2 — HTTP 对等（未交付）
+
+**AC2**
+
+Given 设计曾标 `/v1/discover_places`、`/v1/arrange_day`  
+Then **当前仅 MCP**；HTTP 路由 **pending（MVP-7）**  
+And `plan_itinerary` 的 HTTP 路径保持可用
+
+### US3 — 配图
+
+**AC3**
+
+Given 候选含 photos  
+When 格式化行程 blocks  
+Then 按 name 匹配挂回 `block.photos`  
+And 封面图可为 Day1 首个 attraction 的首张 photo（零额外供应商调用）

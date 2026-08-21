@@ -1483,30 +1483,52 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 
 ---
 
+## MVP-5：Admin 加固（TC-M5）
+
+对应 [`agent-stories.md`](./agent-stories.md) Feature **28**、[`0.refactor-plan.md`](./0.refactor-plan.md) 批次 6。
+
+| ID | 类型 | 主题 | 状态 |
+|----|------|------|------|
+| TC-M5-API01 | Unit / HTTP | DELETE 不存在资源 → 404 + error.key | 已覆盖（api-error-handler 单测 / Admin API） |
+| TC-M5-API02 | Unit / HTTP | 唯一约束冲突 → 409 + error.key | 已覆盖 |
+| TC-M5-UI01 | Component | Admin Error Boundary 捕获渲染错误 | 已覆盖（`app/admin/error.tsx`） |
+| TC-M5-AUTH01 | Unit | 密码重置 token TTL = 4h | 已覆盖 |
+| TC-M5-AUTH02 | Unit | Session payload 含 `iat` | 已覆盖 |
+| TC-M5-E2E01 | E2E | 邀请 → 设密码 → 登录 | 已覆盖（`e2e/test_admin.py`） |
+| TC-M5-E2E02 | E2E | 密码重置 → 邮件 → 设密码 → 登录 | **pending（MVP-7）** |
+
+---
+
 ## MVP-6 续：MCP 工具拆分 + Token 优化 + 行程配图
+
+> **与 Claude Code Plan**（`~/.claude/plans/flickering-humming-gizmo.md`）对照：  
+> Plan 中的 TC-M6-PA*（prompt-assembler）/ IT*（itinerary Zod）由单测覆盖（`prompt-assembler.test.ts`、`itinerary-planner.test.ts`）。  
+> 下表为落地后续增的 MCP/token/photos 矩阵。  
+> **阻塞：** TC-M6-DP05 / AD08 需 HTTP 路由（当前仅 MCP）→ 标 pending。  
+> Plan 中大量 E2E-live 边界（R*/T*/B*/E*）未全部自动化 → MVP-7 backlog，不虚构已绿。
 
 ### discover_places MCP 工具
 
-| ID | 类型 | 主题 |
-|----|------|------|
-| TC-M6-DP01 | Unit | discover_places 返回候选景点 ≤ 8 个 |
-| TC-M6-DP02 | Unit | discover_places 返回候选餐厅 ≤ 8 个 |
-| TC-M6-DP03 | Unit | 候选含 name, type, rating, lat/lng（不含 hours/price） |
-| TC-M6-DP04 | Unit | 天气数据包含在返回中 |
-| TC-M6-DP05 | HTTP | /v1/discover_places 返回 JSON 含 candidates + weather |
+| ID | 类型 | 主题 | 状态 |
+|----|------|------|------|
+| TC-M6-DP01 | Unit | discover_places 返回候选景点 ≤ 8 个 | 目标 |
+| TC-M6-DP02 | Unit | discover_places 返回候选餐厅 ≤ 8 个 | 目标 |
+| TC-M6-DP03 | Unit | 候选含 name, type, rating, lat/lng（不含 hours/price） | 目标 |
+| TC-M6-DP04 | Unit | 天气数据包含在返回中 | 目标 |
+| TC-M6-DP05 | HTTP | /v1/discover_places 返回 JSON 含 candidates + weather | **pending（无 HTTP 路由）** |
 
 ### arrange_day MCP 工具
 
-| ID | 类型 | 主题 |
-|----|------|------|
-| TC-M6-AD01 | Integration | arrange_day 返回单天 JSON（mock LLM） |
-| TC-M6-AD02 | Integration | 每个 block 含 reason 字段 |
-| TC-M6-AD03 | Integration | 有 origin 时含 from_origin 交通段 |
-| TC-M6-AD04 | Integration | 无 origin 时无 from_origin，start_time ≥ 10:00 |
-| TC-M6-AD05 | Unit | Zod 校验失败 → 重试一次 |
-| TC-M6-AD06 | Unit | 2 次失败 → fallback 旧代码 + outcomeKey |
-| TC-M6-AD07 | Unit | 候选 name 不在列表 → Zod 拒绝 |
-| TC-M6-AD08 | HTTP | /v1/arrange_day 返回单天 JSON |
+| ID | 类型 | 主题 | 状态 |
+|----|------|------|------|
+| TC-M6-AD01 | Integration | arrange_day 返回单天 JSON（mock LLM） | 目标 |
+| TC-M6-AD02 | Integration | 每个 block 含 reason 字段 | 目标 |
+| TC-M6-AD03 | Integration | 有 origin 时含 from_origin 交通段 | 目标 |
+| TC-M6-AD04 | Integration | 无 origin 时无 from_origin，start_time ≥ 10:00 | 目标 |
+| TC-M6-AD05 | Unit | Zod 校验失败 → 重试一次 | 目标 |
+| TC-M6-AD06 | Unit | 2 次失败 → fallback 旧代码 + outcomeKey | 目标 |
+| TC-M6-AD07 | Unit | 候选 name 不在列表 → Zod 拒绝 | 目标 |
+| TC-M6-AD08 | HTTP | /v1/arrange_day 返回单天 JSON | **pending（无 HTTP 路由）** |
 
 ### Token 优化
 
@@ -1527,12 +1549,12 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 
 ### 性能回归
 
-| ID | 类型 | 主题 |
-|----|------|------|
-| TC-M6-PF01 | E2E-live | discover_places 耗时 < 10s |
-| TC-M6-PF02 | E2E-live | arrange_day 单天耗时 < 30s |
-| TC-M6-PF03 | E2E-live | plan_itinerary 1天 < 40s（discover + arrange） |
-| TC-M6-PF04 | E2E-live | plan_itinerary 2天 < 60s |
+| ID | 类型 | 主题 | 状态 |
+|----|------|------|------|
+| TC-M6-PF01 | E2E-live | discover_places 耗时 < 10s | opt-in live |
+| TC-M6-PF02 | E2E-live | arrange_day 单天耗时 < 30s | opt-in live |
+| TC-M6-PF03 | E2E-live | plan_itinerary 1天 < 40s（discover + arrange） | opt-in live |
+| TC-M6-PF04 | E2E-live | plan_itinerary 2天 < 60s | opt-in live |
 
 ### MCP 集成
 
@@ -1541,3 +1563,12 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M6-MCP01 | HTTP | MCP tools/list 包含 discover_places + arrange_day |
 | TC-M6-MCP02 | HTTP | MCP tools/call discover_places 返回候选 |
 | TC-M6-MCP03 | HTTP | MCP tools/call arrange_day 返回单天行程 |
+
+### MVP-7 backlog（Claude Plan 未全自动化项）
+
+| 来源 | 说明 |
+|------|------|
+| TC-M6-PA* / IT* 索引 | 已有单测文件；可在索引表补正式 ID 映射 |
+| Plan E2E-live R/T/B/E | 范围过宽、交通边界、冷门城市等 — 未全部脚本化 |
+| TC-M5-E2E02 | 密码重置 E2E |
+| TC-M6-DP05 / AD08 | HTTP discover/arrange |

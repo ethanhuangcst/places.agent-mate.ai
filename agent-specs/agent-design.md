@@ -152,9 +152,11 @@ HTTP `/v1` 和 MCP 调用**相同的函数**。传输层负责认证、解析与
 | `navigate` | `navigate` | 是 |
 | `geocode` | `geocode` | 是（必须保持公开） |
 | `planItinerary` | `plan_itinerary` | 仅当对话请求生成行程时 |
+| `discoverPlaces` | `discover_places` | MCP 为主（HTTP 待 MVP-7） |
+| `arrangeDay` | `arrange_day` | MCP 为主（HTTP 待 MVP-7） |
 | `getWeather` | 非公开 | 行程辅助函数 |
 
-六个公开工具超过了聊天机器人 3–5 个的默认数量，这是因为这是一份**面向三个调用方的双传输层契约**。不要再增加工具。单个工具内部并行调用 AMAP+Google 属于**适配器扇出**。Tripadvisor 富化和 Open-Meteo 均在**服务端**处理。定时行程（`detail: "timed"`）在 `plan_itinerary` **内部**编排 geocode / search / weather — 仍然是一个公开工具。
+面向调用方的核心公开工具仍是上表前六项（双传输契约）。`discover_places` / `arrange_day` 为 MVP-6 新增的 **MCP 行程拆分工具**（见 §9.2）；勿再增加无关工具。单个工具内部并行调用 AMAP+Google 属于**适配器扇出**。Tripadvisor 富化和 Open-Meteo 均在**服务端**处理。定时行程（`detail: "timed"`）在 `plan_itinerary` **内部**编排 geocode / search / weather — 仍然是一个公开 HTTP/MCP 工具。
 
 共享输入：`providers[]`、`locale` 或 `locales[]`、`enrich.tripadvisor?`、`merge?`。核心层根据环境变量与能力矩阵校验 `providers[]`；**绝不**地理强制使用 AMAP（ADR-005）。
 
@@ -373,24 +375,11 @@ interface AssembledQueries {
 - 去重按 `native_id`（同 provider）或坐标 haversine < 50m + 名称相似度 > 0.7（跨 provider 合并）
 - 只在界面语言 ≠ EN 时才做双语搜索；EN 场景单次 Google 调用即可
 
-### 5.3 提示组装（MVP-7）
+### 5.3 提示组装
 
-一个确定性提示组装器 — 可升级为可选的 LLM 子智能体。使用 §5.2.1 中的 `LanguageContext` 和 §5.2.3 中的关键词映射。
+> **实现与契约见 §9.1（MVP-6）。** 本节不再单独维护「MVP-7」草稿。
 
-```typescript
-// src/agent/prompt-assembler.ts
-interface PromptContext {
-  languageContext: LanguageContext;
-  toolName: string;
-  userIntent: 'meal' | 'attraction' | 'itinerary' | 'general';
-  timeOfDay?: string;
-  previousResults?: NormalizedPlace[];
-}
-
-function assembleToolPrompt(ctx: PromptContext): string;
-```
-
-系统提示按 locale 区分：`prompts/chat/v1.en.md`、`prompts/chat/v1.zh.md`。由 `languageContext.promptLocale` 选择。
+Chat / tool 的 system prompt 由 [`prompt-assembler.ts`](../src/agent/prompt-assembler.ts) 按 `locale` + `intent` 拼接；语言上下文仍来自 §5.2.1，关键词映射见 §5.2.3。
 
 ---
 
@@ -483,22 +472,21 @@ function assembleToolPrompt(ctx: PromptContext): string;
 
 ```
 prompts/
-  base.en.md                    — 角色定义 + 通用规则（英文）
+  base.en.md                    — 角色定义 + 通用规则（英文；由 chat/v1 迁移）
   base.zh.md                    — 角色定义 + 通用规则（中文）
   overlays/
     meal-search.md               — 餐厅搜索场景指引
     place-search.md              — 景点搜索场景指引
-    itinerary-planner.md         — 行程规划 prompt（给 Planner LLM）
-    itinerary-reviewer.md        — 行程审核 prompt（给 Reviewer LLM）
-    budget.md                    — 预算上下文
-    time-of-day.md               — 时段上下文（早午晚）
+    itinerary-planner.md         — 行程规划 prompt（含自查指令 + JSON 期望）
 ```
+
+**未落地独立文件：** `budget` / `time-of-day` 作为字符串常量**内联**于 [`prompt-assembler.ts`](../src/agent/prompt-assembler.ts)（与 Claude Code Plan 一致）。无 `itinerary-reviewer.md`（单 LLM 自查，无第二 Reviewer 调用）。
 
 ```typescript
 // src/agent/prompt-assembler.ts
 interface PromptContext {
   locale: Locale;
-  intent: "meal" | "place" | "itinerary-planner" | "itinerary-reviewer" | "chat";
+  intent: "meal" | "place" | "itinerary" | "chat";
   budget?: "budget" | "premium";
   timeOfDay?: "morning" | "afternoon" | "evening";
   glossary?: string;
@@ -507,22 +495,20 @@ interface PromptContext {
 function assembleSystemPrompt(ctx: PromptContext): string;
 ```
 
-`prompts/chat/v1.md` 迁移为 `prompts/base.en.md`，内容作为英文 base 模板。
-
-拼接顺序：`base.{locale}.md` → `overlays/{intent}.md` → `overlays/budget.md`（可选）→ `overlays/time-of-day.md`（可选）→ glossary（HK/TW 时）。
+拼接顺序：`base.{en|zh}.md` → `overlays/{intent}.md`（chat 可无 overlay）→ 内联 budget 提示（可选）→ 内联 time-of-day 提示（可选）→ glossary（HK/TW 时）。
 
 ### 9.2 行程规划：MCP 工具拆分 + Token 优化 (MVP-6)
 
-**MCP 工具拆分：** 将行程规划拆为两个独立 MCP 工具，支持逐天返回：
+**MCP 工具拆分：** 将行程规划拆为可逐步返回的工具；`plan_itinerary` 仍为一站式 HTTP/MCP 入口。
 
 | 工具 | 职责 | MCP | HTTP |
 |------|------|-----|------|
-| `discover_places` | 搜景点+餐厅+天气，返回候选列表 | ✅ | ✅ `/v1/discover_places` |
-| `arrange_day` | 从候选中为第 N 天安排路线 | ✅ | ✅ `/v1/arrange_day` |
-| `plan_itinerary` | 一次返回完整行程（内部调 discover + arrange × N） | ✅ | ✅ `/v1/plan_itinerary` |
+| `discover_places` | 搜景点+餐厅+天气，返回候选列表 | ✅ | ❌（待 MVP-7；当前无 `app/v1/discover_places`） |
+| `arrange_day` | 从候选中为第 N 天安排路线 | ✅ | ❌（待 MVP-7；当前无 `app/v1/arrange_day`） |
+| `plan_itinerary` | 一次返回完整行程（内部可走 LLM 或 legacy） | ✅ | ✅ `/v1/plan_itinerary` |
 
-**MCP 客户端流程：** discover_places → arrange_day(day=1) → arrange_day(day=2) → ...（每步 ~10s）
-**HTTP caller（what2eat）流程：** plan_itinerary（一次返回，内部串行 arrange × N）
+**MCP 客户端流程：** `discover_places` → `arrange_day(day=1)` → `arrange_day(day=2)` → …（每步 ~10s）  
+**HTTP caller（what2eat）流程：** `plan_itinerary`（一次返回；内部搜索 + LLM/legacy）
 
 **Token 优化：**
 
@@ -559,7 +545,15 @@ plan_itinerary(input):
   → { days }
 ```
 
-**新旧切换：** `ITINERARY_MODE=llm`（默认）| `legacy`。旧代码保留不删。
+**新旧切换：**
+
+| | 设计意图 | **当前实现**（`src/core/itinerary.ts`） |
+|--|----------|----------------------------------------|
+| 环境变量 | `ITINERARY_MODE=llm` \| `legacy` | 同名 |
+| 默认值 | **`llm`** | **`legacy`**（`process.env.ITINERARY_MODE ?? "legacy"`） |
+| 生产启用 LLM | 默认即 LLM | 须显式设置 `ITINERARY_MODE=llm` |
+
+旧代码路径保留不删。默认值对齐列入 MVP-7。
 
 **搜索范围：** 有城市名 → 5km 半径；无城市名 → `errors.location_too_broad`。
 
