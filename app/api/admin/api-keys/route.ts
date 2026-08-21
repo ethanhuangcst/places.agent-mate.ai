@@ -3,6 +3,7 @@ import { requireAdmin, adminError } from "@/src/auth/admin";
 import { deleteCallerKeys, parseBulkDeleteIds } from "@/src/auth/delete-caller-keys";
 import { prisma } from "@/src/db/client";
 import { generateCallerSecret } from "@/src/core/crypto";
+import { withPrismaErrorHandler } from "@/src/lib/api-error-handler";
 
 export async function GET(request: Request) {
   const gate = await requireAdmin(request);
@@ -31,21 +32,23 @@ export async function POST(request: NextRequest) {
     description?: string;
   };
   if (!body.name?.trim()) return adminError("admin.keys.name", 400);
-  const generated = generateCallerSecret();
-  const row = await prisma.callerApiKey.create({
-    data: {
-      name: body.name.trim(),
-      description: body.description?.trim() ?? "",
-      keyHash: generated.keyHash,
-      prefix: generated.prefix,
-      status: "ACTIVE",
-    },
-  });
-  return NextResponse.json({
-    id: row.id,
-    name: row.name,
-    prefix: row.prefix,
-    secret: generated.secret,
+  return withPrismaErrorHandler(async () => {
+    const generated = generateCallerSecret();
+    const row = await prisma.callerApiKey.create({
+      data: {
+        name: body.name!.trim(),
+        description: body.description?.trim() ?? "",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    return NextResponse.json({
+      id: row.id,
+      name: row.name,
+      prefix: row.prefix,
+      secret: generated.secret,
+    });
   });
 }
 
@@ -55,6 +58,8 @@ export async function DELETE(request: NextRequest) {
   const body: unknown = await request.json().catch(() => ({}));
   const parsed = parseBulkDeleteIds(body);
   if ("error" in parsed) return adminError(parsed.error, parsed.status);
-  const deleted = await deleteCallerKeys(parsed.ids);
-  return NextResponse.json({ ok: true, deleted });
+  return withPrismaErrorHandler(async () => {
+    const deleted = await deleteCallerKeys(parsed.ids);
+    return NextResponse.json({ ok: true, deleted });
+  });
 }

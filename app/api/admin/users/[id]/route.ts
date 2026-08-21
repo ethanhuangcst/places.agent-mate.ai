@@ -4,6 +4,7 @@ import { removeAdminUser, validateDeleteAdmin } from "@/src/auth/delete-admin";
 import { deleteMailContent, sendAdminMail } from "@/src/auth/mail";
 import { parseLocale } from "@/src/core/locales";
 import { readLocaleCookie } from "@/src/auth/session";
+import { withPrismaErrorHandler } from "@/src/lib/api-error-handler";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -25,6 +26,8 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
   });
   if (!sent) return adminError("errors.delete_admin_failed", 502);
 
-  await removeAdminUser(id);
-  return NextResponse.json({ ok: true });
+  return withPrismaErrorHandler(async () => {
+    await removeAdminUser(id);
+    return NextResponse.json({ ok: true });
+  });
 }

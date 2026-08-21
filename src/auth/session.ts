@@ -19,7 +19,8 @@ export async function readSession(): Promise<SessionPayload | null> {
 export async function writeSession(payload: SessionPayload): Promise<void> {
   const jar = await cookies();
   const secure = process.env.NODE_ENV === "production";
-  jar.set(COOKIE, encodeSession(payload), {
+  const withIat = { ...payload, iat: payload.iat ?? Date.now() };
+  jar.set(COOKIE, encodeSession(withIat), {
     httpOnly: true,
     sameSite: "lax",
     secure,

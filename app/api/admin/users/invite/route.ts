@@ -7,6 +7,7 @@ import { inviteMailContent, sendAdminMail } from "@/src/auth/mail";
 import { parseLocale } from "@/src/core/locales";
 import { readLocaleCookie } from "@/src/auth/session";
 import { pendingUsername } from "@/src/auth/username";
+import { withPrismaErrorHandler } from "@/src/lib/api-error-handler";
 
 export async function POST(request: NextRequest) {
   const gate = await requireAdmin(request);
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest) {
   const email = normalizeAdminEmail(body.email ?? "");
   if (!email) return adminError("errors.invite_failed", 400);
   const token = crypto.randomUUID();
+  return withPrismaErrorHandler(async () => {
   await prisma.adminUser.upsert({
     where: { email },
     update: {
@@ -39,4 +41,5 @@ export async function POST(request: NextRequest) {
   });
   if (!sent) return adminError("errors.invite_failed", 502);
   return NextResponse.json({ ok: true });
+  });
 }

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       where: { id: user.id },
       data: {
         resetTokenHash: hashToken(token),
-        resetTokenExpiresAt: new Date(Date.now() + 1000 * 60 * 60),
+        resetTokenExpiresAt: new Date(Date.now() + 1000 * 60 * 60 * 4), // 4 hours
       },
     });
     const mail = resetMailContent(locale, token);

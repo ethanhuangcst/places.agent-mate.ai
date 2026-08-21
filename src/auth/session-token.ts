@@ -6,6 +6,7 @@ export { COOKIE, LOCALE_COOKIE };
 export type SessionPayload = {
   userId: string;
   username: string;
+  iat?: number; // issued at (epoch ms) — added MVP-5
 };
 
 function secret(): string {
