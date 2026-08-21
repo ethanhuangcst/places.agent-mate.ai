@@ -1483,6 +1483,58 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 
 ---
 
+## MVP-3b：Photos + Price Level（TC-M3b）
+
+对应 Feature **24**（photos）、**25**（price），批次 2。
+
+| ID | 类型 | 主题 | 文件 |
+|----|------|------|------|
+| TC-M3b-01 | Unit | Google photo URL 含 API key（直接重定向） | `src/adapters/google/card-mapper.test.ts` |
+| TC-M3b-02 | Unit | AMAP photo URL 提取 | `src/adapters/amap/card-mapper.test.ts` |
+| TC-M3b-03 | Unit | price.ts: Google PRICE_LEVEL → $/$$/$$$/$$$$ | `src/core/price.test.ts` |
+| TC-M3b-04 | Unit | price.ts: AMAP cost → price_level + price_per_person | `src/core/price.test.ts` |
+| TC-M3b-05 | HTTP | 搜索结果含 photos + price_level 字段 | `tests/http-tc-h.test.ts` |
+| TC-M3b-06 | Unit | 无 photos 的 POI → photos 为 undefined | `src/adapters/google/card-mapper.test.ts` |
+
+## MVP-3c：Provider Resolver 重构（TC-M3c）
+
+对应 Feature **22**（provider auto-selection 修复），批次 3。
+
+| ID | 类型 | 主题 | 文件 |
+|----|------|------|------|
+| TC-M3c-01 | Unit | 中環 → 香港（不再误判为大陆） | `src/adapters/provider-resolver.test.ts` |
+| TC-M3c-02 | Unit | 臺北 → 非大陆（Google only） | `src/adapters/provider-resolver.test.ts` |
+| TC-M3c-03 | Unit | 銀座 → 非大陆（CJK fallback 删除） | `src/adapters/provider-resolver.test.ts` |
+| TC-M3c-04 | Unit | 北京 → 大陆（AMAP only） | `src/adapters/provider-resolver.test.ts` |
+| TC-M3c-05 | Unit | async geocode-first 检测 | `src/adapters/provider-resolver.test.ts` |
+| TC-M3c-06 | Unit | AMAP 空结果 → Google fallback | `src/adapters/provider-resolver.test.ts` |
+
+## MVP-4a：语言路由 + 搜索关键词（TC-M4a）
+
+对应 Feature **26**（search-keywords）、**27**（language-router），批次 4。
+
+| ID | 类型 | 主题 | 文件 |
+|----|------|------|------|
+| TC-M4a-01 | Unit | language-router: CN locale → CN 关键词 | `src/agent/language-router.test.ts` |
+| TC-M4a-02 | Unit | language-router: HK locale → Google 双语 | `src/agent/language-router.test.ts` |
+| TC-M4a-03 | Unit | search-keywords: 日料 ↔ Japanese restaurant 映射 | `src/i18n/search-keywords.ts` |
+| TC-M4a-04 | Unit | itinerary-timed 去硬编码城市 | `tests/meal-windows.test.ts` |
+
+## MVP-4b：性能优化（TC-M4b）
+
+对应 Feature **23**（search cache + geocode cache），批次 5。
+
+| ID | 类型 | 主题 | 文件 |
+|----|------|------|------|
+| TC-M4b-01 | Unit | geocode-cache: 命中返回缓存 | `src/core/geocode-cache.test.ts` |
+| TC-M4b-02 | Unit | geocode-cache: TTL 过期后重新请求 | `src/core/geocode-cache.test.ts` |
+| TC-M4b-03 | Unit | search-cache: 相同参数命中 | `src/core/search-cache.test.ts` |
+| TC-M4b-04 | Unit | search-cache: 不同参数不命中 | `src/core/search-cache.test.ts` |
+| TC-M4b-05 | Unit | itinerary 餐厅搜索 Promise.all 并行 | `src/core/itinerary.test.ts` |
+| TC-M4b-06 | Integration | 缓存隔离: afterEach clearCache | `tests/http-tc-h.test.ts` |
+
+---
+
 ## MVP-5：Admin 加固（TC-M5）
 
 对应 [`agent-stories.md`](./agent-stories.md) Feature **28**、[`0.refactor-plan.md`](./0.refactor-plan.md) 批次 6。

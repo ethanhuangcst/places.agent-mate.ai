@@ -657,7 +657,7 @@ export async function planItinerary(
   deps: PlanItineraryDeps = {},
 ): Promise<ToolResult<ItineraryPlan | TimedItineraryPlan | null>> {
   if (input.detail === "timed") {
-    const mode = process.env.ITINERARY_MODE ?? "legacy";
+    const mode = process.env.ITINERARY_MODE ?? "llm";
     if (mode === "llm") {
       try {
         const { llmPlanItinerary } = await import("./itinerary-planner");

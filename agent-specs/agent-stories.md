@@ -2418,9 +2418,17 @@ Given locale=`EN`、intent=`meal`
 When 组装 system prompt  
 Then 加载 `prompts/base.en.md` + `prompts/overlays/meal-search.md`
 
-Given locale=`CN`、intent=`itinerary`  
-When 组装  
+Given locale=`CN`、intent=`itinerary`
+When 组装
 Then 加载 `base.zh.md` + `overlays/itinerary-planner.md`
+
+Given locale=`HK`、intent=`place`
+When 组装
+Then 加载 `base.zh.md` + `overlays/place-search.md`
+
+Given locale=`EN`、intent=`chat`
+When 组装
+Then 加载 `base.en.md`（chat 无额外 overlay，仅 base）
 
 ### US2 — budget / time-of-day 内联
 

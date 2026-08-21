@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FIXTURE_POIS } from "../src/adapters/fixtures";
 import { planItinerary } from "../src/core/itinerary";
 import { insertMealBlocks, mealSlots, hoursOverlapStatus, type TimedItineraryDay } from "../src/core/itinerary-timed";
 import { type PlaceCard } from "../src/core/types";
 import { type WeatherAdapter } from "../src/adapters/open-meteo/types";
+
+// These tests exercise the legacy code path (no LLM available in fixture mode)
+const origMode = process.env.ITINERARY_MODE;
+beforeAll(() => { process.env.ITINERARY_MODE = "legacy"; });
+afterAll(() => { if (origMode !== undefined) process.env.ITINERARY_MODE = origMode; else delete process.env.ITINERARY_MODE; });
 
 const lisbonPlaces = FIXTURE_POIS.slice(0, 6).map((p, i) => ({
   ...p,
