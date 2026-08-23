@@ -32,9 +32,9 @@ v2 目标：**保留 LLM 排程质量，把「在哪执行、是否流式、是�
 
 | # | 共识 | 状态 |
 | --- | --- | --- |
-| Q1 | **L1 不接 LLM**；质量靠确定性种子 / 过滤 / 去重 / 排序（维持 ADR-038） | **已实现**（架构）；种子质量见 Q2 |
-| Q2 | **主路径采用探针 Arm A**：热门城馆名优先种子、大陆 must-see **双源（含 Google）**、本地餐加权；**不**以「LLM 写 search query」为主路径 | **已实现**（Feature 34；TC-M8-U34-01 / TC-E2E-12） |
-| Q3 | L2 现 prompt 多为 Prefer；需 **硬必去**（行程级必去类必须出现，否则重排/注入） | **已实现**（Feature 36；`ensureHardMustSeeCoverage`） |
+| Q1 | **L1 不接 LLM**；质量靠通用模板 / 过滤 / 去重 / 排序（ADR-038/042：无城市种子） | **已实现**（架构）；候选质量见 Q2 |
+| Q2 | **主路径通用模板填池 + Google RELEVANCE**；must-see 由 **LLM 从候选池推断**（ADR-042/D9：删城市种子 CATALOG）；**不**以「LLM 写 search query」为主路径 | **已实现**（Feature 34；TC-M8-U34-01 / TC-E2E-12） |
+| Q3 | L2 现 prompt 多为 Prefer；需 **硬必去**（行程级必去类必须出现）→ LLM 漏排 **硬失败重试一次** + **theme 门控 focus**（D9：删确定性注入） | **已实现**（Feature 36；`must-include-coverage.ts`） |
 | Q4 | **真交通**（navigate / directions）进 2play L2 时间线 | **已实现**（Feature 37；`legs_to_here` + `transit_outcome`；2play 消费另故事） |
 | Q5 | **不纳入**：search/discover 任意专名自动机翻（如 匹诺曹→Pinocchio） | 明确排除 |
 | Q6 | MCP `POST /sse` session 失效 | **已实现**（Feature 38；`errors.mcp_session_invalid` + initialize 恢复） |

@@ -201,9 +201,9 @@
 | 31 | agent | 行程 MCP 拆分 | `places-agent-itinerary-mcp-split` | MCP+HTTP `discover_places` / `arrange_day`；与 `plan_itinerary` 并存；2play 主路径仅 L1 discover | 见下文 | **MVP-6** | 是 | Done |
 | 32 | agent | 行程 MCP P0 止损 | `places-agent-itinerary-mcp-p0` | `date` nullish；arrange 入模 slim；MCP description 互斥/禁回灌（performance P0） | 见下文 | **MVP-7** | 是 | Done |
 | 33 | agent | Discover 候选质量 | `places-agent-discover-quality` | L1 无 LLM：热门城 must-see seed、过滤、cluster 去重、池头多样性（ADR-038） | 见下文 | **MVP-7** | 是 | Done |
-| 34 | agent | Discover Arm A 增强 | `places-agent-discover-arm-a` | 馆名优先种子、大陆 must-see 双源（含 Google）、本地餐加权；不以 LLM 写 search query 为主路径（performance Q2） | 见下文 | **MVP-8** | 是 | Done |
+| 34 | agent | Discover 候选质量（Arm A 演进） | `places-agent-discover-arm-a` | 通用模板填池 + Google RELEVANCE 排序；must-see 由 LLM 从候选池推断（ADR-042/043：删城市种子 CATALOG）；不以 LLM 写 search query 为主路径（performance Q2） | 见下文 | **MVP-8** | 是 | Done |
 | 35 | agent | Arrange Mode H handoff | `places-agent-arrange-host` | `execution=host`：返回 `system_prompt`/`user_prompt`/`candidates_slim`，本请求不调 LLM；宿主执行（ChatBox/Cursor/可选 2play）（performance Mode H） | 见下文 | **MVP-8** | 是 | Done |
-| 36 | agent | L2 硬必去 | `places-agent-arrange-hard-must-see` | 行程级必去类必须出现在排程结果，否则重排/注入（非仅 Prefer 文案）（performance Q3） | 见下文 | **MVP-8** | 是 | Done |
+| 36 | agent | L2 硬必去 | `places-agent-arrange-hard-must-see` | 行程级必去类必须出现在排程结果；LLM 漏排 → 硬失败重试一次；theme 门控 focus（仅 day_theme 命中才强制 focus）；删确定性注入（ADR-043 D9）（performance Q3） | 见下文 | **MVP-8** | 是 | Done |
 | 37 | agent | 行程真交通 | `places-agent-itinerary-real-transit` | 将 `navigate`/directions 结果写入行程时间线（非仅 reason 估时）；2play L2 时间线消费（performance Q4） | 见下文 | **MVP-8** | 是 | Done |
 | 38 | infra | MCP SSE session | `places-agent-mcp-sse-session` | 修复 `POST /sse` Streamable session（无/过期 session → 明确错误或可恢复）（performance Q6） | 见下文 | **MVP-8** | 是 | Done |
 
@@ -228,19 +228,19 @@
 
 ## MVP-8 剩余功能开发计划
 
-**范围：** Feature **34–38**（全部 **ToDo**）。真源 AC 见第二部分同名章节；工程约束见 `[performance.md](./performance.md)` §0.1 / §3.1 / §6。  
+**状态（2026-08-23）：** Feature **34–38** 全部 **Done**（ADR-040/043 D9 精简后落地）。下表保留原计划作历史；as-built 见各 Wave 节末「落地」注。真源 AC 见第二部分同名章节；工程约束见 `[performance.md](./performance.md)` §0.1 / §3.1 / §6。  
 **原则：** 一次只推一个 Feature 至 DoD；不并行开多条主线；不把「LLM 写 search query」或专名机翻纳入范围。
 
 ### 剩余清单
 
 
-| Wave  | Feature                | 代码                                    | performance   | 依赖                | 预估   | 目标                              |
-| ----- | ---------------------- | ------------------------------------- | ------------- | ----------------- | ---- | ------------------------------- |
-| **A** | **34** Discover Arm A  | `places-agent-discover-arm-a`         | Q2            | 无（建在 **33** 上）    | 3–5d | 西安等热门城池头必去 + 餐更近                |
-| **B** | **36** L2 硬必去          | `places-agent-arrange-hard-must-see`  | Q3            | **34** 池够硬后收益最大   | 2–4d | 池中必去不会被 arrange 漏掉              |
-| **C** | **35** Mode H handoff  | `places-agent-arrange-host`           | Mode H / §3.1 | 可与 B 交错，但建议 B 后   | 3–5d | MCP/宿主秒级开写；解锁 2play **plan-11** |
-| **D** | **37** 行程真交通           | `places-agent-itinerary-real-transit` | Q4            | 复用 **4** / **25** | 3–5d | legs 进时间线；解锁 2play **plan-13**  |
-| **E** | **38** MCP SSE session | `places-agent-mcp-sse-session`        | Q6            | **与 A/B 并行 OK**   | 1–3d | ChatBox `POST /sse` 可恢复         |
+| Wave  | Feature                | 代码                                    | performance   | 依赖                | 预估   | 目标                              | 状态 |
+| ----- | ---------------------- | ------------------------------------- | ------------- | ----------------- | ---- | ------------------------------- | -- |
+| **A** | **34** Discover Arm A  | `places-agent-discover-arm-a`         | Q2            | 无（建在 **33** 上）    | 3–5d | 西安等热门城池头必去 + 餐更近                | ✅ Done（ADR-042：删城市种子，改通用模板 + LLM 推断 must-see） |
+| **B** | **36** L2 硬必去          | `places-agent-arrange-hard-must-see`  | Q3            | **34** 池够硬后收益最大   | 2–4d | 池中必去不会被 arrange 漏掉              | ✅ Done（D9：删确定性注入，改硬失败重试 + theme 门控 focus） |
+| **C** | **35** Mode H handoff  | `places-agent-arrange-host`           | Mode H / §3.1 | 可与 B 交错，但建议 B 后   | 3–5d | MCP/宿主秒级开写；解锁 2play **plan-11** | ✅ Done（`execution=host` 返 prompt；MCP 缺省强制 agent） |
+| **D** | **37** 行程真交通           | `places-agent-itinerary-real-transit` | Q4            | 复用 **4** / **25** | 3–5d | legs 进时间线；解锁 2play **plan-13**  | ✅ Done（`enrich_arrange_transit` → `legs_to_here`，失败降级 heuristic） |
+| **E** | **38** MCP SSE session | `places-agent-mcp-sse-session`        | Q6            | **与 A/B 并行 OK**   | 1–3d | ChatBox `POST /sse` 可恢复         | ✅ Done（`http-transport.ts` + session-manager；缺/过期 session 可恢复） |
 
 
 **建议默认顺序：** A → B → C → D；**E 随时可插**（不挡质量主线）。  
@@ -260,39 +260,39 @@ Wave E  38 SSE session（可与 A/B 并行）
 
 
 
-### Wave A — Feature 34 Discover Arm A
+### Wave A — Feature 34 Discover 质量（Arm A 演进）✅ Done
 
 
 | 项        | 内容                                                                                                                             |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| **目标**   | 主路径 merge 探针 Arm A：馆名优先种子、大陆 must-see **双源（含 Google）**、本地餐加权；**不**接 L1 LLM                                                     |
-| **基线**   | Feature **33** / ADR-038：`discover-must-see`、filter、cluster dedupe 已有                                                          |
-| **实现要点** | 扩展种子表（如「秦始皇帝陵博物院」）；mainland must-see 查询强制/默认双 provider；`restaurants` 按锚点距离/本地信号重排；更新 `provider-resolver` 与 discover 组装         |
-| **主要文件** | `src/core/discover-must-see.ts`、`itinerary-planner.ts`（`searchCandidatePools`）、`provider-resolver.ts`、`place-filters.ts`（仅必要时） |
-| **测试**   | 西安/热门城 mock 契约：池含陵/馆正式名类；双源合并无假 POI；餐排头近锚；复跑 `scripts/probe-*-discover-ab.py` 对照 Arm A                                         |
-| **DoD**  | AC1–3 绿；knowledge 探针表更新；**33** 回归不破                                                                                            |
+| **目标**   | 主路径通用模板填池 + Google RELEVANCE；must-see 由 **LLM 从候选池推断**（ADR-042/D9：删城市种子 CATALOG）；**不**接 L1 LLM 写 search query                                                     |
+| **基线**   | Feature **33** / ADR-038：`discover-must-see`、filter、cluster dedupe 已有；ADR-042 把 CATALOG 清空                                                          |
+| **实现要点** | `discover-must-see.ts` CATALOG 置空（no-op stub）；`discover-must-see-llm.ts` 用无城市名 prompt 推断公认 must-see；`query-assembler.ts` 通用模板 jobs；Google `rankPreference=RELEVANCE`（禁 POPULARITY） |
+| **主要文件** | `src/core/discover-must-see.ts`、`discover-must-see-llm.ts`、`query-assembler.ts`、`itinerary-planner.ts`（`searchCandidatePools`）、`provider-resolver.ts` |
+| **测试**   | `tests/discover-arm-a.test.ts`（通用模板填池 + 零 LLM）；`tests/discover-quality.test.ts`；`src/core/query-assembler.test.ts`；`tests/no-city-hardcode-guard.test.ts` |
+| **DoD**  | AC1–3 绿；knowledge 探针表更新；**33** 回归不破；源码无城市 POI 知识                                                                                            |
 | **非目标**  | LLM 生成 query；专名机翻                                                                                                              |
 
 
 
 
-### Wave B — Feature 36 L2 硬必去
+### Wave B — Feature 36 L2 硬必去 ✅ Done
 
 
 | 项         | 内容                                                                           |
 | --------- | ---------------------------------------------------------------------------- |
-| **目标**    | 排程结果**强制**覆盖行程级必去类（重排或注入），非仅 Prefer                                          |
+| **目标**    | 排程结果**强制**覆盖行程级必去类；LLM 漏排 → 硬失败重试一次（删确定性注入），非仅 Prefer                                          |
 | **依赖**    | **34** 先保证池内有真必去；否则硬规则无米之炊                                                   |
-| **实现要点**  | 定义必去 token / cluster 与日预算；`arrange_day` 校验失败则一次重试或确定性注入；prompt 可保留 Prefer 作辅 |
-| **主要文件**  | `src/core/itinerary-planner.ts`（arrange）、Zod/自查、可选新 `must-see-coverage.ts`   |
-| **测试**    | 池含兵马俑+大雁塔 时 blocks 必现；注入不造假坐标；超时/失败路径不静默标成功                                  |
+| **实现要点**  | `must-include-coverage.ts` 追踪 covered/missing + sticky；theme 门控 focus（仅 day_theme 命中才强制 focus）；LLM 漏排 → `callItineraryLlmWithValidationRetry` 重试一次；prompt 保留 Prefer 作辅 |
+| **主要文件**  | `src/core/itinerary-planner.ts`（arrange）、`must-include-coverage.ts`、Zod/自查   |
+| **测试**    | `src/core/must-include-coverage.test.ts`（硬失败重试 + theme 门控 focus）；超时/失败路径不静默标成功                                  |
 | **DoD**   | AC1 绿；MCP+HTTP arrange 行为一致                                                  |
 | **2play** | BFF OPENAI_CN L2 可随后镜像同一规则（另故事，勿塞进本 Wave）                                      |
 
 
 
 
-### Wave C — Feature 35 Mode H handoff
+### Wave C — Feature 35 Mode H handoff ✅ Done
 
 
 | 项        | 内容                                                                                           |
@@ -308,7 +308,7 @@ Wave E  38 SSE session（可与 A/B 并行）
 
 
 
-### Wave D — Feature 37 行程真交通
+### Wave D — Feature 37 行程真交通 ✅ Done
 
 
 | 项        | 内容                                                                                              |
@@ -323,7 +323,7 @@ Wave E  38 SSE session（可与 A/B 并行）
 
 
 
-### Wave E — Feature 38 MCP SSE session（可并行）
+### Wave E — Feature 38 MCP SSE session（可并行）✅ Done
 
 
 | 项        | 内容                                                                         |
@@ -3160,30 +3160,30 @@ Then 仍跑改进泛搜 + 过滤；不保证必去点；不伪造 POI
 
 
 
-# Discover Arm A 增强 — `places-agent-discover-arm-a`
+# Discover 候选质量（Arm A 演进）— `places-agent-discover-arm-a`
 
-**类别：** agent · **质量** · `[performance.md](./performance.md)` §0.1 Q2 · Feature **34** · 完工：**Done**
+**类别：** agent · **质量** · `[performance.md](./performance.md)` §0.1 Q2 · Feature **34** · 完工：**Done**（ADR-042/D9 精简后）
 
 **作为** where2play / MCP 调用方  
-**我希望** 热门城 discover 采用探针 Arm A 的确定性策略（馆名优先种子、大陆 must-see 双源、本地餐加权）  
-**以便** 池中稳定出现秦始皇帝陵博物院等真必去点，且餐食更近本地
+**我希望** discover 用通用模板填池 + Google RELEVANCE 排序，must-see 由 LLM 从候选池推断（源码无城市 POI 知识）  
+**以便** 池中稳定出现真必去点且不靠硬编码城市字典，餐食更近本地
 
-### US1 — 馆名优先种子
+### US1 — 通用模板填池（无城市种子）
 
 **AC1**
 
-Given 热门城（如西安）  
+Given 任意城市（如西安）  
 When `discover_places`  
-Then seed 优先使用馆/陵正式名类 query（非仅泛词「博物馆」）  
+Then 用通用热门模板 query（如「{city} 景点」）填池，源码不含任何城市专属种子/馆名表  
 And 结果仍来自地图供应商（不伪造 POI）
 
-### US2 — 大陆 must-see 双源
+### US2 — Google RELEVANCE + must-see LLM 推断
 
 **AC2**
 
 Given 大陆热门城且 caller 未强制单 provider  
 When discover must-see 相关搜索  
-Then 路径可查询含 `GOOGLE_MAPS` 的双源（与 AMAP 合并去重）  
+Then Google 用 `rankPreference=RELEVANCE`（禁 POPULARITY）；must-see 由 `discover-must-see-llm.ts` 用无城市名 prompt 从池中推断  
 And 不以「LLM 生成 search query」为主路径
 
 ### US3 — 本地餐加权
@@ -3233,15 +3233,16 @@ Then 行为与现有服务端 LLM `arrange_day` 一致
 
 **作为** 行程调用方  
 **我希望** 排程结果强制覆盖行程级必去类（非仅 Prefer 文案）  
-**以便** 池中已有兵马俑/大雁塔时不会被 LLM 整日漏掉
+**以便** 池中已有必去 token 命中点时不会被 LLM 整日漏掉
 
-### US1 — 硬覆盖
+### US1 — 硬覆盖（硬失败重试 + theme 门控 focus）
 
 **AC1**
 
-Given 候选池含热门城必去 token 命中点，且 `arrange_day` / 宿主 L2 排程  
+Given 候选池含必去 token 命中点，且 `arrange_day` / 宿主 L2 排程  
 When 返回当日 blocks  
-Then 必去类至少各出现一次，或触发一次重排/注入后再返回  
+Then 必去类至少各出现一次；LLM 漏排 focus token → 硬失败重试一次（不再服务端造低质块注入）  
+And theme 门控：仅当本日 `day_theme` 命中 missing token 才强制 focus；无 theme 不抢排，末日门仍保证覆盖  
 And 不得仅依赖 prompt「Prefer」软约束作为唯一手段
 
 ---

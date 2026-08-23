@@ -548,7 +548,7 @@ function assembleSystemPrompt(ctx: PromptContext): string;
 | `POST /v1/arrange_day`（`execution=agent`） | Zod OK 后 `{type:"place", dayIndex, block}` 按序每块 | `{type:"day_done"}`；无 Accept 时仍返回批量 JSON |
 | `POST /v1/arrange_day`（`execution=host`） | 无 LLM 流；单次 JSON handoff | `{ execution, system_prompt, user_prompt, … }` |
 
-- `discover_places`：`numDays` 传入真实 N（不得硬编码 1）；`city` = 目的地字符串；L1 = 热门模板 query + Google **RELEVANCE**（ADR-043；**禁止 POPULARITY**）+ 冻结 CATALOG 临时 boost（ADR-042 禁扩表）。  
+- `discover_places`：`numDays` 传入真实 N（不得硬编码 1）；`city` = 目的地字符串；L1 = 通用热门模板 query + Google **RELEVANCE**（ADR-043；**禁止 POPULARITY**）；**无城市 CATALOG**（ADR-042/D9：源码禁任何城市 POI 知识，CATALOG 已清空）；must-see 由 LLM 从候选池推断（`discover-must-see-llm.ts`）。  
 - MCP `arrange_day`：**强制 agent**（忽略 `execution=host`）；返回 `start_time` / `legs_to_here` / `next_action`；软闸 `presented_previous_day`（ADR-043）。  
 - HTTP `arrange_day`：仍可 `execution=host`（2play Mode H）。
 - `arrange_day`：可选 `exclude_names: string[]`；硬必去 Feature **36**；真交通 enrichment Feature **37**（`legs_to_here`）。
@@ -570,22 +570,26 @@ function assembleSystemPrompt(ctx: PromptContext): string;
 ```
 discover_places(city, bounds, locale, providers?):
   providers = caller providers[] OR resolveProviderStrategy(city)   // ADR-030
-  seeds = temporary must-see CATALOG for frozen hot cities only     // TECH DEBT — ADR-042: do not grow; replace with popularity/pack
-  jobs = discover query-assembler: seeds + improved QLP              // §5.2.3 + ADR-038
+  // ADR-042/043 D9: no city CATALOG in source. Generic hot templates (e.g. "西安 景点")
+  // + Google rankPreference=RELEVANCE (never POPULARITY). Must-see identification
+  // comes from LLM inference over the pool (discover-must-see-llm.ts), not a seed encyclopedia.
+  jobs = discover query-assembler: generic templates + QLP           // §5.2.3 + ADR-038/042
   parallel searchPlaces / searchRestaurants per job
   merge by name → filterAttractionPlaces / filterDiningPlaces
        → deny fragments (票/直通车/敌楼/「主名-」后缀)
        → dedupeByCluster → ensureMustSeeDiversity
-  rank: must-see token hit first, then rating
+  rank: rating + inferred must-see (LLM) — no per-city hardcoded boost
   → top 8×min(numDays,3) per pool
   → { candidates, weather? }
-  // L1: no LLM. Pool head must be diverse primaries, not wall-fragment spam.
+  // L1: no LLM for candidate search. Pool head must be diverse primaries, not wall-fragment spam.
 ```
 
 arrange_day(candidates, day_index, origin, destination, pace, budget, locale, execution?):
   if execution == "host":
     return buildSchedulePrompt(...)   // no OpenAI; Feature 35
-  ensureHardMustSeeCoverage(...)      // Feature 36
+  // ADR-043 D9: deterministic injection removed. LLM 漏排 must_include focus →
+  // 硬失败重试一次（callItineraryLlmWithValidationRetry）；theme 门控 focus：
+  // 仅当 day_theme 命中 missing token 才强制 focus，否则 token 留待后续 themed 日（末日门仍保证覆盖）。
   LLM 规划 + 自查（temperature 0.35，max_tokens=1280，AbortSignal 45s）
   Zod 校验 → 失败重试一次 → 超时/网络不重试 → 仍失败 → fallback 旧代码
   enrichArrangeTransit(...)           // Feature 37 legs_to_here（可降级）
@@ -596,6 +600,20 @@ plan_itinerary(input):
   // LLM mode: Phase1 = same discover searchCandidatePools; or legacy timed with QLP-aware queries
   …
 ```
+
+**行程优化模块（MVP-8 / ADR-040/043 D9）：**
+
+| 模块 | 职责 |
+| --- | --- |
+| [`trip-intake.ts`](../src/core/trip-intake.ts) | MCP/HTTP arrange 边界收集 + intake 门（need_input）+ host_instructions RULE |
+| [`must-include-coverage.ts`](../src/core/must-include-coverage.ts) | `must_include` 覆盖追踪、sticky covered、theme 门控 focus token 选择 |
+| [`discover-must-see-llm.ts`](../src/core/discover-must-see-llm.ts) | LLM 从候选池推断公认 must-see（prompt 无城市名，替代硬编码 CATALOG） |
+| [`discover-dedupe.ts`](../src/core/discover-dedupe.ts) | 地标 cluster 去重 + 池头多样性（无城市专属正则） |
+| [`query-assembler.ts`](../src/core/query-assembler.ts) | discover/LLM Phase1/timed 的地图搜词 jobs（通用模板，无城市种子） |
+| [`enrich-arrange-transit.ts`](../src/core/enrich-arrange-transit.ts) | Feature 37：arrange blocks 挂 `legs_to_here`/`from_origin`/`to_destination`，失败降级 heuristic + `transit_outcome` |
+| [`arrange-present-gate.ts`](../src/mcp/arrange-present-gate.ts) | MCP 顺序展示软闸（`presented_previous_day`/`ack_day_index`）+ 续排 host_instructions |
+| [`http-transport.ts`](../src/mcp/http-transport.ts) | Feature 38：SSE/Streamable 路由 + session 生命周期（缺/过期可恢复） |
+| [`tests/no-city-hardcode-guard.test.ts`](../tests/no-city-hardcode-guard.test.ts) | 守卫：源码禁任何城市 POI 知识（ADR-042 原则钉成 CI 闸） |
 
 **新旧切换：**
 
@@ -616,10 +634,11 @@ plan_itinerary(input):
 
 **MCP 固定行程表（8 行，每次相同）：** 城市、开始日、天数、可选酒店、节奏（轻松/适中/紧凑，默认适中）、消费 `spend_level` 1 节约 / 2 适中 / 3 宽松（默认 2）、兴趣（可选）、必去/一日游地名。禁止随机少问。  
 
-**必去覆盖闸（ADR-043 D7；HTTP = MCP）：**  
+**必去覆盖闸（ADR-043 D7 + D9 精简；HTTP = MCP）：**  
 - `preferences.must_include` 每次带回。  
 - 共用 `arrangeDay`：对仍 missing 的 token **一次自动补搜一个**（theme 对齐优先，否则名单顺序）→ geocode 锚点 → search 合并进候选 → prompt HARD MUST SCHEDULE（可与城内点混排）。  
-- **硬覆盖：** block 属于该 token 的 search 必去 pool（name/`native_id`），或锚点 **10km** 内且名称命中 token/别名。**`day_theme` 文案不算 covered。**  
+- **D9 精简（删确定性注入）：** LLM 漏排 focus token → **硬失败重试一次**（不再服务端造低质块注入）。  
+- **theme 门控 focus：** 仅当本日 `day_theme` 命中某 missing token 才对该 token 强制 focus；无 theme 或 theme 不匹配 → 不强制 focus，token 留待后续 themed 日（末日门仍保证覆盖）。避免 day-trip 小镇被无 theme 的早期日抢排成半天。  
 - 响应字段 `must_include_coverage: { must_include, covered, missing }`（HTTP envelope 与 MCP 同结构）。  
 - 末日若仍有 missing → MCP `next_action: present_day_then_cover_must_include`，禁止总览。  
 

@@ -80,7 +80,8 @@ Itinerary modes (`ITINERARY_MODE`):
 | `POST /v1/navigate` | Bearer |
 | `POST /v1/plan_itinerary` | Bearer |
 | `POST /v1/discover_places` | Bearer |
-| `POST /v1/arrange_day` | Bearer |
+| `POST /v1/arrange_day` | Bearer (`execution=host` → prompt handoff; default `agent` → LLM) |
+| `POST /v1/enrich_arrange_transit` | Bearer (attach `legs_to_here` / `from_origin` / `to_destination`) |
 | `POST /v1/chat` | Bearer (NL loop) |
 
 ### MCP (selected)
@@ -89,8 +90,8 @@ Itinerary modes (`ITINERARY_MODE`):
 |------|--------|
 | `search_restaurants` / `search_places` / … | Same core as HTTP |
 | `plan_itinerary` | Full itinerary |
-| `discover_places` | Candidates + weather (≤8 per type) |
-| `arrange_day` | One day from candidates (LLM) |
+| `discover_places` | Candidates + weather (≤8 per type); no city catalog (ADR-042/D9) |
+| `arrange_day` | One day from candidates; MCP forces `execution=agent`; `host` returns prompt only (Mode H, Feature 35) |
 
 ---
 
@@ -124,5 +125,5 @@ Compose env includes `ITINERARY_MODE` (default `llm`). After deploy, smoke **H3c
 | [`agent-specs/agent-stories.md`](./agent-specs/agent-stories.md) | User stories / AC (incl. F24–31) |
 | [`agent-specs/agent-design.md`](./agent-specs/agent-design.md) | Design (§9 prompt + itinerary) |
 | [`agent-specs/agent-test-plan.md`](./agent-specs/agent-test-plan.md) | Test matrices (TC-M5, TC-M6…) |
-| [`agent-specs/0.refactor-plan.md`](./agent-specs/0.refactor-plan.md) | Batch status (MVP-7 ✅) |
+| [`agent-specs/0.refactor-plan.md`](./agent-specs/0.refactor-plan.md) | Batch status (MVP-1…MVP-7 ✅; MVP-8 F34–38 ✅ ADR-040/043 D9) |
 | [places-agent-instruction.md](../0.2.release-bot/svr_hk_vps_3/places.family/places-agent-instruction.md) | Production deploy checklist |

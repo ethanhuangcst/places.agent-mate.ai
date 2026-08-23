@@ -1337,7 +1337,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-E2E-10 | | 调用方 E2E | where2play — 哈尔滨 discover（EN UI + AMAP CN） | `make test-e2e-caller` | |
 | TC-E2E-11 | | 调用方 E2E | where2play — discover→arrange 含景点 | `make test-e2e-caller` | |
 | TC-E2E-12 | | 调用方 E2E | where2play — 西安 discover Arm A | `make test-e2e-caller` | 8 |
-| TC-M8-U34-01 | ✓ | 单元 | Arm A 馆名种子 + 零 LLM | `tests/discover-arm-a.test.ts` | 8 |
+| TC-M8-U34-01 | ✓ | 单元 | Discover 通用模板填池 + 零 LLM（ADR-042：无城市种子） | `tests/discover-arm-a.test.ts` | 8 |
 | TC-M8-H35-01 | ✓ | HTTP | Mode H execution=host 零 LLM | `tests/http-arrange-host.test.ts` | 8 |
 | TC-M8-M35-01 | ✓ | MCP | ADR-043: MCP advertise always-agent (not host default) | `tests/mcp.test.ts` | 8 |
 | TC-M8-M43-01 | ✓ | MCP | MCP force agent even if execution=host | `src/mcp/create-server.adr040.test.ts` | 8 |
@@ -1345,7 +1345,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M8-M43-03 | ✓ | Unit | arrange present gate | `src/mcp/arrange-present-gate.test.ts` | 8 |
 | TC-M8-M43-04 | ✓ | Unit | Lisbon hot templates (no city catalog) | `src/core/query-assembler.test.ts` | 8 |
 | TC-M8-M43-05 | ✓ | Unit | Google rankPreference RELEVANCE; omit POPULARITY | `src/adapters/google/direct.test.ts` | 8 |
-| TC-M8-U36-01 | ✓ | 单元 | L2 硬必去注入 / 覆盖 | `src/core/must-see-coverage.test.ts` | 8 |
+| TC-M8-U36-01 | ✓ | 单元 | L2 硬必去：硬失败重试 + theme 门控 focus（D9：删注入） | `src/core/must-include-coverage.test.ts` | 8 |
 | TC-M8-U37-01 | ✓ | 单元 | arrange 真交通 `legs_to_here` | `src/core/enrich-arrange-transit.test.ts` | 8 |
 | TC-M8-S38-01 | ✓ | 进程 | MCP session 缺失/过期可恢复 | `tests/mcp-sse-session.test.ts` | 8 |
 
@@ -1638,8 +1638,8 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M6-DP03 | Unit | 候选含 name, type, rating, lat/lng（不含 hours/price） | 目标 |
 | TC-M6-DP04 | Unit | 天气数据包含在返回中 | 目标 |
 | TC-M6-DP05 | HTTP | /v1/discover_places 返回 JSON 含 candidates + weather | `tests/dispatch.test.ts` |
-| TC-M6-DQ01 | Unit | 西安 must-see catalog 非空；未知城空 seed | `src/core/discover-must-see.test.ts` |
-| TC-M6-DQ02 | Unit | discover attraction jobs 含 seed + QLP-A 简体 | `src/core/query-assembler.test.ts` |
+| TC-M6-DQ01 | Unit | CATALOG 空（ADR-042：无城市 POI 知识）；所有城无 seed | `src/core/discover-must-see.test.ts` |
+| TC-M6-DQ02 | Unit | discover attraction jobs 通用模板（无城市 seed）+ QLP-A 简体 | `src/core/query-assembler.test.ts` |
 | TC-M6-DQ03 | Unit | 公司企业/停车场/公交站/直通车/敌楼过滤 | `tests/place-filters.test.ts` |
 | TC-M6-DQ04 | Unit | mock 混合池 → 必去命中；无公司企业；无 OpenAI | `tests/discover-quality.test.ts` |
 | TC-M6-DQ05 | E2E-live（opt-in） | 西安 HTTP discover 命中必去 | 手工 / caller E2E 扩展 |
