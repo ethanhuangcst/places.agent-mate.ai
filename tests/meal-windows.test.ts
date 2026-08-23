@@ -37,13 +37,13 @@ describe("areaHintFromText", () => {
     expect(qs.every((q) => !/\bmuseums?\b/i.test(q))).toBe(true);
   });
 
-  it("should_use_EN_queries_when_locale_EN_regardless_of_cjk_origin (MVP-4a: locale wins)", () => {
+  it("should_use_cn_queries_when_en_ui_but_cjk_origin_hint", () => {
     const qs = timedAttractionQueries("Shanghai", "EN", {
       originName: "上海国际饭店",
     });
-    // MVP-4a: locale explicitly set → use that locale's keywords, not CJK detection
-    expect(qs.some((q) => /museum/i.test(q))).toBe(true);
-    expect(qs.every((q) => !q.includes("博物馆") && !q.includes("博物館"))).toBe(true);
+    // QLP / shouldUseChineseSearchQueries: CJK in origin → CN catalog even if UI is EN
+    expect(qs.some((q) => q.includes("博物馆"))).toBe(true);
+    expect(qs.every((q) => !/\bmuseums?\b/i.test(q))).toBe(true);
   });
 
   it("should_keep_english_queries_when_locale_EN_and_no_cjk", () => {

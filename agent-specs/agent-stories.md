@@ -2,58 +2,70 @@
 
 **places-agent** (`places.agent-mate.ai`) 的高层级产品待办列表。
 
-调用方通过机器 id **`places-agent`**（MCP `serverInfo.name`，HTTP JSON `agent`）来标识此服务。该字符串不进行本地化。主机名为 `places.agent-mate.ai`。
+调用方通过机器 id `places-agent`（MCP `serverInfo.name`，HTTP JSON `agent`）来标识此服务。该字符串不进行本地化。主机名为 `places.agent-mate.ai`。
 
 - **agent** — 地点网关和工具（HTTP + MCP）。**不**拥有面向消费者的 Web UX（what2eat / where2play 屏幕保留在各自应用中）。
 - **app** — 同一主机上的运营管理 Web 应用：公开首页、登录、登录后落地页（左侧导航 + 头部）、管理员、调用方 API 密钥、智能体指令、i18n。
 
-| 相关文档 | 位置 |
-| --- | --- |
-| 家族目标（简述） | [`../../workspace-specs/1.req-specs.md`](../../workspace-specs/1.req-specs.md) |
-| 架构与信任 | [`../../workspace-specs/2.architecture.md`](../../workspace-specs/2.architecture.md) |
-| 供应商能力矩阵 | [`../../workspace-specs/knowledge/maps/places-capabilities.md`](../../workspace-specs/knowledge/maps/places-capabilities.md) |
-| 管理 UI | [`agent-design.md`](./agent-design.md) §12 |
-| 管理 UI 原型 | [`ui-mockup/`](./ui-mockup/) |
-| 测试策略 | [`agent-test-plan.md`](./agent-test-plan.md) |
-| 用户测试用例（ChatBox MCP） | [`agent-test-plan.md`](./agent-test-plan.md) §13–§19 |
-| 技术设计 | [`agent-design.md`](./agent-design.md) |
 
-**状态：** MVP-1 / **MVP-2** 已验收（2026-08-19）。**MVP-3a～MVP-7** 代码与收尾已落地（见 [`0.refactor-plan.md`](./0.refactor-plan.md)）；本文件 Feature **24–31** 对应 AC。
+| 相关文档                | 位置                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 家族目标（简述）            | `[../../workspace-specs/1.req-specs.md](../../workspace-specs/1.req-specs.md)`                                               |
+| 架构与信任               | `[../../workspace-specs/2.architecture.md](../../workspace-specs/2.architecture.md)`                                         |
+| 供应商能力矩阵             | `[../../workspace-specs/knowledge/maps/places-capabilities.md](../../workspace-specs/knowledge/maps/places-capabilities.md)` |
+| 管理 UI               | `[agent-design.md](./agent-design.md)` §12                                                                                   |
+| 管理 UI 原型            | `[ui-mockup/](./ui-mockup/)`                                                                                                 |
+| 测试策略                | `[agent-test-plan.md](./agent-test-plan.md)`                                                                                 |
+| 用户测试用例（ChatBox MCP） | `[agent-test-plan.md](./agent-test-plan.md)` §13–§19                                                                         |
+| 技术设计                | `[agent-design.md](./agent-design.md)`                                                                                       |
+
+
+**状态：** MVP-1 / **MVP-2** 已验收（2026-08-19）。**MVP-3a～MVP-7** 代码与收尾已落地（见 `[0.refactor-plan.md](./0.refactor-plan.md)`）。Feature **24–33** 对应 AC 已交付。**MVP-8（行程优化）** Feature **34–38** 均为 **Done**（2026-08-23）。
+
+**相关：** `[performance.md](./performance.md)`（L1/L2/L3、Mode H、§11 Progressive 交叉引用 where2play）· [ADR-037](../../workspace-specs/adr/ADR-037-where2play-plan-l2-quanzil.md) · [ADR-038](../../workspace-specs/adr/ADR-038-discover-places-quality.md) · where2play `[2play-stories.md](../../3.where2play/2play-specs/2play-stories.md)` features **31–33**
 
 ### Given-When-Then 约定
 
 每个场景描述一种行为。每个功能标记为 **agent**（网关/工具）或 **app**（管理 Web 应用）。用户可见文案使用 **i18n 键**（`EN` 默认；`CN`、`HK`、`TW`）。测试断言键（及插值数据），而非单一语言的句子。协议 id 不进行本地化。
 
-如何自动化这些场景：[`agent-test-plan.md`](./agent-test-plan.md)。
+如何自动化这些场景：`[agent-test-plan.md](./agent-test-plan.md)`。
 
-**AC 状态：** MVP-2 **已验收** 2026-08-19（运营商确认可用）。供应商诚实性（[ADR-021](../../workspace-specs/adr/ADR-021-live-vendor-no-fixture.md)，[`agent-test-plan.md`](./agent-test-plan.md) §1.1）：AMAP 搜索 **live-honest**；Google 搜索 **live-honest**；功能 8 Tripadvisor 丰富化 **live-honest**；功能 9 行程天气 **live-honest**。功能 9 **已计时**：中文组合查询（US11 AC7）；走廊图钉搜索（US11 AC2）——live T05 G01 第 3 天比第 1 天更靠近目的地；仅 AMAP 的 D01 返回了带有 `source: directions` 的访问记录。功能 2 和 10：HTTP + fixture CI；聊天仅 HTTP（[ADR-020](../../workspace-specs/adr/ADR-020-http-only-chat-and-enrich.md)）。ChatBox TC-C 已推迟（[ADR-019](../../workspace-specs/adr/ADR-019-http-first-user-test-automation.md)）。质量门控：[ADR-024](../../workspace-specs/adr/ADR-024-quality-gates-typescript-7.md)。不得将 AC 状态写为 **implemented** 来替代 `live-honest` / `fail-closed` / `fixture-only`。
+**AC 状态：** MVP-2 **已验收** 2026-08-19（运营商确认可用）。供应商诚实性（[ADR-021](../../workspace-specs/adr/ADR-021-live-vendor-no-fixture.md)，`[agent-test-plan.md](./agent-test-plan.md)` §1.1）：AMAP 搜索 **live-honest**；Google 搜索 **live-honest**；功能 8 Tripadvisor 丰富化 **live-honest**；功能 9 行程天气 **live-honest**。功能 9 **已计时**：中文组合查询（US11 AC7）；走廊图钉搜索（US11 AC2）——live T05 G01 第 3 天比第 1 天更靠近目的地；仅 AMAP 的 D01 返回了带有 `source: directions` 的访问记录。功能 2 和 10：HTTP + fixture CI；聊天仅 HTTP（[ADR-020](../../workspace-specs/adr/ADR-020-http-only-chat-and-enrich.md)）。ChatBox TC-C 已推迟（[ADR-019](../../workspace-specs/adr/ADR-019-http-first-user-test-automation.md)）。质量门控：[ADR-024](../../workspace-specs/adr/ADR-024-quality-gates-typescript-7.md)。不得将 AC 状态写为 **implemented** 来替代 `live-honest` / `fail-closed` / `fixture-only`。
 
 **默认前提条件：** 除非场景另有说明：调用方提供有效的调用方 API 密钥；请求的地图供应商已配置。
 
 ## 角色
 
-| 角色 | 身份 | 价值 |
-| --- | --- | --- |
-| 餐厅应用调用方 | what2eat BFF | 无需自行维护地图供应商即可搜索餐厅和详情 |
-| 行程应用调用方 | where2play BFF | 地点搜索、详情、导航、行程引擎 |
-| 智能体主机 | MCP 主机（如 chatboxai.app） | 通过 MCP 使用相同工具；自然语言地点聊天 |
-| 旅行者 | 上述调用方的终端用户 | 查找地点、打开地图、跟随行程计划 |
-| 运营商 | 部署 places-agent 的人 | 凭据、地图供应商可用性、无目的地强制供应商选择 |
-| 管理员 | places.agent-mate.ai 管理应用的运营商 | 登录、邀请管理员、签发和撤销调用方 API 密钥 |
+
+| 角色      | 身份                            | 价值                       |
+| ------- | ----------------------------- | ------------------------ |
+| 餐厅应用调用方 | what2eat BFF                  | 无需自行维护地图供应商即可搜索餐厅和详情     |
+| 行程应用调用方 | where2play BFF                | 地点搜索、详情、导航、行程引擎          |
+| 智能体主机   | MCP 主机（如 chatboxai.app）       | 通过 MCP 使用相同工具；自然语言地点聊天   |
+| 旅行者     | 上述调用方的终端用户                    | 查找地点、打开地图、跟随行程计划         |
+| 运营商     | 部署 places-agent 的人            | 凭据、地图供应商可用性、无目的地强制供应商选择  |
+| 管理员     | places.agent-mate.ai 管理应用的运营商 | 登录、邀请管理员、签发和撤销调用方 API 密钥 |
+
+
+
 
 ## 术语（避免混用）
 
-| 术语 | 含义 | 不是这个 |
-| --- | --- | --- |
-| **地图供应商** | AMAP、Google Maps、Tripadvisor——智能体所查询的对象。请求字段保持 `providers[]`。 | HTTP vs MCP；驾车/公交路线 |
-| **地点卡来源** | 结果上的 `sources[]`：卡片来自哪个供应商，包含 logo、深度链接；可选合并重复项 | 要调用哪些供应商（即地图供应商选择） |
-| **访问渠道** | 调用方访问智能体的方式：HTTP API 或 MCP | 将旅行者带到某个地点 |
-| **路线导航** | 路线、预计到达时间或前往某地点的地图应用深度链接（功能 4） | HTTP vs MCP |
-| **调用方 API 密钥** | 在管理应用中签发的密钥；调用方发送此密钥以使用 HTTP/MCP 工具 | 地图供应商密钥（AMAP / Google / Tripadvisor），此类密钥不会出现在本 UI 中 |
-| **智能体 id** | 机器 id **`places-agent`**。调用方在 MCP `serverInfo.name` 和 HTTP 字段 `agent` 中可见。 | 主机名 `places.agent-mate.ai`；ChatBox 显示标题；工具名称前缀 |
-| **类别 `agent`** | 网关 / 工具核心故事 | 管理 Web 应用 |
-| **类别 `app`** | places.agent-mate.ai 上的管理 Web 应用 | what2eat / where2play 产品屏幕 |
-| **输出语言环境** | 产品 id `CN`、`HK`、`TW`、`EN`（参见 i18n 表）。由调用方或管理员选择。 | 地图供应商选择；搜索目的地 |
+
+| 术语             | 含义                                                                     | 不是这个                                                 |
+| -------------- | ---------------------------------------------------------------------- | ---------------------------------------------------- |
+| **地图供应商**      | AMAP、Google Maps、Tripadvisor——智能体所查询的对象。请求字段保持 `providers[]`。          | HTTP vs MCP；驾车/公交路线                                  |
+| **地点卡来源**      | 结果上的 `sources[]`：卡片来自哪个供应商，包含 logo、深度链接；可选合并重复项                        | 要调用哪些供应商（即地图供应商选择）                                   |
+| **访问渠道**       | 调用方访问智能体的方式：HTTP API 或 MCP                                             | 将旅行者带到某个地点                                           |
+| **路线导航**       | 路线、预计到达时间或前往某地点的地图应用深度链接（功能 4）                                         | HTTP vs MCP                                          |
+| **调用方 API 密钥** | 在管理应用中签发的密钥；调用方发送此密钥以使用 HTTP/MCP 工具                                    | 地图供应商密钥（AMAP / Google / Tripadvisor），此类密钥不会出现在本 UI 中 |
+| **智能体 id**     | 机器 id `places-agent`。调用方在 MCP `serverInfo.name` 和 HTTP 字段 `agent` 中可见。 | 主机名 `places.agent-mate.ai`；ChatBox 显示标题；工具名称前缀       |
+| **类别** `agent` | 网关 / 工具核心故事                                                            | 管理 Web 应用                                            |
+| **类别** `app`   | places.agent-mate.ai 上的管理 Web 应用                                       | what2eat / where2play 产品屏幕                           |
+| **输出语言环境**     | 产品 id `CN`、`HK`、`TW`、`EN`（参见 i18n 表）。由调用方或管理员选择。                       | 地图供应商选择；搜索目的地                                        |
+
+
+
 
 ## i18n（全产品）
 
@@ -61,12 +73,14 @@
 
 支持的输出语言环境（四种，非两种）：
 
-| 产品 id | BCP 47 | 语言 |
-| --- | --- | --- |
-| `EN` | `en` | 英语（默认） |
-| `CN` | `zh-CN` | 简体中文（大陆用语） |
-| `HK` | `zh-HK` | 繁体中文，香港方言 |
-| `TW` | `zh-TW` | 繁体中文，台湾方言 |
+
+| 产品 id | BCP 47  | 语言         |
+| ----- | ------- | ---------- |
+| `EN`  | `en`    | 英语（默认）     |
+| `CN`  | `zh-CN` | 简体中文（大陆用语） |
+| `HK`  | `zh-HK` | 繁体中文，香港方言  |
+| `TW`  | `zh-TW` | 繁体中文，台湾方言  |
+
 
 `HK` 和 `TW` 均使用繁体字，但**用语不同**。不得将它们视为 `CN` 的繁简转换。
 
@@ -77,9 +91,11 @@
 - Open-Meteo 天气**标签**进行本地化：`weather_code` → 所请求语言环境中的键 `weather.wmo.{code}`。不得在 `CN` / `HK` / `TW` 中显示英语 Open-Meteo 文档字符串（ADR-014）
 - 管理应用目录：功能 19。智能体工具/聊天/行程输出：功能 13。
 
+
+
 ## 非目标（本待办列表）
 
-- what2eat / where2play 屏幕、品牌，或产品 Quanzil
+- what2eat / where2play 屏幕、品牌，或产品 OPENAI_CN
 - 硬规则"搜索目的地在中国大陆 ⇒ 仅 AMAP"
 - 按搜索目的地切换 LLM
 - 部署拓扑、Portainer stacks、umbrella git 布局
@@ -88,34 +104,41 @@
 
 ---
 
+
+
 ## MVP 计划（两个切片，按智能体能力划分）
 
 切片遵循**智能体能力**，而非"管理 vs 网关 vs 智能"。每个 **app** 功能（14–19）均属于 **MVP-1**。14–19 中任何一项未完成，不得启动 MVP-2。
 
 **能力**（工具 + 聊天循环）。共用基础设施列在首个需要它的能力下。
 
-| 能力 | 调用方获得的内容 | 功能 | 切片 |
-| --- | --- | --- | --- |
-| **运营** | 登录、邀请、签发密钥、语言环境配置、指令页面 | **14, 15, 16, 17, 18, 19**（所有管理 UI） | **MVP-1** |
-| **调用** | HTTP + MCP 作为 `places-agent`；调用方密钥认证 | **11, 12** | **MVP-1** |
-| **搜索餐厅** | 带卡片、来源、地理编码、深度链接、语言环境的餐厅发现 | **1, 3, 4, 5, 6, 7, 13** | **MVP-1** |
-| **搜索地点** | 非餐厅 POI 发现（相同卡片/供应商合约） | **2** | **MVP-2** |
-| **规划行程** | 多站点计划 + Open-Meteo 天气标签 | **9** | **MVP-2** |
-| **Tripadvisor 丰富化** | 按名称+位置可选评分/内容 | **8** | **MVP-2** |
-| **地点聊天** | 在已发布工具上通过 Quanzil 进行自然语言工具循环 | **10** | **MVP-2** |
 
-| 切片 | 结果 | 功能 |
-| --- | --- | --- |
-| **MVP-1 — 运营、调用、搜索餐厅** | 管理 UI 完整。密钥在 HTTP 和 MCP 上均可用。what2eat 可以搜索餐厅、打开详情并获取地图链接。无 Quanzil 循环。 | **14–19** · **11, 12** · **1, 3, 4, 5, 6, 7, 13** |
-| **MVP-2 — 地点、行程、丰富化、聊天** | where2play 可搜索 POI 并请求结构化行程（功能 13 中的天气键）。卡片上的 Tripadvisor 匹配。ChatBox 自然语言聊天复用工具核心。 | **2, 9, 8, 10** |
-| **MVP-3a — 稳定与自动供应商** | 服务器稳定 + 目的地/语言驱动的 provider 自动选择 | **20, 21** |
-| **MVP-3b — 卡片富化** | 搜索结果 Photos + Price Level | **24** |
-| **MVP-3c — Resolver / Directions** | Geocode-first provider + Directions Worker fallback | **25** |
-| **MVP-4a — 语言与关键词** | Language router + 多语言搜索关键词 | **26** |
-| **MVP-4b — 性能** | Geocode/search 缓存 + itinerary 并行（目标 <15s） | **27** |
-| **MVP-5 — Admin 加固** | API 错误映射、Error Boundary、reset 4h、session iat；邀请 E2E 已有，密码重置 E2E 待补 | **28** |
-| **MVP-6 — Prompt + LLM 行程** | Prompt assembler、LLM itinerary+Zod、MCP `discover_places`/`arrange_day` | **29, 30, 31** |
-| **MVP-7 — 收尾** | HTTP discover/arrange、password-reset E2E、`make quality`（Branches≥80%）、Guide + release-bot 部署清单 | — |
+| 能力                  | 调用方获得的内容                             | 功能                                  | 切片        |
+| ------------------- | ------------------------------------ | ----------------------------------- | --------- |
+| **运营**              | 登录、邀请、签发密钥、语言环境配置、指令页面               | **14, 15, 16, 17, 18, 19**（所有管理 UI） | **MVP-1** |
+| **调用**              | HTTP + MCP 作为 `places-agent`；调用方密钥认证 | **11, 12**                          | **MVP-1** |
+| **搜索餐厅**            | 带卡片、来源、地理编码、深度链接、语言环境的餐厅发现           | **1, 3, 4, 5, 6, 7, 13**            | **MVP-1** |
+| **搜索地点**            | 非餐厅 POI 发现（相同卡片/供应商合约）               | **2**                               | **MVP-2** |
+| **规划行程**            | 多站点计划 + Open-Meteo 天气标签              | **9**                               | **MVP-2** |
+| **Tripadvisor 丰富化** | 按名称+位置可选评分/内容                        | **8**                               | **MVP-2** |
+| **地点聊天**            | 在已发布工具上通过 OPENAI_CN 进行自然语言工具循环         | **10**                              | **MVP-2** |
+
+
+
+| 切片                                 | 结果                                                                                                                      | 功能                                                |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| **MVP-1 — 运营、调用、搜索餐厅**             | 管理 UI 完整。密钥在 HTTP 和 MCP 上均可用。what2eat 可以搜索餐厅、打开详情并获取地图链接。无 OPENAI_CN 循环。                                                  | **14–19** · **11, 12** · **1, 3, 4, 5, 6, 7, 13** |
+| **MVP-2 — 地点、行程、丰富化、聊天**           | where2play 可搜索 POI 并请求结构化行程（功能 13 中的天气键）。卡片上的 Tripadvisor 匹配。ChatBox 自然语言聊天复用工具核心。                                      | **2, 9, 8, 10**                                   |
+| **MVP-3a — 稳定与自动供应商**              | 服务器稳定 + 目的地/语言驱动的 provider 自动选择                                                                                         | **20, 21**                                        |
+| **MVP-3b — 卡片富化**                  | 搜索结果 Photos + Price Level                                                                                               | **24**                                            |
+| **MVP-3c — Resolver / Directions** | Geocode-first provider + Directions Worker fallback                                                                     | **25**                                            |
+| **MVP-4a — 语言与关键词**                | Language router + 多语言搜索关键词                                                                                              | **26**                                            |
+| **MVP-4b — 性能**                    | Geocode/search 缓存 + itinerary 并行（目标 <15s）                                                                               | **27**                                            |
+| **MVP-5 — Admin 加固**               | API 错误映射、Error Boundary、reset 4h、session iat；邀请 E2E 已有，密码重置 E2E 待补                                                      | **28**                                            |
+| **MVP-6 — Prompt + LLM 行程**        | Prompt assembler、LLM itinerary+Zod、MCP `discover_places`/`arrange_day`                                                  | **29, 30, 31**                                    |
+| **MVP-7 — 收尾**                     | HTTP discover/arrange、password-reset E2E、`make quality`（Branches≥80%）、Guide + release-bot 部署清单；行程 P0 止损 + discover 质量门面 | **32, 33**（及收尾项）                                  |
+| **MVP-8 — 行程优化**                   | Arm A 种子增强、Mode H handoff、L2 硬必去、真交通进时间线、MCP session                                                                    | **34–38**                                         |
+
 
 **MVP-1 说明**
 
@@ -128,53 +151,221 @@
 **MVP-2 说明**
 
 - 切片**已验收** 2026-08-19（运营商确认可用）。质量：[ADR-024](../../workspace-specs/adr/ADR-024-quality-gates-typescript-7.md)。ChatBox TC-C 仍推迟（[ADR-019](../../workspace-specs/adr/ADR-019-http-first-user-test-automation.md)）。
-
 - `search_places` 复用 MVP-1 供应商、来源、详情、地理编码、导航和语言环境目录。不得发明第二种卡片形状。
 - `plan_itinerary` 调用相同的工具核心。Open-Meteo 是行程内部的帮助器，而非 `providers[]` 供应商。
+- **where2play 初排（ADR-037）：** BFF 调 agent **仅** `discover_places`；L2 在 where2play OPENAI_CN。不得将「2play 必须调 `plan_itinerary`」写进验收。
 - Tripadvisor 丰富化在搜索/详情上可选；切勿将 Google `place_id` 作为 Tripadvisor id 传递。
-- 自然语言聊天是在 MVP-1 和本切片工具上的 Quanzil 循环。不得发明第二个工具核心。
+- 自然语言聊天是在 MVP-1 和本切片工具上的 OPENAI_CN 循环。不得发明第二个工具核心。
 
-**切片内构建顺序：** 每次将一个用户故事推至 DoD（[`agent-design.md`](./agent-design.md) §16）。建议 MVP-1：**14 → 15 → 16 → 19 → 18 → 17 → 12 → 11 → 6 → 5 → 1 → 3 → 7 → 4 → 13**。MVP-2：**2 → 9 → 8 → 10**。MVP-3a：**20 → 21**。MVP-3b→6：**24 → 25 → 26 → 27 → 28 → 29 → 30 → 31**。
+**切片内构建顺序：** 每次将一个用户故事推至 DoD（`[agent-design.md](./agent-design.md)` §16）。建议 MVP-1：**14 → 15 → 16 → 19 → 18 → 17 → 12 → 11 → 6 → 5 → 1 → 3 → 7 → 4 → 13**。MVP-2：**2 → 9 → 8 → 10**。MVP-3a：**20 → 21**。MVP-3b→6：**24 → 25 → 26 → 27 → 28 → 29 → 30 → 31**。MVP-7：**32 → 33**。MVP-8：**按下方开发计划 Wave A→E**（默认 **34 → 36 → 35 → 37**；**38** 可与 A/B 并行）。where2play Progressive §11-P0 已交付；2play **31–33** 依赖本仓库 **35 / 流式契约 / 37**。
 
 ---
+
+
 
 # 第一部分 — 产品待办列表
 
-| # | 类别 | 功能名称 | 功能代码 | 描述 | 验收标准 | MVP |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | agent | 餐厅搜索 | `places-agent-search-restaurants` | 通过调用方请求的供应商按位置和条件搜索餐厅 | 见下文 | **1** |
-| 2 | agent | 地点搜索 | `places-agent-search-places` | 以相同方式搜索非餐厅地点（景点、POI） | 见下文 | **2** |
-| 3 | agent | 地点详情 | `places-agent-place-details` | 使用供应商原生地点 id 获取已知地点的详情 | 见下文 | **1** |
-| 4 | agent | 导航助手 | `places-agent-navigate` | 为地点返回不含密钥的导航深度链接和 URL | 见下文 | **1** |
-| 5 | agent | 地理编码 | `places-agent-geocode` | 按需对地址进行地理编码和反向地理编码，使搜索可从地址或图钉运行 | 见下文 | **1** |
-| 6 | agent | 地图供应商选择 | `places-agent-map-vendors` | 调用方传递要查询的**地图供应商**（`providers[]`）；智能体验证凭据和能力；不静默换供应商。`GOOGLE_MAPS` 先使用直连 REST，再使用 Cloudflare Worker MCP（ADR-017） | 见下文 | **1** |
-| 7 | agent | 地点卡来源 | `places-agent-card-sources` | 每张地点卡列出 `sources[]`；可选合并重复项；**应用**选择打开哪个地图深度链接 | 见下文 | **1** |
-| 8 | agent | Tripadvisor 丰富化 | `places-agent-tripadvisor-enrich` | 按名称+位置匹配可选的 Tripadvisor 评分/内容；切勿将 Google `place_id` 作为 id 传递 | 见下文 | **2** |
-| 9 | agent | 行程规划 | `places-agent-plan-itinerary` | 根据行程边界、地点结果和旅行者偏好（包括自然语言）生成结构化行程建议；行程 UX 保留在调用方 | 见下文 | **2** |
-| 10 | agent | 自然语言地点聊天 | `places-agent-nl-chat` | 旅行者以自然语言提问（可选文件/图片上传）；智能体在服务器 Quanzil 上运行工具循环 | 见下文 | **2** |
-| 11 | agent | HTTP API 和 MCP | `places-agent-http-mcp` | 通过 HTTP API（应用 BFF）和 MCP（智能体主机）提供相同工具；两种渠道均将服务标识为 `places-agent` | 见下文 | **1** |
-| 12 | agent | 调用方 API 密钥认证 | `places-agent-caller-trust` | 仅向通过**调用方 API 密钥**认证的调用方提供 HTTP/MCP 服务；地图供应商密钥保留在智能体上；用户可见错误使用 i18n 键 | 见下文 | **1** |
-| 13 | agent | 双语输出 | `places-agent-bilingual-output` | 智能体用户可见输出支持 `EN` / `CN` / `HK` / `TW`；单语言环境或双语对。Open-Meteo `weather.wmo.*` 键随功能 9 一起提供 | 见下文 | **1** |
-| 14 | app | 管理员首页 | `places-agent-admin-home` | 公开首页：指向智能体指令（功能 18）的链接和管理员登录控件 | 见下文 | **1** |
-| 15 | app | 管理员登录和用户 | `places-agent-admin-users` | 管理员登录、默认管理员、通过 Resend 重置密码和邀请；公开注册已禁用 | 见下文 | **1** |
-| 16 | app | 管理员落地页 | `places-agent-admin-landing` | 登录后：左侧导航；头部含智能体指令链接和已登录用户名问候语 | 见下文 | **1** |
-| 17 | app | 调用方 API 密钥 | `places-agent-admin-api-keys` | 创建、编辑、重新生成、删除调用方 API 密钥；复制密钥 | 见下文 | **1** |
-| 18 | app | 智能体指令 | `places-agent-admin-instructions` | 调用 places.agent-mate.ai 的方法；两个入口——公开首页链接和登录后头部链接 | 见下文 | **1** |
-| 19 | app | 管理应用 i18n | `places-agent-admin-i18n` | 管理 UI 和邮件支持 `EN` / `CN` / `HK` / `TW`；语言环境切换；缺失键回退 | 见下文 | **1** |
-| 20 | agent | 供应商自动选择 | `places-agent-provider-auto` | 智能体根据目的地+语言自动选择 provider 组合（策略1 Google+TA / 策略2 AMAP），caller 可覆盖 | 见下文 | **3a** |
-| 21 | infra | 服务器稳定性 | `places-agent-server-stability` | JSON 解析安全、graceful shutdown、session TTL 清理 | 见下文 | **3a** |
-| 24 | agent | 照片与价格档 | `places-agent-photos-price` | 搜索卡片返回 photos 与归一化 price_level（$/$$/$$$）；无图时省略字段 | 见下文 | **3b** |
-| 25 | agent | Geocode-first 与 Directions fallback | `places-agent-geocode-directions` | Provider 判定以 Geocode 为准；Google Directions 全方法支持 Worker MCP fallback | 见下文 | **3c** |
-| 26 | agent | 语言路由与搜索关键词 | `places-agent-language-keywords` | 按 locale/CJK 路由语言；搜索关键词多语言映射，去掉行程硬编码文案 | 见下文 | **4a** |
-| 27 | agent | 搜索缓存与并行 | `places-agent-perf-cache` | Geocode/search 短期缓存；行程餐食/多天搜索并行，目标端到端 <15s | 见下文 | **4b** |
-| 28 | app | Admin API 加固 | `places-agent-admin-hardening` | Prisma 错误→404/409、Admin Error Boundary、reset token 4h、session iat；邀请 E2E 已有，密码重置 E2E 待补 | 见下文 | **5** |
-| 29 | agent | Prompt 组装器 | `places-agent-prompt-assembler` | base.{en,zh} + overlays 拼接系统 prompt；budget/time-of-day 内联 | 见下文 | **6** |
-| 30 | agent | LLM 行程规划 | `places-agent-itinerary-llm` | 单 LLM+自查+Zod；`ITINERARY_MODE=llm\|legacy`；失败 fallback 旧路径 | 见下文 | **6** |
-| 31 | agent | 行程 MCP 拆分 | `places-agent-itinerary-mcp-split` | MCP `discover_places` / `arrange_day`；HTTP 对等路由 ✅ MVP-7 | 见下文 | **6** |
+**列说明：** `#` = 功能号（稳定 id，不随表序变）；`MVP` = 切片标签（**MVP-1**…**MVP-8**，含 **MVP-3a** 等子切片）；表内按 MVP 批次排列，同批内按功能号。`itinerary 优化相关` = 与行程发现/排程/交通/MCP 行程通道相关（含 `[performance.md](./performance.md)`）。`完工情况` = **Done**（已交付可测）/ **ToDo**（未做或共识待 merge）。
+
+
+| #   | 类别    | 功能名称                                | 功能代码                                  | 描述                                                                                                                              | 验收标准 | MVP    | itinerary 优化相关 | 完工情况 |
+| --- | ----- | ----------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------- | ---- |
+| 1 | agent | 餐厅搜索 | `places-agent-search-restaurants` | 通过调用方请求的供应商按位置和条件搜索餐厅 | 见下文 | **MVP-1** | — | Done |
+| 3 | agent | 地点详情 | `places-agent-place-details` | 使用供应商原生地点 id 获取已知地点的详情 | 见下文 | **MVP-1** | — | Done |
+| 4 | agent | 导航助手 | `places-agent-navigate` | 为地点返回不含密钥的导航深度链接和 URL；行程时间线真交通见 **37** | 见下文 | **MVP-1** | 是 | Done |
+| 5 | agent | 地理编码 | `places-agent-geocode` | 按需对地址进行地理编码和反向地理编码，使搜索可从地址或图钉运行 | 见下文 | **MVP-1** | — | Done |
+| 6 | agent | 地图供应商选择 | `places-agent-map-vendors` | 调用方传递要查询的**地图供应商**（`providers[]`）；智能体验证凭据和能力；不静默换供应商。`GOOGLE_MAPS` 先使用直连 REST，再使用 Cloudflare Worker MCP（ADR-017） | 见下文 | **MVP-1** | — | Done |
+| 7 | agent | 地点卡来源 | `places-agent-card-sources` | 每张地点卡列出 `sources[]`；可选合并重复项；**应用**选择打开哪个地图深度链接 | 见下文 | **MVP-1** | — | Done |
+| 11 | agent | HTTP API 和 MCP | `places-agent-http-mcp` | 通过 HTTP API（应用 BFF）和 MCP（智能体主机）提供相同工具；两种渠道均将服务标识为 `places-agent`；session 修复见 **38** | 见下文 | **MVP-1** | 是 | Done |
+| 12 | agent | 调用方 API 密钥认证 | `places-agent-caller-trust` | 仅向通过**调用方 API 密钥**认证的调用方提供 HTTP/MCP 服务；地图供应商密钥保留在智能体上；用户可见错误使用 i18n 键 | 见下文 | **MVP-1** | — | Done |
+| 13 | agent | 双语输出 | `places-agent-bilingual-output` | 智能体用户可见输出支持 `EN` / `CN` / `HK` / `TW`；单语言环境或双语对。Open-Meteo `weather.wmo.*` 键随功能 9 一起提供 | 见下文 | **MVP-1** | — | Done |
+| 14 | app | 管理员首页 | `places-agent-admin-home` | 公开首页：指向智能体指令（功能 18）的链接和管理员登录控件 | 见下文 | **MVP-1** | — | Done |
+| 15 | app | 管理员登录和用户 | `places-agent-admin-users` | 管理员登录、默认管理员、通过 Resend 重置密码和邀请；公开注册已禁用 | 见下文 | **MVP-1** | — | Done |
+| 16 | app | 管理员落地页 | `places-agent-admin-landing` | 登录后：左侧导航；头部含智能体指令链接和已登录用户名问候语 | 见下文 | **MVP-1** | — | Done |
+| 17 | app | 调用方 API 密钥 | `places-agent-admin-api-keys` | 创建、编辑、重新生成、删除调用方 API 密钥；复制密钥 | 见下文 | **MVP-1** | — | Done |
+| 18 | app | 智能体指令 | `places-agent-admin-instructions` | 调用 places.agent-mate.ai 的方法；两个入口——公开首页链接和登录后头部链接 | 见下文 | **MVP-1** | — | Done |
+| 19 | app | 管理应用 i18n | `places-agent-admin-i18n` | 管理 UI 和邮件支持 `EN` / `CN` / `HK` / `TW`；语言环境切换；缺失键回退 | 见下文 | **MVP-1** | — | Done |
+| 2 | agent | 地点搜索 | `places-agent-search-places` | 以相同方式搜索非餐厅地点（景点、POI） | 见下文 | **MVP-2** | — | Done |
+| 8 | agent | Tripadvisor 丰富化 | `places-agent-tripadvisor-enrich` | 按名称+位置匹配可选的 Tripadvisor 评分/内容；切勿将 Google `place_id` 作为 id 传递 | 见下文 | **MVP-2** | — | Done |
+| 9 | agent | 行程规划 | `places-agent-plan-itinerary` | 多站点结构化行程（LLM/legacy）；**where2play 初排主路径不调本工具**（ADR-037：L1 `discover_places` + 调用方 OPENAI_CN L2）。MCP/HTTP 一站式仍可用 | 见下文 | **MVP-2** | 是 | Done |
+| 10 | agent | 自然语言地点聊天 | `places-agent-nl-chat` | 旅行者以自然语言提问（可选文件/图片上传）；智能体在服务器 OPENAI_CN 上运行工具循环；where2play 助手走应用侧 OPENAI_CN（ADR-036），不转发本工具为默认 | 见下文 | **MVP-2** | — | Done |
+| 20 | agent | 供应商自动选择 | `places-agent-provider-auto` | 智能体根据目的地+语言自动选择 provider 组合（策略1 Google+TA / 策略2 AMAP），caller 可覆盖 | 见下文 | **MVP-3a** | 是 | Done |
+| 21 | infra | 服务器稳定性 | `places-agent-server-stability` | JSON 解析安全、graceful shutdown、session TTL 清理 | 见下文 | **MVP-3a** | — | Done |
+| 24 | agent | 照片与价格档 | `places-agent-photos-price` | 搜索卡片返回 photos 与归一化 price_level（$/$$/$$$）；无图时省略字段 | 见下文 | **MVP-3b** | — | Done |
+| 25 | agent | Geocode-first 与 Directions fallback | `places-agent-geocode-directions` | Provider 判定以 Geocode 为准；Google Directions 全方法支持 Worker MCP fallback | 见下文 | **MVP-3c** | 是 | Done |
+| 26 | agent | 语言路由与搜索关键词 | `places-agent-language-keywords` | 按 locale/CJK 路由语言；搜索关键词多语言映射，去掉行程硬编码文案 | 见下文 | **MVP-4a** | 是 | Done |
+| 27 | agent | 搜索缓存与并行 | `places-agent-perf-cache` | Geocode/search 短期缓存；行程餐食/多天搜索并行；端到端秒级目标见 performance（L2 LLM 等待另计） | 见下文 | **MVP-4b** | 是 | Done |
+| 28 | app | Admin API 加固 | `places-agent-admin-hardening` | Prisma 错误→404/409、Admin Error Boundary、reset token 4h、session iat；邀请/密码重置 E2E | 见下文 | **MVP-5** | — | Done |
+| 29 | agent | Prompt 组装器 | `places-agent-prompt-assembler` | base.{en,zh} + overlays 拼接系统 prompt；budget/time-of-day 内联；与 Mode H 共享见 **35** | 见下文 | **MVP-6** | 是 | Done |
+| 30 | agent | LLM 行程规划 | `places-agent-itinerary-llm` | 单日/多日 LLM+Zod（`arrange_day` / `plan_itinerary`）；失败可降级。where2play L2 用**调用方** OPENAI_CN（ADR-037），本功能服务 MCP 与一站式 HTTP | 见下文 | **MVP-6** | 是 | Done |
+| 31 | agent | 行程 MCP 拆分 | `places-agent-itinerary-mcp-split` | MCP+HTTP `discover_places` / `arrange_day`；与 `plan_itinerary` 并存；2play 主路径仅 L1 discover | 见下文 | **MVP-6** | 是 | Done |
+| 32 | agent | 行程 MCP P0 止损 | `places-agent-itinerary-mcp-p0` | `date` nullish；arrange 入模 slim；MCP description 互斥/禁回灌（performance P0） | 见下文 | **MVP-7** | 是 | Done |
+| 33 | agent | Discover 候选质量 | `places-agent-discover-quality` | L1 无 LLM：热门城 must-see seed、过滤、cluster 去重、池头多样性（ADR-038） | 见下文 | **MVP-7** | 是 | Done |
+| 34 | agent | Discover Arm A 增强 | `places-agent-discover-arm-a` | 馆名优先种子、大陆 must-see 双源（含 Google）、本地餐加权；不以 LLM 写 search query 为主路径（performance Q2） | 见下文 | **MVP-8** | 是 | Done |
+| 35 | agent | Arrange Mode H handoff | `places-agent-arrange-host` | `execution=host`：返回 `system_prompt`/`user_prompt`/`candidates_slim`，本请求不调 LLM；宿主执行（ChatBox/Cursor/可选 2play）（performance Mode H） | 见下文 | **MVP-8** | 是 | Done |
+| 36 | agent | L2 硬必去 | `places-agent-arrange-hard-must-see` | 行程级必去类必须出现在排程结果，否则重排/注入（非仅 Prefer 文案）（performance Q3） | 见下文 | **MVP-8** | 是 | Done |
+| 37 | agent | 行程真交通 | `places-agent-itinerary-real-transit` | 将 `navigate`/directions 结果写入行程时间线（非仅 reason 估时）；2play L2 时间线消费（performance Q4） | 见下文 | **MVP-8** | 是 | Done |
+| 38 | infra | MCP SSE session | `places-agent-mcp-sse-session` | 修复 `POST /sse` Streamable session（无/过期 session → 明确错误或可恢复）（performance Q6） | 见下文 | **MVP-8** | 是 | Done |
+
+
+**本表变更摘要（2026-08-23）：**
+
+
+| 类型       | 项                                                                                                               |
+| -------- | --------------------------------------------------------------------------------------------------------------- |
+| **MVP 列** | 改为 **MVP-1**…**MVP-8** 全文；表内按 MVP 批次重排（同批内按功能号） |
+| **新增列**  | `itinerary 优化相关`、`完工情况`                                                                                         |
+| **新增功能** | **32–33**（原 Feature 31 延伸故事升格）；**34–38**（performance Q2–Q4 / Mode H / MCP session）                              |
+| **改动**   | **9 / 10 / 11 / 30 / 31** 描述对齐 ADR-036/037（2play 不默认调 agent arrange/plan/chat）；**4 / 20 / 25–27 / 29** 标注行程优化关联 |
+| **删除**   | 无（编号 22–23 历史空号保留，不补）                                                                                           |
+| **明确排除** | 搜索专名自动机翻（performance Q5）；不写入本表                                                                                  |
+| **开发计划** | 新增本节 **「MVP-8 剩余功能开发计划」**（Wave A–E）                                                                             |
+
 
 ---
 
+
+
+## MVP-8 剩余功能开发计划
+
+**范围：** Feature **34–38**（全部 **ToDo**）。真源 AC 见第二部分同名章节；工程约束见 `[performance.md](./performance.md)` §0.1 / §3.1 / §6。  
+**原则：** 一次只推一个 Feature 至 DoD；不并行开多条主线；不把「LLM 写 search query」或专名机翻纳入范围。
+
+### 剩余清单
+
+
+| Wave  | Feature                | 代码                                    | performance   | 依赖                | 预估   | 目标                              |
+| ----- | ---------------------- | ------------------------------------- | ------------- | ----------------- | ---- | ------------------------------- |
+| **A** | **34** Discover Arm A  | `places-agent-discover-arm-a`         | Q2            | 无（建在 **33** 上）    | 3–5d | 西安等热门城池头必去 + 餐更近                |
+| **B** | **36** L2 硬必去          | `places-agent-arrange-hard-must-see`  | Q3            | **34** 池够硬后收益最大   | 2–4d | 池中必去不会被 arrange 漏掉              |
+| **C** | **35** Mode H handoff  | `places-agent-arrange-host`           | Mode H / §3.1 | 可与 B 交错，但建议 B 后   | 3–5d | MCP/宿主秒级开写；解锁 2play **plan-11** |
+| **D** | **37** 行程真交通           | `places-agent-itinerary-real-transit` | Q4            | 复用 **4** / **25** | 3–5d | legs 进时间线；解锁 2play **plan-13**  |
+| **E** | **38** MCP SSE session | `places-agent-mcp-sse-session`        | Q6            | **与 A/B 并行 OK**   | 1–3d | ChatBox `POST /sse` 可恢复         |
+
+
+**建议默认顺序：** A → B → C → D；**E 随时可插**（不挡质量主线）。  
+**与 where2play：** Progressive §11-P0 已完成。2play **plan-11**（Mode H）跟 **35**；**plan-12**（arrange stream）主要在 2play；**plan-13**（真交通）跟 **37**。
+
+```text
+Wave A  34 Arm A seed/双源/餐
+   │
+Wave B  36 硬必去（agent arrange + 契约；2play L2 可随后对齐）
+   │
+Wave C  35 execution=host  ——→  2play plan-11 换 prompt 源
+   │
+Wave D  37 directions 进行程  ——→  2play plan-13
+   │
+Wave E  38 SSE session（可与 A/B 并行）
+```
+
+
+
+### Wave A — Feature 34 Discover Arm A
+
+
+| 项        | 内容                                                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **目标**   | 主路径 merge 探针 Arm A：馆名优先种子、大陆 must-see **双源（含 Google）**、本地餐加权；**不**接 L1 LLM                                                     |
+| **基线**   | Feature **33** / ADR-038：`discover-must-see`、filter、cluster dedupe 已有                                                          |
+| **实现要点** | 扩展种子表（如「秦始皇帝陵博物院」）；mainland must-see 查询强制/默认双 provider；`restaurants` 按锚点距离/本地信号重排；更新 `provider-resolver` 与 discover 组装         |
+| **主要文件** | `src/core/discover-must-see.ts`、`itinerary-planner.ts`（`searchCandidatePools`）、`provider-resolver.ts`、`place-filters.ts`（仅必要时） |
+| **测试**   | 西安/热门城 mock 契约：池含陵/馆正式名类；双源合并无假 POI；餐排头近锚；复跑 `scripts/probe-*-discover-ab.py` 对照 Arm A                                         |
+| **DoD**  | AC1–3 绿；knowledge 探针表更新；**33** 回归不破                                                                                            |
+| **非目标**  | LLM 生成 query；专名机翻                                                                                                              |
+
+
+
+
+### Wave B — Feature 36 L2 硬必去
+
+
+| 项         | 内容                                                                           |
+| --------- | ---------------------------------------------------------------------------- |
+| **目标**    | 排程结果**强制**覆盖行程级必去类（重排或注入），非仅 Prefer                                          |
+| **依赖**    | **34** 先保证池内有真必去；否则硬规则无米之炊                                                   |
+| **实现要点**  | 定义必去 token / cluster 与日预算；`arrange_day` 校验失败则一次重试或确定性注入；prompt 可保留 Prefer 作辅 |
+| **主要文件**  | `src/core/itinerary-planner.ts`（arrange）、Zod/自查、可选新 `must-see-coverage.ts`   |
+| **测试**    | 池含兵马俑+大雁塔 时 blocks 必现；注入不造假坐标；超时/失败路径不静默标成功                                  |
+| **DoD**   | AC1 绿；MCP+HTTP arrange 行为一致                                                  |
+| **2play** | BFF OPENAI_CN L2 可随后镜像同一规则（另故事，勿塞进本 Wave）                                      |
+
+
+
+
+### Wave C — Feature 35 Mode H handoff
+
+
+| 项        | 内容                                                                                           |
+| -------- | -------------------------------------------------------------------------------------------- |
+| **目标**   | `execution=host`：返回 prompt + slim 候选，**本请求不调 LLM**；`execution=agent` 兼容现网                    |
+| **依赖**   | 建议在 **36** 之后，使 host prompt 已含硬必去约束；可与 **38** 并行                                             |
+| **实现要点** | 抽出共享 `buildSchedulePrompt`；MCP + HTTP 参数与响应契约；description 标明默认推荐 host；指标字段预留（execution、TTFB） |
+| **主要文件** | `src/mcp/create-server.ts`、`src/core/itinerary-planner.ts`、HTTP arrange 路由、prompt 模块         |
+| **测试**   | host 路径 spy：零 OpenAI 调用；快照 prompt；agent 路径回归                                                 |
+| **DoD**  | AC1–2 绿；ChatBox/Cursor 手测：工具返回后即可流式写                                                         |
+| **解锁**   | where2play **plan-11**（换 prompt 源，UI 事件不变）                                                   |
+
+
+
+
+### Wave D — Feature 37 行程真交通
+
+
+| 项        | 内容                                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------- |
+| **目标**   | 站间/首尾 transit 写入真实 directions/navigate 时长与方式（无密钥外泄）                                             |
+| **依赖**   | Feature **4**、**25**；可选等 **35** 后再做以减少并行面                                                       |
+| **实现要点** | arrange/plan 后处理或 L3 enrich：有坐标则调 directions；失败降级估时 + 可观测 outcome；DTO 与 MCP 字段对齐 2play timeline |
+| **主要文件** | `navigate` / directions 客户端、`itinerary-planner.ts`、map/DTO                                      |
+| **测试**   | fixture directions；失败降级；deeplink 无 key                                                          |
+| **DoD**  | AC1 绿；文档标明 2play **plan-13** 消费契约                                                               |
+
+
+
+
+### Wave E — Feature 38 MCP SSE session（可并行）
+
+
+| 项        | 内容                                                                         |
+| -------- | -------------------------------------------------------------------------- |
+| **目标**   | `POST /sse` 无/过期 session 时明确错误或可 initialize 恢复                             |
+| **依赖**   | 无；**不挡** A/B                                                               |
+| **实现要点** | 厘清 SSE vs Streamable 路由；session 生命周期；错误体可诊断；更新 admin instructions / MCP 文案 |
+| **主要文件** | `server.ts`、MCP transport、session 存储                                       |
+| **测试**   | 缺 session → 明确错误；initialize → 后续工具可用                                       |
+| **DoD**  | AC1 绿；ChatBox 复测不再卡死在 Bad Request                                          |
+
+
+
+
+### 节奏与门禁
+
+
+| 规则  | 说明                                                                           |
+| --- | ---------------------------------------------------------------------------- |
+| 粒度  | 一 Wave = 一 Feature = 一 DoD 周期（`incremental-delivery`）                        |
+| 质量  | `make test` / 相关 contract；live 探针仅 opt-in                                    |
+| 文档  | 完工后把本表对应行 **ToDo → Done**；更新 `[performance.md](./performance.md)` 状态；必要时 ADR |
+| 禁止  | 本计划内做专名机翻（Q5）；用代码骨架替换 LLM 排程主路径                                              |
+
+
+
+
+### 完工勾选（MVP-8）
+
+- [x] **34** Arm A — Done  
+- [x] **36** 硬必去 — Done  
+- [x] **35** Mode H — Done  
+- [x] **37** 真交通 — Done  
+- [x] **38** MCP session — Done  
+
+---
+
+
+
 # 第二部分 — 用户故事
+
+
 
 ## `places-agent-search-restaurants` — 餐厅搜索
 
@@ -198,6 +389,8 @@ Scenario: 在坐标附近按关键词搜索餐厅
   And 每张卡片包含名称和坐标
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -208,6 +401,8 @@ Scenario: 按命名区域和菜系搜索餐厅
   Then 调用方收到该区域的餐厅卡片
   And 每张卡片的来源供应商为 AMAP
 ```
+
+
 
 #### AC3
 
@@ -223,6 +418,8 @@ Scenario: 实时 AMAP 对地址进行地理编码然后按菜系搜索附近
   And 返回的卡片供应商为 AMAP，坐标系为 GCJ-02
   And 没有 native_id 以 fixture_ 开头
 ```
+
+
 
 ### 用户故事 2 — 餐厅搜索无结果
 
@@ -242,6 +439,8 @@ Scenario: 没有餐厅匹配
   And 智能体不编造餐厅卡片
 ```
 
+
+
 ### 用户故事 3 — 供应商失败时的餐厅搜索
 
 **作为** 餐厅应用调用方
@@ -260,6 +459,8 @@ Scenario: 一个请求的供应商失败，另一个返回餐厅
   And 跳过的供应商包含 AMAP，原因键为 errors.provider_failed
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -274,6 +475,8 @@ Scenario: 所有请求的供应商均失败
 ```
 
 ---
+
+
 
 ## `places-agent-search-places` — 地点搜索
 
@@ -296,6 +499,8 @@ Scenario: 在目的地附近搜索景点
   And 每张卡片包含名称和坐标
 ```
 
+
+
 ### 用户故事 2 — 地点搜索保持非餐饮
 
 **作为** 行程应用调用方
@@ -312,6 +517,8 @@ Scenario: 地点搜索不返回以餐饮为主的列表
   Then 返回的卡片为景点或其他非餐厅 POI
   And 餐饮场所不构成列表的主体
 ```
+
+
 
 ### 用户故事 3 — 地点搜索为空或失败
 
@@ -330,6 +537,8 @@ Scenario: 没有地点匹配
   And 结果键为 errors.empty_results
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -341,6 +550,8 @@ Scenario: 请求的供应商无法运行地点搜索
 ```
 
 ---
+
+
 
 ## `places-agent-place-details` — 地点详情
 
@@ -364,6 +575,8 @@ Scenario: 加载已知地点 id 的详情
   And 供应商提供时，营业时间、评分、联系方式、照片和分类均已包含
 ```
 
+
+
 ### 用户故事 2 — 未知或无法解析的地点
 
 **作为** 调用方
@@ -382,6 +595,8 @@ Scenario: 未知地点 id
 ```
 
 ---
+
+
 
 ## `places-agent-navigate` — 导航助手
 
@@ -403,6 +618,8 @@ Scenario: 收到已知地点的导航链接
   And 旅行者可以通过该链接打开路线
 ```
 
+
+
 ### 用户故事 2 — 链接不含密钥
 
 **作为** 旅行者
@@ -417,6 +634,8 @@ Scenario: 导航链接不含供应商密钥
   When 调用方请求该地点的导航
   Then 返回的 URL 中不含 AMAP、Google 或 Tripadvisor API 密钥
 ```
+
+
 
 ### 用户故事 3 — 返回所有可用链接，不强制指定地图应用
 
@@ -435,6 +654,8 @@ Scenario: 智能体返回所有可用链接
 ```
 
 ---
+
+
 
 ## `places-agent-geocode` — 地理编码
 
@@ -456,6 +677,8 @@ Scenario: 对命名城市进行地理编码
   Then 调用方收到纬度和经度
 ```
 
+
+
 ### 用户故事 2 — 坐标转地址
 
 **作为** 调用方
@@ -472,6 +695,8 @@ Scenario: 对图钉进行反向地理编码
   When 调用方对纬度 22.28 经度 114.17 进行反向地理编码
   Then 调用方收到 EN 语言环境下的人类可读地址
 ```
+
+
 
 ### 用户故事 3 — 请求的供应商不支持地理编码
 
@@ -491,11 +716,13 @@ Scenario: Tripadvisor 不支持地理编码
 
 ---
 
+
+
 ## `places-agent-map-vendors` — 地图供应商选择
 
 调用方传递要查询的**地图供应商**（`providers[]`：`AMAP`、`GOOGLE_MAPS`、`TRIPADVISOR`）。智能体验证凭据和能力矩阵。**不**强制大陆目的地使用 AMAP。这不是 HTTP vs MCP（功能 11），也不是驾车/公交路线。
 
-**`GOOGLE_MAPS` 传输（ADR-017）：** 优先直连 Google Maps Platform REST；仅在出口故障时使用 Cloudflare Worker MCP（`GMAPS_MCP_*`）。卡片保持标记为 `GOOGLE_MAPS`。Worker 不是 `providers[]` id。除非调用方请求了 `AMAP`，否则不回退到 AMAP。如果直连失败后 Worker 未配置，则跳过 Google 并附带原因键。
+`GOOGLE_MAPS` **传输（ADR-017）：** 优先直连 Google Maps Platform REST；仅在出口故障时使用 Cloudflare Worker MCP（`GMAPS_MCP_`*）。卡片保持标记为 `GOOGLE_MAPS`。Worker 不是 `providers[]` id。除非调用方请求了 `AMAP`，否则不回退到 AMAP。如果直连失败后 Worker 未配置，则跳过 Google 并附带原因键。
 
 ### 用户故事 1 — 调用方按请求选择地图供应商
 
@@ -513,6 +740,8 @@ Scenario: 仅查询请求的供应商
   And 本次请求不查询 GOOGLE_MAPS
 ```
 
+
+
 ### 用户故事 2 — 不支持或未配置的地图供应商须明确说明
 
 **作为** 调用方
@@ -529,6 +758,8 @@ Scenario: 未配置的供应商被跳过并附带原因键
   And 跳过的供应商包含 AMAP，原因键为 errors.provider_unconfigured
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -538,6 +769,8 @@ Scenario: 未知供应商 id 须明确说明
   Then 跳过的供应商包含 NOT_A_VENDOR 及原因键
   And 智能体不将该 id 映射为 AMAP 或 GOOGLE_MAPS
 ```
+
+
 
 ### 用户故事 3 — 搜索目的地不决定供应商
 
@@ -555,6 +788,8 @@ Scenario: 上海目的地不强制使用 AMAP
   Then 智能体查询 GOOGLE_MAPS
   And 智能体不因目的地在中国大陆而将 GOOGLE_MAPS 替换为 AMAP
 ```
+
+
 
 ### 用户故事 4 — Google Maps 使用 Cloudflare Worker MCP 作为传输回退
 
@@ -576,6 +811,8 @@ Scenario: 直连 Google REST 失败后 Worker MCP 成功
   And 不查询 AMAP
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -586,6 +823,8 @@ Scenario: 直连 Google 成功，不使用 Worker MCP
   Then 调用方收到标记为 GOOGLE_MAPS 的餐厅卡片
   And 不调用 Cloudflare Worker MCP
 ```
+
+
 
 #### AC3
 
@@ -600,6 +839,8 @@ Scenario: 直连 Google 失败且 Worker MCP 未配置
 ```
 
 ---
+
+
 
 ## `places-agent-card-sources` — 地点卡来源
 
@@ -623,6 +864,8 @@ Scenario: 每张餐厅卡片携带来源元数据
   And 供应商提供时，logo URL 和深度链接均存在
 ```
 
+
+
 ### 用户故事 2 — 可选合并同一地点
 
 **作为** 调用方
@@ -640,6 +883,8 @@ Scenario: 启用合并时聚合同一场所
   And 卡片有 primary_provider
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -648,6 +893,8 @@ Scenario: 禁用合并时保留单独卡片
   When 调用方禁用合并搜索
   Then 调用方可能收到该场所的多张卡片
 ```
+
+
 
 ### 用户故事 3 — 应用选择打开哪个地图
 
@@ -666,6 +913,8 @@ Scenario: 智能体不从目的地选择地图应用
 ```
 
 ---
+
+
 
 ## `places-agent-tripadvisor-enrich` — Tripadvisor 丰富化
 
@@ -688,6 +937,8 @@ Scenario: 按名称和位置丰富 Google 结果
   And 匹配使用名称和位置，而非 Google place id
 ```
 
+
+
 ### 用户故事 2 — 丰富化失败时主要结果保留
 
 **作为** 调用方
@@ -706,6 +957,8 @@ Scenario: Tripadvisor 故障不清空搜索结果
   And 丰富化失败报告带有原因键
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -716,6 +969,8 @@ Scenario: 无 Tripadvisor 匹配时主要卡片保留
   Then 该餐厅卡片保留
   And 缺少丰富化不会移除该卡片
 ```
+
+
 
 ### 用户故事 3 — 不将 Google id 传递给 Tripadvisor
 
@@ -733,6 +988,8 @@ Scenario: 丰富化不使用 Google place id 作为 Tripadvisor id
   And Google place id 不作为地点标识符发送给 Tripadvisor
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -748,6 +1005,8 @@ Scenario: 实时 Terra 附近搜索仅使用纬度和经度
 ```
 
 ---
+
+
 
 ## `places-agent-plan-itinerary` — 行程规划
 
@@ -770,6 +1029,8 @@ Scenario: 从时间边界和地点结果规划
   And 计划停留点来自提供的地点
 ```
 
+
+
 ### 用户故事 2 — 行程是调用方可展示的数据
 
 **作为** 行程应用调用方
@@ -785,6 +1046,8 @@ Scenario: 行程是结构化数据，而非完整的行程产品
   Then 响应是调用方可展示、编辑、保存或分享的结构化数据
   And 智能体不声称已在 where2play 中保存了行程
 ```
+
+
 
 ### 用户故事 3 — 边界不可用或无地点
 
@@ -803,6 +1066,8 @@ Scenario: 边界缺失
   And 智能体不虚构行程
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -813,6 +1078,8 @@ Scenario: 无地点可规划
   Then 结果键为 errors.no_places_to_plan
   And 智能体不虚构停留点
 ```
+
+
 
 ### 用户故事 4 — 按偏好规划（包括自然语言）
 
@@ -831,6 +1098,8 @@ Scenario: 结构化节奏和消费偏好
   Then 计划反映比 relaxed premium 请求（使用相同地点）更紧凑的日程和较低消费的停留点
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -840,6 +1109,8 @@ Scenario: 公交偏好
   When 调用方以 transit_preferred 请求行程
   Then 计划优先选择公共交通或交通服务，而非忽略该偏好的默认方案
 ```
+
+
 
 #### AC3
 
@@ -851,6 +1122,8 @@ Scenario: 支持语言环境中的自然语言偏好
   Then 使用等效偏好 id 生成计划
   And 调用方不被要求仅发送结构化 id
 ```
+
+
 
 ### 用户故事 5 — 行程日的实时 Open-Meteo 预报
 
@@ -870,6 +1143,8 @@ Scenario: 实时预报仅使用纬度和经度
   And 每天的 weather_code 是来自预报的数字，而非 fixture 特征值 80（温度 24/18）
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -880,6 +1155,8 @@ Scenario: Open-Meteo 失败时行程保留
   Then 行程天数和停留点保留
   And 天气被省略或跳过，显示 errors.weather_unavailable
 ```
+
+
 
 ### 用户故事 6 — 含起点的计时日计划（detail timed）
 
@@ -905,6 +1182,8 @@ Scenario: 计时计划从起点填充所有天的时钟时段
   And 当 PLACES_VENDOR_MODE 为 live 时，没有 native_id 以 fixture_ 开头
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -917,6 +1196,8 @@ Scenario: places 为空时计时计划自动搜索
   And 访问地点来自搜索结果，而非虚构名称
 ```
 
+
+
 #### AC3
 
 ```gherkin
@@ -926,6 +1207,8 @@ Scenario: 省略或 stops 模式下行为不变
   When 调用方请求 plan_itinerary
   Then 结果键为 errors.no_places_to_plan
 ```
+
+
 
 ### 用户故事 7 — 天气影响计时计划
 
@@ -945,6 +1228,8 @@ Scenario: 恶劣天气增加步行缓冲并标注影响
   And planning_impact.summary_key 是目录键，而非英语 Open-Meteo 散文
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -955,6 +1240,8 @@ Scenario: 晴好天气时步行天气缓冲为零
   Then planning_impact.severity 为 fair
   And 步行 weather_buffer_min 为 0
 ```
+
+
 
 ### 用户故事 8 — 计时计划中的餐食（故事 B）
 
@@ -982,6 +1269,8 @@ Scenario: 计时日包含午餐和晚餐选项及访问衍生时段
   And 实时时没有餐厅 native_id 以 fixture_ 开头
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -996,6 +1285,8 @@ Scenario: 餐食搜索失败或营业时间已关闭时访问保留
   And 当供应商省略营业时间时，不编造营业时间
 ```
 
+
+
 #### AC3
 
 ```gherkin
@@ -1007,6 +1298,8 @@ Scenario: 有路线时餐食路段使用路线导航
   And 每餐最多请求两个选项
 ```
 
+
+
 #### AC4
 
 ```gherkin
@@ -1016,6 +1309,8 @@ Scenario: 同日餐食选项不重叠
   When 咖啡和晚餐被填充
   Then 没有午餐选项身份出现在咖啡或晚餐中
 ```
+
+
 
 #### AC5
 
@@ -1028,6 +1323,8 @@ Scenario: 跨天访问和餐食唯一
   And 用作访问的 POI 不同时作为餐食选项
 ```
 
+
+
 #### AC6
 
 ```gherkin
@@ -1038,6 +1335,8 @@ Scenario: 唯一场所不足时省略餐食而非重复
   Then 晚餐被省略
   And 午餐 native_id 不被晚餐复用
 ```
+
+
 
 ### 用户故事 9 — 实时路线路段（故事 C）
 
@@ -1056,6 +1355,8 @@ Scenario: 路线成功时路段使用供应商时长
   And duration_min 等于 base_duration_min 加 weather_buffer_min
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1068,6 +1369,8 @@ Scenario: 路线失败时保留深度链接启发式路段
   And 访问块保留
 ```
 
+
+
 #### AC3
 
 ```gherkin
@@ -1077,6 +1380,8 @@ Scenario: 仅 AMAP providers 使用 AMAP 路线
   When 调用方请求 plan_itinerary
   Then 访问路段可有 source directions，无需 Google
 ```
+
+
 
 ### 用户故事 10 — 营业时间映射
 
@@ -1093,6 +1398,8 @@ Scenario: 供应商营业时间映射到 PlaceCard.hours
   Then PlaceCard.hours 为非空的供应商来源摘要
   And 当供应商省略营业数据时，hours 不设置
 ```
+
+
 
 ### 用户故事 11 — 计时搜索允许/拒绝和目的地偏向
 
@@ -1111,6 +1418,8 @@ Scenario: 住宿不作为计时访问使用
   And 智能体不回退到未过滤的列表
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1120,6 +1429,8 @@ Scenario: 目的地偏向后续日期
   When 地点分配完成
   Then 后续日期的访问比早期日期更靠近目的地
 ```
+
+
 
 #### AC3
 
@@ -1131,6 +1442,8 @@ Scenario: 广场商场车站和地标餐厅被拒绝
   And 餐饮过滤器排除广州塔 管理办 贵宾楼，即使其类别为餐厅
 ```
 
+
+
 #### AC4
 
 ```gherkin
@@ -1140,6 +1453,8 @@ Scenario: 计时天数从 1 开始编号
   Then days[0].day_index 等于 1
 ```
 
+
+
 #### AC5
 
 ```gherkin
@@ -1148,6 +1463,8 @@ Scenario: 城市作为搜索锚点，而非目的地地标
   When 计时计划构建
   Then search_anchor 为城市而非地标
 ```
+
+
 
 #### AC6
 
@@ -1159,6 +1476,8 @@ Scenario: CN 语言环境在已列出 AMAP 时优先使用 AMAP
   And 仅当 AMAP 未返回可用景点时 Google 才补充
   And 当调用方未列出 AMAP 时，不注入 AMAP
 ```
+
+
 
 #### AC7
 
@@ -1174,9 +1493,11 @@ Scenario: 组合搜索查询在语言环境或 CJK 名称时使用中文
 
 ---
 
+
+
 ## `places-agent-nl-chat` — 自然语言地点聊天
 
-旅行者以自然语言询问地点，可选上传文件（包括图片）。智能体在**其**服务器 Quanzil 上运行工具循环。LLM 不因搜索目的地而切换。上传错误使用 i18n 键。
+旅行者以自然语言询问地点，可选上传文件（包括图片）。智能体在**其**服务器 OPENAI_CN 上运行工具循环。LLM 不因搜索目的地而切换。上传错误使用 i18n 键。
 
 ### 用户故事 1 — 以自然语言询问地点
 
@@ -1194,6 +1515,8 @@ Scenario: 自然语言餐厅问题使用工具
   And 回复不是未经工具调用的虚构场所列表
 ```
 
+
+
 ### 用户故事 2 — 聊天文案使用键，而非单一语言
 
 **作为** 旅行者
@@ -1210,21 +1533,25 @@ Scenario: 聊天错误使用语言环境键
   And 显示文本为该键的 CN 目录条目，若缺失则回退到 EN 再到键本身
 ```
 
+
+
 ### 用户故事 3 — LLM 不按目的地路由
 
 **作为** 运营商
-**我希望** 智能体的模型来自此可部署单元的服务器 Quanzil 配置
+**我希望** 智能体的模型来自此可部署单元的服务器 OPENAI_CN 配置
 **以便** 搜索目的地不切换 LLM 供应商或模型
 
 #### AC1
 
 ```gherkin
 Scenario: 上海问题不切换智能体模型
-  Given 智能体可部署单元配置了一个服务器 Quanzil 模型
+  Given 智能体可部署单元配置了一个服务器 OPENAI_CN 模型
   When 旅行者询问上海的餐厅
   Then 智能体使用已配置的模型
   And 不因目的地在中国大陆而切换模型
 ```
+
+
 
 ### 用户故事 4 — 文件上传，包括图片
 
@@ -1244,6 +1571,8 @@ Scenario: 图片附件与问题一起使用
   And 当可以识别或搜索到地点时，回复基于工具
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1256,11 +1585,13 @@ Scenario: 不支持或过大的文件
 
 ---
 
+
+
 ## `places-agent-http-mcp` — HTTP API 和 MCP
 
-通过两种**访问渠道**暴露相同的地点工具：HTTP API 用于第一方应用 BFF，MCP 用于智能体主机（`/mcp`、`/sse`）。单一工具核心；无分叉行为。这不是驾车/公交路线。两种渠道均将服务标识为 **`places-agent`**。
+通过两种**访问渠道**暴露相同的地点工具：HTTP API 用于第一方应用 BFF，MCP 用于智能体主机（`/mcp`、`/sse`）。单一工具核心；无分叉行为。这不是驾车/公交路线。两种渠道均将服务标识为 `places-agent`。
 
-此 MCP 是 **places-agent** 的工具界面。它**不是** Google Maps Cloudflare Worker MCP（`GMAPS_MCP_*`），后者是 `GOOGLE_MAPS` 适配器的内部**传输回退**（功能 6 / ADR-017）。
+此 MCP 是 **places-agent** 的工具界面。它**不是** Google Maps Cloudflare Worker MCP（`GMAPS_MCP_`*），后者是 `GOOGLE_MAPS` 适配器的内部**传输回退**（功能 6 / ADR-017）。
 
 ### 用户故事 1 — 应用 BFF 的 HTTP 工具
 
@@ -1278,6 +1609,8 @@ Scenario: 应用 BFF 使用调用方 API 密钥通过 HTTP 调用搜索
   And 旅行者的浏览器未将调用方 API 密钥发送给地图供应商
 ```
 
+
+
 ### 用户故事 2 — 智能体主机的 MCP 工具
 
 **作为** 智能体主机
@@ -1292,6 +1625,8 @@ Scenario: 智能体主机通过 MCP 调用相同搜索
   When 主机通过 MCP 搜索餐厅
   Then 主机收到含义与 HTTP 搜索相同的餐厅卡片
 ```
+
+
 
 ### 用户故事 3 — HTTP 和 MCP 上的结果相同
 
@@ -1310,6 +1645,8 @@ Scenario: 两种渠道上工具名称和空结果相同
   And 两者均使用结果键 errors.empty_results
 ```
 
+
+
 ### 用户故事 4 — 调用方看到智能体 id `places-agent`
 
 **作为** 调用方（应用 BFF 或 MCP 主机）
@@ -1325,6 +1662,8 @@ Scenario: HTTP 工具响应标识智能体
   Then JSON 正文字段 agent 为"places-agent"
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1333,6 +1672,8 @@ Scenario: MCP initialize 标识智能体
   When 主机完成 MCP initialize
   Then serverInfo.name 为"places-agent"
 ```
+
+
 
 #### AC3
 
@@ -1343,6 +1684,8 @@ Scenario: 健康检查文档标识智能体
 ```
 
 ---
+
+
 
 ## `places-agent-caller-trust` — 调用方 API 密钥认证
 
@@ -1364,6 +1707,8 @@ Scenario: 有效的调用方 API 密钥收到服务
   Then 调用方收到搜索结果（有结果或为空）
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1374,6 +1719,8 @@ Scenario: 缺少密钥时被拒绝
   And 不返回餐厅卡片
 ```
 
+
+
 #### AC3
 
 ```gherkin
@@ -1383,6 +1730,8 @@ Scenario: 未知或已撤销的密钥被拒绝
   Then 结果键为 errors.caller_unauthorized
   And 不返回餐厅卡片
 ```
+
+
 
 ### 用户故事 2 — 地图供应商密钥不作为调用方凭据
 
@@ -1399,6 +1748,8 @@ Scenario: 地图供应商密钥不能认证调用方
   Then 结果键为 errors.caller_unauthorized
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1407,6 +1758,8 @@ Scenario: 导航链接仍不含地图供应商密钥
   When 调用方请求导航链接
   Then 返回的 URL 不含 AMAP、Google 或 Tripadvisor API 密钥
 ```
+
+
 
 ### 用户故事 3 — 错误为 i18n 键
 
@@ -1426,6 +1779,8 @@ Scenario: 未授权错误为键，而非单一语言正文
 ```
 
 ---
+
+
 
 ## `places-agent-admin-home` — 管理员首页
 
@@ -1450,6 +1805,8 @@ Scenario: 访客看到指令链接和登录入口
 
 ---
 
+
+
 ## `places-agent-admin-users` — 管理员登录和用户
 
 类别：**app**。仅限邀请的管理员。邮件（重置、邀请）通过 **Resend** 发送。UI 和邮件正文中的文案为 i18n 键。默认管理员标识符不进行本地化：用户名 `admin`，邮箱 `me@ethanhuang.com`。
@@ -1469,6 +1826,8 @@ Scenario: 使用用户名和密码登录
   Then 管理员到达登录后落地页
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1477,6 +1836,8 @@ Scenario: 使用邮箱登录
   When 管理员使用该邮箱和正确密码登录
   Then 管理员到达登录后落地页
 ```
+
+
 
 #### AC3
 
@@ -1488,6 +1849,8 @@ Scenario: 密码错误
   And 管理员未到达落地页
   And 未建立会话
 ```
+
+
 
 ### 用户故事 2 — 默认管理员用户
 
@@ -1504,6 +1867,8 @@ Scenario: 首次部署后默认管理员存在
   Then 该账户被接受为管理员
   And 不需要公开注册来创建它
 ```
+
+
 
 ### 用户故事 3 — 通过邮件重置密码（Resend）
 
@@ -1523,6 +1888,8 @@ Scenario: 发送密码重置邮件
   And 邮件包含绝对设置密码 URL（`PUBLIC_BASE_URL` 或 `APP_URL`）
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1532,6 +1899,8 @@ Scenario: Resend 不可用
   Then 显示带键的错误
   And 密码未更改
 ```
+
+
 
 ### 用户故事 4 — 通过邮件邀请新管理员
 
@@ -1553,6 +1922,8 @@ Scenario: 邀请邮件链接到 accept-invite 入职流程
   And 被邀请者在完成入职前无法使用应用
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1568,6 +1939,8 @@ Scenario: 被邀请管理员在 accept-invite 上设置个人资料和密码
   And 凭据在提交后不出现在浏览器 URL 中
 ```
 
+
+
 #### AC3
 
 ```gherkin
@@ -1577,6 +1950,8 @@ Scenario: 过期或已使用的邀请 token
   Then 显示带键的过期邀请提示
   And 该 token 的个人资料表单不可提交
 ```
+
+
 
 ### 用户故事 5 — 密码为空时强制重置密码
 
@@ -1593,6 +1968,8 @@ Scenario: 空密码阻止访问落地页
   Then 管理员必须在落地页可用前设置密码
   And 在设置密码前结果键为 errors.password_required
 ```
+
+
 
 ### 用户故事 6 — 公开注册已禁用
 
@@ -1612,6 +1989,8 @@ Scenario: 访客无法自注册
   And api-key 以等宽字体显示为协议 id
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1625,7 +2004,11 @@ Scenario: 联系管理员时显示微信二维码
   And 二维码在悬停或聚焦前不可见
 ```
 
+
+
 ### 用户故事 7 — 删除管理员
+
+
 
 #### AC1
 
@@ -1640,6 +2023,8 @@ Scenario: 已登录管理员确认后删除另一位管理员
   And 邮件文案使用 i18n 键
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1650,6 +2035,8 @@ Scenario: 管理员不能删除自己的账户
   And 尝试删除自己 id 的 API 请求返回 errors.cannot_delete_self
 ```
 
+
+
 #### AC3
 
 ```gherkin
@@ -1659,6 +2046,8 @@ Scenario: 最后一位管理员不可删除
   Then 不进行会导致零管理员的删除
   And 当触发该保护时应用 errors.cannot_delete_last_admin
 ```
+
+
 
 #### AC4
 
@@ -1671,6 +2060,8 @@ Scenario: 删除通知邮件失败
 ```
 
 ---
+
+
 
 ## `places-agent-admin-api-keys` — 调用方 API 密钥
 
@@ -1694,6 +2085,8 @@ Scenario: 创建带名称、描述、生成和复制的密钥
   And 该密钥写入 CallerApiKey.secret，之后可在列表再次 Copy
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1702,6 +2095,8 @@ Scenario: 已创建的密钥可调用智能体
   When 调用方使用该密钥搜索餐厅
   Then 调用方通过认证
 ```
+
+
 
 ### 用户故事 1b — 列表复制调用方 API 密钥
 
@@ -1720,6 +2115,8 @@ Scenario: 列表 Copy 写入剪贴板
   And 按钮短暂显示 admin.common.copied
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1729,6 +2126,8 @@ Scenario: 无入库 secret 的旧密钥不能 Copy
   Then Copy 禁用
   And 提示需重新签发（admin.keys.copy_unavailable）
 ```
+
+
 
 ### 用户故事 2 — 编辑调用方 API 密钥
 
@@ -1745,6 +2144,8 @@ Scenario: 编辑名称和描述而不轮换密钥
   Then 存储的名称和描述匹配新值
   And 密钥仍能认证相同的调用方
 ```
+
+
 
 ### 用户故事 3 — 重新生成调用方 API 密钥
 
@@ -1764,6 +2165,8 @@ Scenario: 重新生成使旧密钥失效
   And 新密钥写入 CallerApiKey.secret
 ```
 
+
+
 ### 用户故事 4 — 删除调用方 API 密钥
 
 **作为** 管理员
@@ -1779,6 +2182,8 @@ Scenario: 已删除的密钥无法调用智能体
   Then 密钥不再出现在列表中
   And 该密钥被拒绝，返回 errors.caller_unauthorized
 ```
+
+
 
 ### 用户故事 5 — 批量选择和删除调用方 API 密钥
 
@@ -1796,6 +2201,8 @@ Scenario: 全选勾选列表上的每个密钥
   And 批量删除已启用
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1807,6 +2214,8 @@ Scenario: 确认批量删除后密钥被删除且请求被拒绝
   And 两个密钥均被拒绝，返回 errors.caller_unauthorized
 ```
 
+
+
 #### AC3
 
 ```gherkin
@@ -1816,6 +2225,8 @@ Scenario: 空选择不删除
   Then 批量删除已禁用
   And 空 ids 列表的批量删除被拒绝，返回 errors.invalid_input
 ```
+
+
 
 #### AC4
 
@@ -1828,6 +2239,8 @@ Scenario: 未登录的批量删除被拒绝
 ```
 
 ---
+
+
 
 ## `places-agent-admin-landing` — 管理员落地页
 
@@ -1850,6 +2263,8 @@ Scenario: 落地页显示左侧导航
   And 导航标签使用 i18n 键
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1859,6 +2274,8 @@ Scenario: 未登录访客不显示落地页外壳
   Then 带左侧导航的落地页不显示
   And 访客被引导去登录
 ```
+
+
 
 ### 用户故事 2 — 头部问候语和指令链接
 
@@ -1878,6 +2295,8 @@ Scenario: 头部问候已登录用户名并链接到指令
 ```
 
 ---
+
+
 
 ## `places-agent-admin-instructions` — 智能体指令
 
@@ -1902,6 +2321,8 @@ Scenario: 指令涵盖 HTTP、MCP 和调用方 API 密钥
   And 字符串 places-agent 不被翻译的目录值替换
 ```
 
+
+
 ### 用户故事 2 — 从公开首页入口
 
 **作为** 访客
@@ -1917,6 +2338,8 @@ Scenario: 首页链接到指令
   Then 显示智能体指令页面
 ```
 
+
+
 ### 用户故事 3 — 从落地页头部入口
 
 **作为** 管理员
@@ -1931,6 +2354,8 @@ Scenario: 落地页头部链接到相同指令
   When 管理员跟随 admin.landing.instructions_link
   Then 显示与公开首页相同的智能体指令页面
 ```
+
+
 
 ### 用户故事 4 — 智能体能力
 
@@ -1953,6 +2378,8 @@ Scenario: 指令列出智能体能力
 ```
 
 ---
+
+
 
 ## `places-agent-admin-i18n` — 管理应用 i18n
 
@@ -1981,6 +2408,8 @@ Scenario Outline: 管理页面外壳在每种语言环境中解析
     | TW     |
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -1992,6 +2421,8 @@ Scenario: 邀请和重置邮件使用键
   When 发送邀请邮件
   Then 邀请链接为绝对 accept-invite URL
 ```
+
+
 
 ### 用户故事 2 — 切换语言环境
 
@@ -2007,6 +2438,8 @@ Scenario: 管理员从 EN 切换到 HK
   When 管理员切换语言环境到 HK
   Then 后续页面使用 HK 目录
 ```
+
+
 
 ### 用户故事 3 — 缺失翻译回退
 
@@ -2027,6 +2460,8 @@ Scenario: 缺失的 CN 条目在不崩溃的情况下回退
 ```
 
 ---
+
+
 
 ## `places-agent-bilingual-output` — 双语输出
 
@@ -2055,6 +2490,8 @@ Scenario Outline: 用户可见智能体文案在单一语言环境中
     | TW     |
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -2064,6 +2501,8 @@ Scenario: HK 和 TW 目录用语不同
   Then 两者均使用键 errors.empty_results
   And HK 用语不要求与 TW 用语相同
 ```
+
+
 
 ### 用户故事 2 — 双语对
 
@@ -2081,6 +2520,8 @@ Scenario: 同一回复的 CN 和 EN 双语对
   And 该键的 CN 文案和 EN 文案均存在
 ```
 
+
+
 ### 用户故事 3 — 不支持或缺失的语言环境
 
 **作为** 调用方
@@ -2097,6 +2538,8 @@ Scenario: 未知语言环境回退
   And 用户可见文案回退到 EN 再到键本身
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -2108,6 +2551,8 @@ Scenario: 缺失目录条目在不导致轮次失败的情况下回退
   And 如果 EN 也缺失则使用键本身
   And 搜索或聊天轮次不因缺失翻译而失败
 ```
+
+
 
 ### 用户故事 4 — Open-Meteo 天气文案已翻译
 
@@ -2134,6 +2579,8 @@ Scenario Outline: 天气条件使用目录，而非 Open-Meteo 英语
     | TW     |
 ```
 
+
+
 #### AC2
 
 ```gherkin
@@ -2143,6 +2590,8 @@ Scenario: HK 和 TW 天气用语可以不同
   Then 两者均使用键 weather.wmo.80
   And HK 用语不要求与 TW 用语相同
 ```
+
+
 
 #### AC3
 
@@ -2156,6 +2605,8 @@ Scenario: 行程叙述不将英语天气粘贴到 CN 中
 ```
 
 ---
+
+
 
 # 供应商自动选择 — `places-agent-provider-auto`
 
@@ -2224,6 +2675,8 @@ Then searchProviders 仅包含 GOOGLE_MAPS（不注入 AMAP）
 
 ---
 
+
+
 # 服务器稳定性 — `places-agent-server-stability`
 
 **类别：** infra
@@ -2259,6 +2712,8 @@ And SessionManager.size 减少 1
 
 ---
 
+
+
 # 照片与价格档 — `places-agent-photos-price`
 
 **类别：** agent · **MVP-3b** · Feature **24**
@@ -2286,6 +2741,8 @@ Then `price_level` 为 `$` / `$$` / `$$$`（或产品约定档位）
 And 不可用时省略字段，不编造
 
 ---
+
+
 
 # Geocode-first 与 Directions fallback — `places-agent-geocode-directions`
 
@@ -2315,6 +2772,8 @@ And 成功时仍返回可用路线结果
 
 ---
 
+
+
 # 语言路由与搜索关键词 — `places-agent-language-keywords`
 
 **类别：** agent · **MVP-4a** · Feature **26**
@@ -2342,6 +2801,8 @@ Then 从多语言关键词表取值
 And timed itinerary 路径不再内嵌大段硬编码中文词
 
 ---
+
+
 
 # 搜索缓存与并行 — `places-agent-perf-cache`
 
@@ -2372,9 +2833,11 @@ When `plan_itinerary`（legacy 或 llm 路径的搜索阶段）
 Then 独立搜索并行执行  
 And 不无故串行等待
 
-**验收备注：** 端到端 <5s / <15s / 二次 <1s 的 live 勾选见 [`0.refactor-plan.md`](./0.refactor-plan.md) MVP-4b；CI 默认 fixture。
+**验收备注：** 端到端 <5s / <15s / 二次 <1s 的 live 勾选见 `[0.refactor-plan.md](./0.refactor-plan.md)` MVP-4b；CI 默认 fixture。
 
 ---
+
+
 
 # Admin API 加固 — `places-agent-admin-hardening`
 
@@ -2430,6 +2893,8 @@ Then 申请重置 → seed token → 设新密码 → 登录 通过（`e2e/test_
 
 ---
 
+
+
 # Prompt 组装器 — `places-agent-prompt-assembler`
 
 **类别：** agent · **MVP-6** · Feature **29**  
@@ -2477,9 +2942,12 @@ Then 经 prompt-assembler，而非手工拼接旧单文件 chat prompt
 
 ---
 
+
+
 # LLM 行程规划 — `places-agent-itinerary-llm`
 
-**类别：** agent · **MVP-6** · Feature **30**  
+**类别：** agent · **MVP-6** · Feature **30** · itinerary 优化相关 · 完工：**Done**  
+**改动说明（2026-08-23）：** where2play 初排 L2 改由调用方 OPENAI_CN（ADR-037）；本功能仍服务 MCP 与一站式 HTTP `plan_itinerary` / `arrange_day`。  
 （Claude Code Plan Feature 25）
 
 **作为** 调用方  
@@ -2526,9 +2994,12 @@ Then 返回 `errors.location_too_broad`（或等价 key），不盲搜
 
 ---
 
+
+
 # 行程 MCP 拆分 — `places-agent-itinerary-mcp-split`
 
-**类别：** agent · **MVP-6** · Feature **31**
+**类别：** agent · **MVP-6** · Feature **31** · itinerary 优化相关 · 完工：**Done**  
+**改动说明（2026-08-23）：** 2play 主路径仅用 `discover_places`（L1）；`arrange_day` 仍供 MCP / 其他 HTTP 调用方。Mode H 见 Feature **35**。
 
 **作为** MCP 客户端  
 **我希望** 先 `discover_places` 再按天 `arrange_day`  
@@ -2548,7 +3019,42 @@ Then 返回候选（每类 ≤8）+ weather；候选不含 hours/price 细节（
 
 Given `arrange_day`  
 When 调用成功  
-Then 返回单天 blocks（含 reason）；可选 `from_origin` / `to_destination`
+Then 返回单天 blocks（含 reason）；可选 `from_origin` / `to_destination`  
+And 每个后续 block 含游中交通（`legs_to_here`，agent 路径）  
+And 无 origin 时**不含** `from_origin` / `to_destination`，行程自首 block 至末 block  
+And 默认 pace=`medium` 时日程排满至晚餐结束附近（含 dinner；末块结束不得早于 16:00）
+
+### US1b — MCP 对话收齐（Option A）
+
+**AC1b**
+
+Given 用户说「推荐 N 日游」且缺开始日等硬边界  
+When 宿主尚未收齐  
+Then 贴出**固定 8 行行程表**（城市、开始日、天数、可选酒店、节奏、消费 1–3、兴趣、必去地名），不得少问  
+And `discover_places` 仅在硬边界（城市+开始日+天数）齐后调用一次  
+And 每日酒店缺失不阻止 discover / arrange  
+And 节奏默认适中、消费默认 `spend_level=2`  
+
+Given 宿主在一问中同时提出多个一日游选项且用户列出「辛特拉、卡斯凯什」  
+When 排程至末日  
+Then `must_include` 两项均须被某日 **真实 blocks** 硬覆盖（必去 pool 或锚点 10km+名称；**`day_theme` 文案不算**）  
+And HTTP `/v1/arrange_day` 与 MCP 同返回 `must_include_coverage`  
+And 若仍缺项 → `present_day_then_cover_must_include`，不得直接总览  
+
+Given 某日 `day_theme` 含「辛特拉」但 blocks 仅为里斯本近郊（如克卢什/Fronteira）  
+When `arrange_day` 返回  
+Then `must_include_coverage.missing` 仍含「辛特拉」  
+
+Given `arrange_day` 成功返回  
+When 宿主上屏  
+Then 日卡为多行块（时间标题、说明、前往、路线链接、地点链接），禁止单行 `|` 压缩  
+And 末日总览后不得再贴同一日卡（Day N 与 overview 各一次）  
+
+Given `arrange_day` 收到空 `candidates.places` / `restaurants` 且 `city` 已给  
+When 服务端执行（ADR-043 D8）  
+Then 自动 `discoverPlaces` 填空侧后再排程  
+And 不得要求宿主 invent POI 或依赖「Fix candidates」手补  
+And 无 city 且池空 → 清晰失败
 
 ### US2 — HTTP 对等
 
@@ -2557,6 +3063,8 @@ Then 返回单天 blocks（含 reason）；可选 `from_origin` / `to_destinatio
 Given HTTP `POST /v1/discover_places` 与 `POST /v1/arrange_day`  
 When 使用有效 caller Bearer  
 Then 返回与 MCP 同义的 JSON envelope（`agent`、`ok`、`data`）  
+And `arrange_day` 在传入 `preferences.must_include` 时，`data.must_include_coverage` 与 MCP 同语义（ADR-043 D7）  
+And 空候选 + city 时与 MCP 同走 D8 自动 discover  
 And `plan_itinerary` 的 HTTP 路径保持可用
 
 ### US3 — 配图
@@ -2567,3 +3075,213 @@ Given 候选含 photos
 When 格式化行程 blocks  
 Then 按 name 匹配挂回 `block.photos`  
 And 封面图可为 Day1 首个 attraction 的首张 photo（零额外供应商调用）
+
+---
+
+
+
+# 行程 MCP P0 止损 — `places-agent-itinerary-mcp-p0`
+
+**类别：** agent · **性能 P0** · 参见 `[performance.md](./performance.md)` §4–§5 · Feature **32** · 完工：**Done**
+
+**作为** MCP / HTTP 调用方  
+**我希望** `arrange_day` 接受缺省日期、进入 LLM 前候选已瘦身、工具 description 标明互斥与禁回灌  
+**以便** 降低叠跑与校验失败，且不改变「LLM 排程」产品语义
+
+### US1 — `date` nullish
+
+**AC1**
+
+Given HTTP `POST /v1/arrange_day` 或 MCP `arrange_day`  
+When `date` 为省略、`null` 或合法日期字符串  
+Then 请求通过 schema 校验（不因 JSON `null` 返回 -32602 / Zod 失败）
+
+### US2 — arrange 候选瘦身
+
+**AC2**
+
+Given `arrange_day` 收到含 `photos` / `hours` / `sources` / `deeplinks` 的候选  
+When 组装进入 LLM 的 prompt 输入  
+Then 候选已 strip：不含 `photos`、`hours`、`sources`、`deeplinks`  
+And 仍保留 name / category / rating / location 等入模字段  
+And Phase 4 挂图仍可从**原始**候选池按 name 匹配 photos
+
+### US3 — MCP 工具 description 互斥与禁回灌
+
+**AC3**
+
+Given MCP `tools/list`  
+When 读取 `discover_places` / `arrange_day` / `plan_itinerary` / `search_*` 的 description  
+Then 文案标明：`plan_itinerary` 与「discover + arrange」互斥（勿串联叠跑）  
+And 标明勿将 `photos` / `hours` 等大字段回灌 `arrange_day`  
+And 慢路径（`plan_itinerary` / 完整排程）有明确标注
+
+---
+
+
+
+# Discover 候选质量 — `places-agent-discover-quality`
+
+**类别：** agent · **质量** · [ADR-038](../../workspace-specs/adr/ADR-038-discover-places-quality.md) · Feature **33** · 完工：**Done**
+
+**作为** where2play / MCP 调用方  
+**我希望** `discover_places` 在无 LLM 下仍返回可用必去点候选  
+**以便** L2 排程不会被噪声池锁死
+
+### US1 — 热门城必去覆盖
+
+**AC1**
+
+Given HTTP/MCP `discover_places`，`city` = `西安`，`numDays` ≥ 1  
+When 调用成功（CI 用 mock 供应商；live 可选）  
+Then `candidates.places` 名称集合命中「兵马俑」或「秦始皇」类 **且** 命中「大雁塔」类 **且** 命中城墙主点  
+And 城墙系（含「城墙」名）计数 **≤ 2**  
+And 无售票处 / 直通车 / 乘车点 / 「城墙-敌楼」类碎片  
+And 无 category 含「公司企业」的景点卡  
+And 路径**不**调用 LLM / OpenAI
+
+### US2 — 过滤与排序
+
+**AC2**
+
+Given 合并后的候选含博物馆真点 + 公司企业/停车场/公交站噪声  
+When discover 返回池  
+Then 噪声被过滤；must-see token 命中名排在池头部（同 rating 时优先）
+
+### US3 — 非白名单城
+
+**AC3**
+
+Given 未知/非热门城  
+When discover  
+Then 仍跑改进泛搜 + 过滤；不保证必去点；不伪造 POI
+
+---
+
+
+
+# Discover Arm A 增强 — `places-agent-discover-arm-a`
+
+**类别：** agent · **质量** · `[performance.md](./performance.md)` §0.1 Q2 · Feature **34** · 完工：**Done**
+
+**作为** where2play / MCP 调用方  
+**我希望** 热门城 discover 采用探针 Arm A 的确定性策略（馆名优先种子、大陆 must-see 双源、本地餐加权）  
+**以便** 池中稳定出现秦始皇帝陵博物院等真必去点，且餐食更近本地
+
+### US1 — 馆名优先种子
+
+**AC1**
+
+Given 热门城（如西安）  
+When `discover_places`  
+Then seed 优先使用馆/陵正式名类 query（非仅泛词「博物馆」）  
+And 结果仍来自地图供应商（不伪造 POI）
+
+### US2 — 大陆 must-see 双源
+
+**AC2**
+
+Given 大陆热门城且 caller 未强制单 provider  
+When discover must-see 相关搜索  
+Then 路径可查询含 `GOOGLE_MAPS` 的双源（与 AMAP 合并去重）  
+And 不以「LLM 生成 search query」为主路径
+
+### US3 — 本地餐加权
+
+**AC3**
+
+Given 同城餐厅候选  
+When 组装 `candidates.restaurants`  
+Then 本地/近锚点餐排在池头（相对过远连锁噪声）
+
+---
+
+
+
+# Arrange Mode H handoff — `places-agent-arrange-host`
+
+**类别：** agent · **性能** · `[performance.md](./performance.md)` §3.1 · Feature **35** · 完工：**Done**
+
+**作为** MCP 宿主（ChatBox / Cursor）或 HTTP BFF  
+**我希望** `arrange_day`（或等价）支持 `execution=host`，仅返回排程 prompt 与 slim 候选  
+**以便** 宿主流式写行程，而不堵在工具内非流式 LLM
+
+### US1 — host 不调 LLM
+
+**AC1**
+
+Given `execution=host`  
+When 调用成功  
+Then 响应含 `system_prompt`、`user_prompt`、`candidates_slim`、`output_contract`  
+And 本请求**不**调用 OPENAI_CN / OpenAI
+
+### US2 — agent 模式保留
+
+**AC2**
+
+Given `execution=agent` 或缺省（兼容）  
+When 调用  
+Then 行为与现有服务端 LLM `arrange_day` 一致
+
+---
+
+
+
+# L2 硬必去 — `places-agent-arrange-hard-must-see`
+
+**类别：** agent · **质量** · `[performance.md](./performance.md)` §0.1 Q3 · Feature **36** · 完工：**Done**
+
+**作为** 行程调用方  
+**我希望** 排程结果强制覆盖行程级必去类（非仅 Prefer 文案）  
+**以便** 池中已有兵马俑/大雁塔时不会被 LLM 整日漏掉
+
+### US1 — 硬覆盖
+
+**AC1**
+
+Given 候选池含热门城必去 token 命中点，且 `arrange_day` / 宿主 L2 排程  
+When 返回当日 blocks  
+Then 必去类至少各出现一次，或触发一次重排/注入后再返回  
+And 不得仅依赖 prompt「Prefer」软约束作为唯一手段
+
+---
+
+
+
+# 行程真交通 — `places-agent-itinerary-real-transit`
+
+**类别：** agent · **L3** · `[performance.md](./performance.md)` §0.1 Q4 · Feature **37** · 完工：**Done**
+
+**作为** where2play / MCP 调用方  
+**我希望** 行程时间线含真实 `navigate`/directions 段（时长/方式）  
+**以便** 不再只靠 LLM reason 估时
+
+### US1 — 站间 directions
+
+**AC1**
+
+Given 相邻两站有坐标  
+When 组装行程 legs / transit slots  
+Then 调用（或复用）directions/navigate 结果写入时长与方式  
+And 深度链接不含供应商密钥
+
+---
+
+
+
+# MCP SSE session — `places-agent-mcp-sse-session`
+
+**类别：** infra · **MCP** · `[performance.md](./performance.md)` §0.1 Q6 · Feature **38** · 完工：**Done**
+
+**作为** MCP 宿主  
+**我希望** `POST /sse` Streamable 会话在无/过期 session 时行为明确且可恢复  
+**以便** 不再出现难诊断的 `No valid session ID`
+
+### US1 — 会话错误可诊断
+
+**AC1**
+
+Given 缺少或过期的 `mcp-session-id`  
+When `POST /sse`  
+Then 返回明确协议错误（非静默挂起）  
+And 文档/指令说明如何 initialize 新 session

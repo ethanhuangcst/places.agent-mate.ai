@@ -33,8 +33,8 @@ describe("place filters", () => {
 
   it("should_exclude_non_dining_landmarks_from_meals", () => {
     const mixed = [
-      card("广州塔", "风景名胜"),
-      card("琶醍", "scenic"),
+      card("豫园", "风景名胜"),
+      card("景区管理办", "scenic"),
       card("北京路步行街综合管理办公室", "office"),
       card("陶陶居", "restaurant"),
     ];
@@ -57,7 +57,6 @@ describe("place filters", () => {
       card("Garden Plaza", "plaza"),
       card("当代商城", "shopping_mall"),
       card("琶醍码头", "dock"),
-      card("广州塔景区", "attraction"),
       card("故宫博物院", "museum"),
     ];
     expect(filterAttractionPlaces(mixed).map((p) => p.name)).toEqual(["故宫博物院"]);
@@ -74,10 +73,10 @@ describe("place filters", () => {
     ).toEqual(["Castelo de São Jorge"]);
   });
 
-  it("should_deny_restaurant_category_when_name_is_landmark", () => {
+  it("should_deny_restaurant_category_when_name_is_landmark_or_lodging", () => {
     expect(
       filterDiningPlaces([
-        card("广州塔", "restaurant"),
+        card("景区管理办", "restaurant"),
         card("广州大厦希尔顿启缤精选", "restaurant"),
         card("陶陶居酒家", "restaurant"),
       ]).map((p) => p.name),
@@ -95,6 +94,30 @@ describe("place filters", () => {
     const c = card("Castelo", "castle");
     c.sources = [{ provider: "GOOGLE_MAPS", native_id: "id-a", deeplinks: {} }];
     expect(uniquePlaces([a, b, c]).map((p) => p.name)).toEqual(["Carmo"]);
+  });
+
+  it("should_exclude_business_parking_and_bus_stop_noise", () => {
+    const mixed = [
+      card("西安园林", "公司企业;公司;公司"),
+      card("兵马俑第1停车场", "停车场"),
+      card("兵马俑(公交站)", "公交站"),
+      card("西安博物院", "科教文化服务;博物馆;博物馆"),
+    ];
+    expect(filterAttractionPlaces(mixed).map((p) => p.name)).toEqual(["西安博物院"]);
+  });
+
+  it("should_exclude_ticket_and_shuttle_fragments", () => {
+    // ADR-042 Update: city-specific wall-dash fragment filter removed;
+    // only generic ticket/shuttle fragments are rejected.
+    const mixed = [
+      card("兵马俑华山直通车大雁塔发车点", "风景名胜;风景名胜相关;旅游景点"),
+      card("西安城墙安远门售票处", "生活服务;售票处;公园景点售票处"),
+      card("西安城墙", "风景名胜;风景名胜;国家级景点"),
+      card("大雁塔", "风景名胜;风景名胜;风景名胜"),
+    ];
+    expect(filterAttractionPlaces(mixed).map((p) => p.name).sort()).toEqual(
+      ["大雁塔", "西安城墙"].sort(),
+    );
   });
 
   it("should_flag_lodging_and_export_identity_helpers", () => {

@@ -177,12 +177,45 @@ export async function buildLegs(
     });
   }
 
-  const recommendedMode: TravelMode = preferTransit ? "transit" : "walk";
+  const recommendedMode = pickRecommendedTravelMode(legs, preferTransit);
   for (const leg of legs) {
     leg.recommended = leg.mode === recommendedMode;
   }
   legs.sort((a, b) => Number(b.recommended) - Number(a.recommended));
   return { legs, directionsFailed };
+}
+
+/** Prefer walk only when it is not absurd vs transit/drive (e.g. Sintra day trip). */
+export function pickRecommendedTravelMode(
+  legs: Array<{ mode: TravelMode; duration_min: number }>,
+  preferTransit: boolean,
+): TravelMode {
+  const walk = legs.find((l) => l.mode === "walk");
+  const transit = legs.find((l) => l.mode === "transit");
+  const drive = legs.find((l) => l.mode === "drive");
+  if (preferTransit) {
+    if (transit) return "transit";
+    if (drive) return "drive";
+    return walk?.mode ?? "walk";
+  }
+  if (
+    walk &&
+    transit &&
+    walk.duration_min > 45 &&
+    walk.duration_min >= transit.duration_min * 1.5
+  ) {
+    return "transit";
+  }
+  if (
+    walk &&
+    drive &&
+    walk.duration_min > 60 &&
+    walk.duration_min >= drive.duration_min * 2
+  ) {
+    if (transit && transit.duration_min <= drive.duration_min * 1.35) return "transit";
+    return "drive";
+  }
+  return walk?.mode ?? transit?.mode ?? drive?.mode ?? "walk";
 }
 
 /** Sync heuristic-only legs (Story A/B defaults and meal options). */
@@ -213,7 +246,7 @@ export function buildHeuristicLegs(
       source: "heuristic" as const,
     };
   });
-  const recommendedMode: TravelMode = preferTransit ? "transit" : "walk";
+  const recommendedMode = pickRecommendedTravelMode(legs, preferTransit);
   for (const leg of legs) leg.recommended = leg.mode === recommendedMode;
   legs.sort((a, b) => Number(b.recommended) - Number(a.recommended));
   return legs;
@@ -441,22 +474,39 @@ export function shouldUseChineseSearchQueries(opts: {
 export function timedAttractionQueries(
   area: string,
   locale: Locale = "EN",
-  _hints?: SearchQueryHints,
+  hints?: SearchQueryHints,
 ): string[] {
-  return getAttractionQueries(area.trim(), locale);
+  const useZh = shouldUseChineseSearchQueries({
+    locale,
+    area,
+    originName: hints?.originName,
+    destName: hints?.destName,
+    naturalLanguage: hints?.naturalLanguage,
+  });
+  // EN UI + CJK city (e.g. 哈尔滨) → CN catalog — not UI locale alone.
+  const kwLocale: Locale = useZh ? (locale === "EN" ? "CN" : locale) : "EN";
+  return getAttractionQueries(area.trim(), kwLocale);
 }
 
 export function timedMealQueries(
   area: string,
   locale: Locale,
-  _hints: SearchQueryHints | undefined,
+  hints: SearchQueryHints | undefined,
   kind: "restaurant" | "cafe" | "restaurantExtra",
   spend?: ItineraryPreferences["spend"],
   dayIndex = 1,
 ): string[] {
   const a = area.trim();
-  const mealKind = kind === "restaurantExtra" ? "dinner" : kind === "restaurant" ? "lunch" : "cafe";
-  return getMealQueries(a, locale, mealKind, spend, dayIndex);
+  const mealKind = kind === "restaurantExtra" ? "dinner" : kind === "cafe" ? "cafe" : "lunch";
+  const useZh = shouldUseChineseSearchQueries({
+    locale,
+    area: a,
+    originName: hints?.originName,
+    destName: hints?.destName,
+    naturalLanguage: hints?.naturalLanguage,
+  });
+  const kwLocale: Locale = useZh ? (locale === "EN" ? "CN" : locale) : "EN";
+  return getMealQueries(a, kwLocale, mealKind, spend, dayIndex);
 }
 
 export function localizePlanningImpact(

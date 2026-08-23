@@ -55,6 +55,7 @@ export function healthEnvelope(): Envelope<{ tools: string[] }> {
         "navigate",
         "discover_places",
         "arrange_day",
+        "enrich_arrange_transit",
         "chat",
       ],
     },

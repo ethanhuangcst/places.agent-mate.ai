@@ -31,6 +31,17 @@ describe("planItinerary", () => {
     expect(result.outcomeKey).toBe("errors.bounds_invalid");
   });
 
+  it("should_accept_same_day_bounds_for_one_day_trip", async () => {
+    const result = await planItinerary({
+      detail: "stops",
+      bounds: { start: "2026-09-01", end: "2026-09-01" },
+      places: samplePlaces,
+      locale: "EN",
+    });
+    expect(result.outcomeKey).not.toBe("errors.bounds_invalid");
+    expect(result.data?.days.length).toBe(1);
+  });
+
   it("should_return_no_places_when_list_empty", async () => {
     const result = await planItinerary({
       bounds: { start: "2026-09-01", end: "2026-09-02" },

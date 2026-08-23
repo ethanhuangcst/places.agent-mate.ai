@@ -347,7 +347,7 @@ function createClient(): OpenAI | null {
   if (useFixtureLlm()) return null;
   return new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL ?? "https://quanzil.com/v1",
+    baseURL: process.env.OPENAI_BASE_URL,
   });
 }
 
@@ -418,7 +418,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
         tools: TOOL_DEFS,
         max_completion_tokens: 1024,
       });
-      assistantMessage = completion.choices[0]?.message;
+      assistantMessage = completion?.choices?.[0]?.message;
       if (!assistantMessage) {
         return {
           message: {

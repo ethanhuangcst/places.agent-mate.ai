@@ -218,7 +218,7 @@ describe("caller auth and HTTP dispatch", () => {
     expect(result.envelope.outcome?.key).toBe("errors.invalid_input");
   });
 
-  it("should_return_day_when_arrange_day_http_is_valid", async () => {
+  it("should_return_must_include_coverage_on_arrange_day_http", async () => {
     const generated = generateCallerSecret();
     await prisma.callerApiKey.create({
       data: {
@@ -229,19 +229,82 @@ describe("caller auth and HTTP dispatch", () => {
       },
     });
     vi.mocked(arrangeDay).mockResolvedValue({
-      day_index: 1,
-      blocks: [{ name: "Museum", type: "attraction", start_time: "10:00", duration_min: 90, reason: "ok" }],
+      day_index: 2,
+      blocks: [
+        {
+          name: "克卢什国家宫",
+          type: "attraction",
+          start_time: "10:00",
+          duration_min: 90,
+          reason: "wrong town",
+        },
+      ],
+      must_include_coverage: {
+        must_include: ["辛特拉", "卡斯凯什"],
+        covered: [],
+        missing: ["辛特拉", "卡斯凯什"],
+      },
+      must_include_focus: "辛特拉",
     } as never);
     const result = await dispatchTool("arrange_day", `Bearer ${generated.secret}`, {
-      candidates: { places: [{ name: "Museum" }], restaurants: [] },
-      dayIndex: 1,
-      locale: "EN",
+      candidates: {
+        places: [{ name: "克卢什国家宫" }],
+        restaurants: [],
+      },
+      dayIndex: 2,
+      city: "里斯本",
+      locale: "CN",
+      preferences: {
+        must_include: ["辛特拉", "卡斯凯什"],
+        day_theme: "辛特拉整日短途",
+      },
     });
     expect(result.status).toBe(200);
     expect(result.envelope.ok).toBe(true);
-    const data = result.envelope.data as { day_index: number; blocks: { reason: string }[] };
-    expect(data.day_index).toBe(1);
-    expect(data.blocks[0]?.reason).toBe("ok");
+    const data = result.envelope.data as {
+      must_include_coverage: { missing: string[]; covered: string[] };
+    };
+    expect(data.must_include_coverage.missing).toEqual(["辛特拉", "卡斯凯什"]);
+    expect(data.must_include_coverage.covered).toEqual([]);
+  });
+
+  it("should_return_empty_missing_when_must_include_coverage_complete_http", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    vi.mocked(arrangeDay).mockResolvedValue({
+      day_index: 2,
+      blocks: [
+        {
+          name: "Pena Palace",
+          type: "attraction",
+          start_time: "10:00",
+          duration_min: 90,
+          reason: "sintra",
+        },
+      ],
+      must_include_coverage: {
+        must_include: ["辛特拉"],
+        covered: ["辛特拉"],
+        missing: [],
+      },
+    } as never);
+    const result = await dispatchTool("arrange_day", `Bearer ${generated.secret}`, {
+      candidates: { places: [{ name: "Pena Palace" }], restaurants: [] },
+      dayIndex: 2,
+      locale: "CN",
+      preferences: { must_include: ["辛特拉"] },
+    });
+    const data = result.envelope.data as {
+      must_include_coverage: { missing: string[] };
+    };
+    expect(data.must_include_coverage.missing).toEqual([]);
   });
 
   it("should_return_502_when_discover_places_throws", async () => {
@@ -286,7 +349,7 @@ describe("caller auth and HTTP dispatch", () => {
     expect(result.envelope.outcome?.key).toBe("errors.arrange_day_failed");
   });
 
-  it("should_reject_arrange_day_when_candidates_missing", async () => {
+  it("should_accept_omitted_candidates_and_fail_without_city_for_auto_discover", async () => {
     const generated = generateCallerSecret();
     await prisma.callerApiKey.create({
       data: {
@@ -296,11 +359,12 @@ describe("caller auth and HTTP dispatch", () => {
         status: "ACTIVE",
       },
     });
+    // ADR-043 D8: candidates optional (default empty). Without city, auto-discover cannot run.
     const result = await dispatchTool("arrange_day", `Bearer ${generated.secret}`, {
       dayIndex: 1,
       locale: "EN",
     });
-    expect(result.status).toBe(400);
-    expect(result.envelope.outcome?.key).toBe("errors.invalid_input");
+    expect(result.status).toBe(502);
+    expect(result.envelope.outcome?.key).toBe("errors.arrange_day_failed");
   });
 });

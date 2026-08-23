@@ -77,6 +77,13 @@ export function createGoogleDirectClient(
       textQuery: buildSearchText(input, kind),
       languageCode: languageCode(input.locale),
     };
+    if (kind === "place" && input.rankPreference) {
+      // Google SearchTextRequest.RankPreference: RELEVANCE | DISTANCE only.
+      const pref = input.rankPreference;
+      if (pref === "RELEVANCE" || pref === "DISTANCE") {
+        body.rankPreference = pref;
+      }
+    }
     if (input.near) {
       body.locationBias = {
         circle: {

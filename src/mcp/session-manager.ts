@@ -6,6 +6,8 @@ type Transport = StreamableHTTPServerTransport | SSEServerTransport;
 interface ManagedSession {
   transport: Transport;
   createdAt: number;
+  /** Sliding idle clock — refreshed on get(). */
+  lastUsedAt: number;
 }
 
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
@@ -25,24 +27,29 @@ export class SessionManager {
   }
 
   add(id: string, transport: Transport): void {
-    this.sessions.set(id, { transport, createdAt: Date.now() });
+    const now = Date.now();
+    this.sessions.set(id, { transport, createdAt: now, lastUsedAt: now });
   }
 
   get(id: string): Transport | undefined {
-    return this.sessions.get(id)?.transport;
+    const session = this.sessions.get(id);
+    if (!session) return undefined;
+    // Sliding TTL: active ChatBox/Cursor sessions must not expire while in use
+    session.lastUsedAt = Date.now();
+    return session.transport;
   }
 
   delete(id: string): void {
     this.sessions.delete(id);
   }
 
-  /** Remove sessions older than TTL. Returns count of cleaned sessions. */
+  /** Remove idle sessions older than TTL (based on last use). Returns count cleaned. */
   cleanup(): number {
     const now = Date.now();
     let cleaned = 0;
-    for (const [id] of this.sessions) {
-      const session = this.sessions.get(id)!;
-      if (now - session.createdAt > this.ttlMs) {
+    for (const [id, session] of this.sessions) {
+      const anchor = session.lastUsedAt ?? session.createdAt;
+      if (now - anchor > this.ttlMs) {
         this.sessions.delete(id);
         cleaned++;
       }

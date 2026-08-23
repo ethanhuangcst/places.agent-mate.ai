@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TC-E2E-01~08: Caller simulation E2E tests.
+# TC-E2E-01~11: Caller simulation E2E tests.
 # Opt-in — requires live vendor keys (AMAP_API_KEY, GOOGLE_MAPS_API_KEY or GMAPS_MCP_*).
 # Usage: from 1.places-agent/ — make test-e2e-caller
 set -euo pipefail
@@ -218,6 +218,114 @@ for day in days:
                 if nid:
                     assert nid not in meal_ids, f"{tc}: duplicate meal venue {nid}"
                     meal_ids.add(nid)
+'
+
+# ── TC-E2E-09: where2play — Harbin discover (CN + QLP) ───────────────────
+run_tc "TC-E2E-09" "discover_places" \
+  '{"city":"哈尔滨","bounds":{"start":"2026-08-22","end":"2026-08-24"},"origin":{"name":"哈尔滨"},"locale":"CN","numDays":3,"providers":["AMAP","GOOGLE_MAPS"]}' \
+  '
+assert d.get("ok") is True, f"{tc}: ok not true"
+cands = (d.get("data") or {}).get("candidates") or {}
+places = cands.get("places") or []
+restaurants = cands.get("restaurants") or []
+assert len(places) >= 1, f"{tc}: expected places >= 1, got {len(places)}"
+assert len(restaurants) >= 1, f"{tc}: expected restaurants >= 1, got {len(restaurants)}"
+sample = places[0]
+loc = sample.get("location") or {}
+if loc.get("lat") is not None:
+    assert 18 <= loc["lat"] <= 54, f"{tc}: lat out of mainland range: {loc}"
+    assert 73 <= loc["lng"] <= 135, f"{tc}: lng out of mainland range: {loc}"
+for card in places + restaurants:
+    for s in card.get("sources") or []:
+        nid = s.get("native_id") or ""
+        assert not str(nid).startswith("fixture_"), f"{tc}: fixture id {nid}"
+'
+
+# ── TC-E2E-10: where2play — Harbin discover (EN UI, AMAP still CN) ───────
+run_tc "TC-E2E-10" "discover_places" \
+  '{"city":"哈尔滨","bounds":{"start":"2026-08-22","end":"2026-08-24"},"origin":{"name":"哈尔滨"},"locale":"EN","numDays":3,"providers":["AMAP","GOOGLE_MAPS"]}' \
+  '
+assert d.get("ok") is True, f"{tc}: ok not true"
+cands = (d.get("data") or {}).get("candidates") or {}
+places = cands.get("places") or []
+restaurants = cands.get("restaurants") or []
+assert len(places) >= 1, f"{tc}: EN UI still needs places >= 1 (QLP-A), got {len(places)}"
+assert len(restaurants) >= 1, f"{tc}: restaurants >= 1, got {len(restaurants)}"
+'
+
+# ── TC-E2E-11: where2play — discover then arrange_day with attraction ────
+echo "── TC-E2E-11: discover → arrange_day ──"
+DISC_RESP="$(curl -sf -H "Authorization: Bearer $CALLER_KEY" -H "Content-Type: application/json" \
+  -d '{"city":"哈尔滨","bounds":{"start":"2026-08-22","end":"2026-08-24"},"origin":{"name":"哈尔滨"},"locale":"CN","numDays":3,"providers":["AMAP","GOOGLE_MAPS"]}' \
+  "$BASE/v1/discover_places" 2>&1)" || {
+  echo "FAIL TC-E2E-11: discover curl failed"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  DISC_RESP=""
+}
+if [[ -n "$DISC_RESP" ]]; then
+  ARRANGE_BODY="$(python3 - <<'PY' "$DISC_RESP"
+import json, sys
+d = json.loads(sys.argv[1])
+assert d.get("ok") is True, "discover not ok"
+cands = (d.get("data") or {}).get("candidates") or {}
+places = cands.get("places") or []
+assert len(places) >= 1, "no places for arrange"
+body = {
+  "candidates": cands,
+  "dayIndex": 1,
+  "date": "2026-08-22",
+  "city": "哈尔滨",
+  "origin": {"name": "哈尔滨"},
+  "destination": {"name": "哈尔滨"},
+  "locale": "CN",
+  "providers": ["AMAP", "GOOGLE_MAPS"],
+  "pace": "relaxed",
+}
+print(json.dumps(body, ensure_ascii=False))
+PY
+)" || {
+    echo "FAIL TC-E2E-11: build arrange body failed"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    ARRANGE_BODY=""
+  }
+  if [[ -n "${ARRANGE_BODY:-}" ]]; then
+    run_tc "TC-E2E-11" "arrange_day" "$ARRANGE_BODY" '
+assert d.get("ok") is True, f"{tc}: ok not true"
+data = d.get("data") or {}
+blocks = data.get("blocks")
+if blocks is None and isinstance(data.get("days"), list) and data["days"]:
+    blocks = (data["days"][0] or {}).get("blocks")
+blocks = blocks or []
+assert len(blocks) >= 1, f"{tc}: expected blocks >= 1"
+types = [b.get("type") for b in blocks if isinstance(b, dict)]
+assert "attraction" in types, f"{tc}: expected an attraction block, got types={types}"
+'
+  fi
+fi
+
+# ── TC-E2E-12: where2play — Xi'an discover Arm A (live) ──────────────────
+run_tc "TC-E2E-12" "discover_places" \
+  '{"city":"西安","bounds":{"start":"2026-08-22","end":"2026-08-24"},"origin":{"name":"西安"},"locale":"CN","numDays":3,"providers":["AMAP","GOOGLE_MAPS"]}' \
+  '
+assert d.get("ok") is True, f"{tc}: ok not true"
+cands = (d.get("data") or {}).get("candidates") or {}
+places = cands.get("places") or []
+restaurants = cands.get("restaurants") or []
+assert len(places) >= 1, f"{tc}: expected places >= 1, got {len(places)}"
+assert len(restaurants) >= 1, f"{tc}: expected restaurants >= 1, got {len(restaurants)}"
+names = " ".join((p.get("name") or "") for p in places)
+import re
+assert re.search(r"兵马俑|秦始皇", names), f"{tc}: missing terracotta/Qin class in {names!r}"
+assert re.search(r"大雁塔", names), f"{tc}: missing Dayan class in {names!r}"
+sample = places[0]
+loc = sample.get("location") or {}
+if loc.get("lat") is not None:
+    assert 18 <= loc["lat"] <= 54, f"{tc}: lat out of mainland range: {loc}"
+    assert 73 <= loc["lng"] <= 135, f"{tc}: lng out of mainland range: {loc}"
+for card in places + restaurants:
+    for s in card.get("sources") or []:
+        nid = s.get("native_id") or ""
+        assert not str(nid).startswith("fixture_"), f"{tc}: fixture id {nid}"
 '
 
 echo ""

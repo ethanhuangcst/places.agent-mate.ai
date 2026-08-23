@@ -25,8 +25,8 @@
 | 四种语言环境 | 管理后台界面及 Agent 展示字符串：目录 `EN`、`CN`、`HK`、`TW`。HK 与 TW 的措辞在固定术语键上必须不同（如出租车、`weather.wmo.80`）。回退顺序为语言环境 → `EN` → key，**绝不**在 HK↔TW 之间互相回退。天气测试不得将 Open-Meteo 英文文档字符串视为 `CN`/`HK`/`TW` 文案。 |
 | 禁止捏造地点 | 搜索/详情/行程测试，在供应商返回空结果或失败时，如果 Agent 捏造 POI，则测试不得通过。 |
 | Tripadvisor | 契约测试必须证明 Google `place_id` **未**作为 id 发送给 Tripadvisor。 |
-| 密钥 | 地图供应商 key、`GMAPS_MCP_BEARER`、Quanzil、Resend、会话密钥及调用方 key 明文（除一次性复制 UI 外）不得出现在浏览器存储、MCP/HTTP 错误响应体或日志中。 |
-| 默认 CI | 仅使用 fixture / 沙盒供应商。实时 AMAP / Google / Tripadvisor / Quanzil / Resend / Open-Meteo 均为**可选加入**任务。 |
+| 密钥 | 地图供应商 key、`GMAPS_MCP_BEARER`、OPENAI_CN、Resend、会话密钥及调用方 key 明文（除一次性复制 UI 外）不得出现在浏览器存储、MCP/HTTP 错误响应体或日志中。 |
+| 默认 CI | 仅使用 fixture / 沙盒供应商。实时 AMAP / Google / Tripadvisor / OPENAI_CN / Resend / Open-Meteo 均为**可选加入**任务。 |
 | 供应商诚实性（ADR-021） | `PLACES_VENDOR_MODE=live` 不得返回 fixture 卡片、Tripadvisor fixture 评分或 Open-Meteo fixture 预报。缺少实时客户端 → 跳过/省略，绝不回退到 fixture。供应商故事未完成，直到注入式 fetch 测试**以及**可选加入的真实 key 探测（`verify-amap-live`、`test-live` 等）均断言无 `fixture_` id 为止。 |
 
 通用质量检查清单仍完整适用。额外项目见 §11。
@@ -117,7 +117,7 @@
 
 **定时 UAT 进程环境：** 如需实时 Directions，在进程环境中以 `GOOGLE_DIRECT_FORCE_FAIL=0` 启动 Agent（先 `make down`，再 `GOOGLE_DIRECT_FORCE_FAIL=0 make up`）。已导出的 `=1` 不会被 `.env.local` 覆盖。**不要**用 `scripts/with_server.py` 包裹完整 UAT 套件——该辅助脚本在被包裹命令退出时会停止服务器。
 
-**允许使用 mock：** 时钟、随机数、付费/不可逆第三方（Resend、实时地图、Quanzil），前提是未配置沙盒。
+**允许使用 mock：** 时钟、随机数、付费/不可逆第三方（Resend、实时地图、OPENAI_CN），前提是未配置沙盒。
 **不允许：** 发布仅能通过进程内模拟成功响应的搜索/详情功能。仅通过 fixture 的测试**不构成**实时供应商完成（ADR-021）。
 
 ---
@@ -206,6 +206,7 @@ Google Worker MCP 测试使用 **fixture MCP**（或录制的 Streamable HTTP）
 | --- | --- | --- | --- |
 | what2eat（餐饮） | `POST /v1/search_restaurants` | 中文地址 + 菜系 + 预算 | 结果在输入位置 5km 范围内；供应商支持时 `photos` 非空；评分为数字 |
 | where2play（地点） | `POST /v1/search_places` | 城市 + 活动类型 | 结果在正确城市内；`sources[]` 非空 |
+| where2play（行程） | `POST /v1/discover_places` → `arrange_day` | `city` + bounds + locale + providers | 景点与餐厅候选均非空（QLP）；arrange 可含 attraction |
 | chatbox（自然语言） | `POST /v1/chat` | 中文/英文自由文本问题 | 响应语言与请求匹配；无捏造场所 |
 | 任意调用方 | `POST /v1/plan_itinerary` | 城市 + 日期 + 节奏 | 天数与日期范围匹配；餐饮在正确时间段；无重复场所 |
 
@@ -219,7 +220,7 @@ Google Worker MCP 测试使用 **fixture MCP**（或录制的 Streamable HTTP）
 - `photos` — 供应商支持时存在（Google 带字段掩码，AMAP 带 biz_ext）
 - `rating` — 供应商返回时存在
 
-**测试用例：** 见下方 §19（TC-E2E-01 至 TC-E2E-08）。
+**测试用例：** 见下方 §19（TC-E2E-01 至 TC-E2E-11）。
 
 **CI 集成：** 可选加入门控 `make test-e2e-caller` — 需要实时供应商 key。不在默认 PR CI 中运行。
 
@@ -240,12 +241,12 @@ Google Worker MCP 测试使用 **fixture MCP**（或录制的 Streamable HTTP）
 | 门控 | 触发时机 | 内容 |
 | --- | --- | --- |
 | 默认 PR / push | 始终 | 单元 + 契约（fixture 供应商）+ `http-tc-h.test.ts` 中的 **TC-H01–H15** + 管理员 Playwright 关键旅程 |
-| `make test-live` | 可选加入 | `scripts/verify-gmaps-fallback.sh`（TC-H15 实时 Worker MCP）；真实地图/Quanzil/Resend 沙盒或实时 key；非破坏性 |
+| `make test-live` | 可选加入 | `scripts/verify-gmaps-fallback.sh`（TC-H15 实时 Worker MCP）；真实地图/OPENAI_CN/Resend 沙盒或实时 key；非破坏性 |
 | `make verify-amap-live` | 可选加入 | `scripts/verify-amap-live.sh` — 实时 AMAP 搜索（`query=烧烤` + 站点地址）；断言 `AMAP` 且无 `fixture_` id |
 | `make verify-tripadvisor-live` | 可选加入 | `scripts/verify-tripadvisor-live.sh` — 附带 `GOOGLE_DIRECT_FORCE_FAIL=0` 的辅助进程（不复用仅 Worker 的守护进程）；在 HK 标记上实时 Terra 增强；断言数字 `tripadvisor.rating` 且无 fixture Ichiran URL |
 | `make verify-open-meteo-live` | 可选加入 | `scripts/verify-open-meteo-live.sh` — 在 HK 标记行程上实时预报；断言数字 `weather_code` 0–99 且非 fixture 特征值（80 + 24/18 °C） |
 | 运维 UAT 定时行程 | 每个故事 A/B/C | HTTP `POST /v1/plan_itinerary`，`detail:"timed"`；运维人员提供起点/边界；Agent 输出 JSON；运维人员判断。故事 A 套件：Hyatt Lisbon，`2026-08-25`→`2026-08-30`，relaxed/premium，`GOOGLE_MAPS` |
-| `make test-e2e-caller` | 可选加入 | `scripts/test-e2e-caller.sh` 中的 TC-E2E-01~08 — 实时供应商调用方模拟；中国餐厅、自动供应商、东京 POI、成都行程、对话、照片、混合语言、餐饮上下文 |
+| `make test-e2e-caller` | 可选加入 | `scripts/test-e2e-caller.sh` 中的 TC-E2E-01~12 — 实时供应商调用方模拟；含 where2play `discover_places` QLP（哈尔滨）与西安 Arm A（TC-E2E-12） |
 | 覆盖率 | 技术栈支持时 | 关键路径 **100%**；总体 **≥ 80%** |
 
 ### 覆盖率测量（Vitest v8）
@@ -494,7 +495,7 @@ ChatBox 模型常在工具参数中写 **`Google Maps`**。服务器要求 **`GO
 | 端点 | 用途 |
 | --- | --- |
 | `GET /v1/health` | 存活检测 + 工具列表 |
-| `POST /v1/chat` | 服务端自然语言循环（Quanzil）— 与 ChatBox + MCP 不同 |
+| `POST /v1/chat` | 服务端自然语言循环（OPENAI_CN）— 与 ChatBox + MCP 不同 |
 | 搜索中的 `enrich.tripadvisor` | 卡片上的 Tripadvisor 评分 |
 
 ### 14.4 常见结果（故障排查）
@@ -854,7 +855,7 @@ curl -s -H "Authorization: Bearer $CALLER_KEY" -H "Content-Type: application/jso
 
 | | |
 | --- | --- |
-| **前提条件** | 调用方 key 已设置。无需实时 Quanzil key，fixture 模式即可。 |
+| **前提条件** | 调用方 key 已设置。无需实时 OPENAI_CN key，fixture 模式即可。 |
 | **测试步骤** | 1. `POST /v1/chat` — 请求体：`{"messages":[{"role":"user","content":"ramen near Tsim Sha Tsui"}],"locale":"EN"}` |
 | **预期结果** | `"ok": true`。助手消息存在。服务器调用了 `search_restaurants`。 |
 
@@ -1332,6 +1333,22 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-E2E-06 | | 调用方 E2E | 照片字段验证 | `make test-e2e-caller` | |
 | TC-E2E-07 | | 调用方 E2E | 混合语言输入鲁棒性 | `make test-e2e-caller` | |
 | TC-E2E-08 | | 调用方 E2E | 行程餐饮上下文匹配 | `make test-e2e-caller` | |
+| TC-E2E-09 | | 调用方 E2E | where2play — 哈尔滨 discover（CN + QLP） | `make test-e2e-caller` | |
+| TC-E2E-10 | | 调用方 E2E | where2play — 哈尔滨 discover（EN UI + AMAP CN） | `make test-e2e-caller` | |
+| TC-E2E-11 | | 调用方 E2E | where2play — discover→arrange 含景点 | `make test-e2e-caller` | |
+| TC-E2E-12 | | 调用方 E2E | where2play — 西安 discover Arm A | `make test-e2e-caller` | 8 |
+| TC-M8-U34-01 | ✓ | 单元 | Arm A 馆名种子 + 零 LLM | `tests/discover-arm-a.test.ts` | 8 |
+| TC-M8-H35-01 | ✓ | HTTP | Mode H execution=host 零 LLM | `tests/http-arrange-host.test.ts` | 8 |
+| TC-M8-M35-01 | ✓ | MCP | ADR-043: MCP advertise always-agent (not host default) | `tests/mcp.test.ts` | 8 |
+| TC-M8-M43-01 | ✓ | MCP | MCP force agent even if execution=host | `src/mcp/create-server.adr040.test.ts` | 8 |
+| TC-M8-M43-02 | ✓ | MCP | Soft gate need_present_previous_day | `src/mcp/create-server.adr040.test.ts` | 8 |
+| TC-M8-M43-03 | ✓ | Unit | arrange present gate | `src/mcp/arrange-present-gate.test.ts` | 8 |
+| TC-M8-M43-04 | ✓ | Unit | Lisbon hot templates (no city catalog) | `src/core/query-assembler.test.ts` | 8 |
+| TC-M8-M43-05 | ✓ | Unit | Google rankPreference RELEVANCE; omit POPULARITY | `src/adapters/google/direct.test.ts` | 8 |
+| TC-M8-U36-01 | ✓ | 单元 | L2 硬必去注入 / 覆盖 | `src/core/must-see-coverage.test.ts` | 8 |
+| TC-M8-U37-01 | ✓ | 单元 | arrange 真交通 `legs_to_here` | `src/core/enrich-arrange-transit.test.ts` | 8 |
+| TC-M8-S38-01 | ✓ | 进程 | MCP session 缺失/过期可恢复 | `tests/mcp-sse-session.test.ts` | 8 |
+
 | TC-M3a-S01 | ✓ | 单元 | readJsonBody malformed → {ok:false} | `server.test.ts` | 3a |
 | TC-M3a-S02 | ✓ | 单元 | SessionManager TTL 清理 | `src/mcp/session-manager.test.ts` | 3a |
 | TC-M3a-S03 | | 单元 | SessionManager close() 清空 | `src/mcp/session-manager.test.ts` | 3a |
@@ -1481,6 +1498,55 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 - 下午茶块（如有）在 14:00–18:00 之间
 - 整个行程中无餐饮场所重复出现
 
+### TC-E2E-09: where2play — 哈尔滨 discover（CN + QLP）
+
+模拟 where2play BFF `POST /v1/discover_places`（大陆目的地 + 双 provider，与 2play `providersForDestinationText` 一致）。
+
+**Given** 有效调用方 key；`PLACES_VENDOR_MODE=live`；AMAP 可用  
+**When** POST `/v1/discover_places`：
+```json
+{
+  "city": "哈尔滨",
+  "bounds": { "start": "2026-08-22", "end": "2026-08-24" },
+  "origin": { "name": "哈尔滨" },
+  "locale": "CN",
+  "numDays": 3,
+  "providers": ["AMAP", "GOOGLE_MAPS"]
+}
+```
+**Then**：
+- `ok === true`
+- `data.candidates.places.length >= 1`
+- `data.candidates.restaurants.length >= 1`
+- 样本 `location` 在大陆范围（纬度 18–54°N，经度 73–135°E）
+- `sources[].native_id` 不以 `fixture_` 开头
+
+### TC-E2E-10: where2play — 哈尔滨 discover（EN UI，AMAP 仍中文词）
+
+**Given** 同上  
+**When** 与 TC-E2E-09 相同 body，但 `"locale": "EN"`  
+**Then**：
+- `candidates.places.length >= 1`（QLP-A：EN 界面仍对 AMAP 使用简体景点词）
+- `candidates.restaurants.length >= 1`
+
+### TC-E2E-11: where2play — discover → arrange_day 含景点
+
+**Given** TC-E2E-09 成功且 `places.length >= 1`  
+**When** POST `/v1/arrange_day`，`dayIndex: 1`，`candidates` 为 discover 返回值，`city`/`locale`/`providers` 与 discover 一致  
+**Then**：
+- `ok === true`
+- `data.blocks`（或 `data.days[0].blocks`）长度 ≥ 1
+- 至少有一个 block `type === "attraction"`（当候选景点非空时）
+
+### TC-E2E-12: where2play — 西安 discover Arm A（Feature 34）
+
+**Given** 有效调用方 key；`PLACES_VENDOR_MODE=live`；AMAP 与/或 Google 可用  
+**When** POST `/v1/discover_places`：`city=西安`，`numDays=3`，`locale=CN`，`providers=["AMAP","GOOGLE_MAPS"]`  
+**Then**：
+- `ok === true`；`places`/`restaurants` 均 ≥ 1
+- 名称集合命中 `/兵马俑|秦始皇/` **且** `/大雁塔/`
+- `native_id` 不以 `fixture_` 开头；样本 location 在大陆 bbox
+
 ---
 
 ## MVP-3b：Photos + Price Level（TC-M3b）
@@ -1519,6 +1585,8 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M4a-02 | Unit | language-router: HK locale → Google 双语 | `src/agent/language-router.test.ts` |
 | TC-M4a-03 | Unit | search-keywords: 日料 ↔ Japanese restaurant 映射 | `src/i18n/search-keywords.ts` |
 | TC-M4a-04 | Unit | itinerary-timed 去硬编码城市 | `tests/meal-windows.test.ts` |
+| TC-M4a-05 | Unit | query-assembler QLP-A/G job 拆分 | `src/core/query-assembler.test.ts` |
+| TC-M4a-06 | Unit | timedAttractionQueries：EN UI + 哈尔滨 → CN 词 | `src/core/itinerary-timed-queries.test.ts` |
 
 ## MVP-4b：性能优化（TC-M4b）
 
@@ -1565,11 +1633,18 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 
 | ID | 类型 | 主题 | 状态 |
 |----|------|------|------|
-| TC-M6-DP01 | Unit | discover_places 返回候选景点 ≤ 8 个 | 目标 |
-| TC-M6-DP02 | Unit | discover_places 返回候选餐厅 ≤ 8 个 | 目标 |
+| TC-M6-DP01 | Unit | discover_places 返回候选景点 ≤ 8×min(numDays,3) | `tests/discover-arrange-stream.test.ts` |
+| TC-M6-DP02 | Unit | discover_places 返回候选餐厅 ≤ 8×min(numDays,3) | 同上 |
 | TC-M6-DP03 | Unit | 候选含 name, type, rating, lat/lng（不含 hours/price） | 目标 |
 | TC-M6-DP04 | Unit | 天气数据包含在返回中 | 目标 |
 | TC-M6-DP05 | HTTP | /v1/discover_places 返回 JSON 含 candidates + weather | `tests/dispatch.test.ts` |
+| TC-M6-DQ01 | Unit | 西安 must-see catalog 非空；未知城空 seed | `src/core/discover-must-see.test.ts` |
+| TC-M6-DQ02 | Unit | discover attraction jobs 含 seed + QLP-A 简体 | `src/core/query-assembler.test.ts` |
+| TC-M6-DQ03 | Unit | 公司企业/停车场/公交站/直通车/敌楼过滤 | `tests/place-filters.test.ts` |
+| TC-M6-DQ04 | Unit | mock 混合池 → 必去命中；无公司企业；无 OpenAI | `tests/discover-quality.test.ts` |
+| TC-M6-DQ05 | E2E-live（opt-in） | 西安 HTTP discover 命中必去 | 手工 / caller E2E 扩展 |
+| TC-M6-DQ06 | Unit | cluster 去重 + diversity 头部 | `src/core/discover-dedupe.test.ts` |
+| TC-M6-DQ07 | Unit | 西安 mock 池城墙系 ≤2 且含陵+雁塔+城墙 | `tests/discover-quality.test.ts` |
 
 ### arrange_day MCP 工具
 
@@ -1617,6 +1692,15 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M6-MCP01 | HTTP | MCP tools/list 包含 discover_places + arrange_day |
 | TC-M6-MCP02 | HTTP | MCP tools/call discover_places 返回候选 |
 | TC-M6-MCP03 | HTTP | MCP tools/call arrange_day 返回单天行程 |
+
+### P0 止损（`places-agent-itinerary-mcp-p0`）
+
+| ID | 类型 | 主题 |
+|----|------|------|
+| TC-M6-P0-01 | Unit | `arrangeDayBody` / MCP schema 接受 `date: null` 与省略 |
+| TC-M6-P0-02 | Unit | arrange 进入 LLM 前候选无 `photos`/`hours`/`sources`/`deeplinks` |
+| TC-M6-P0-03 | Unit | Phase 4 仍可从原始候选挂回 `block.photos` |
+| TC-M6-P0-04 | Unit/契约 | MCP tool description 含互斥与禁回灌关键词（`plan_itinerary` / discover+arrange / photos|hours） |
 
 ### MVP-7 backlog（Claude Plan 未全自动化项）
 

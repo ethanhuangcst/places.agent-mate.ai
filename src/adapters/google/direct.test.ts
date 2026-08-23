@@ -79,6 +79,38 @@ describe("Google live direct client", () => {
     expect(body).toContain("Central");
   });
 
+  it("should_pass_relevance_rank_preference_for_place_search", async () => {
+    let body = "";
+    const { fetchFn } = recordFetch((_url, init) => {
+      body = typeof init?.body === "string" ? init.body : "";
+      return jsonResponse({ places: [] });
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    await client.searchPlaces({
+      query: "Lisbon top attractions",
+      rankPreference: "RELEVANCE",
+      locale: "EN",
+    });
+    expect(body).toContain("RELEVANCE");
+    expect(body).not.toContain("POPULARITY");
+  });
+
+  it("should_omit_invalid_popularity_rank_preference", async () => {
+    let body = "";
+    const { fetchFn } = recordFetch((_url, init) => {
+      body = typeof init?.body === "string" ? init.body : "";
+      return jsonResponse({ places: [] });
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    await client.searchPlaces({
+      query: "Lisbon top attractions",
+      // @ts-expect-error — legacy / mistaken value must not be sent to Google
+      rankPreference: "POPULARITY",
+      locale: "EN",
+    });
+    expect(body).not.toContain("POPULARITY");
+  });
+
   it("should_search_places_without_restaurant_default", async () => {
     const { fetchFn } = recordFetch(() => jsonResponse({ places: [PLACE] }));
     const client = createGoogleDirectClient(testConfig(), fetchFn);

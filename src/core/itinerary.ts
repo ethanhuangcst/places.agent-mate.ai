@@ -92,7 +92,8 @@ function parseBounds(bounds?: { start?: string; end?: string }): { start: Date; 
   if (!bounds?.start || !bounds?.end) return null;
   const start = new Date(bounds.start);
   const end = new Date(bounds.end);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+  // Inclusive calendar bounds: same-day trips are valid (start === end).
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
     return null;
   }
   return { start, end };
@@ -663,18 +664,29 @@ export async function planItinerary(
         const { llmPlanItinerary } = await import("./itinerary-planner");
         const locale = parseLocale(input.locale);
         const city = input.origin?.name ?? input.destination?.name ?? "city";
-        const startStr = input.bounds?.start ?? new Date().toISOString().slice(0, 10);
-        const endStr = input.bounds?.end ?? startStr;
+        if (!input.bounds?.start || !input.bounds?.end) {
+          return {
+            data: null,
+            skipped: [],
+            locale,
+            locales: input.locales as Locale[],
+            outcomeKey: "errors.bounds_invalid",
+          };
+        }
+        const startStr = input.bounds.start;
+        const endStr = input.bounds.end;
         const numDays = dayCount(new Date(startStr), new Date(endStr));
         const llmResult = await llmPlanItinerary({
           city,
           numDays,
-          bounds: input.bounds ?? { start: new Date().toISOString().slice(0, 10), end: new Date().toISOString().slice(0, 10) },
+          bounds: input.bounds,
           origin: input.origin,
           destination: input.destination,
           pace: input.preferences?.pace,
           budget: input.preferences?.spend,
           locale,
+          providers: input.providers,
+          party_size: input.party_size,
         });
         return {
           data: { detail: "timed", ...llmResult } as unknown as TimedItineraryPlan,

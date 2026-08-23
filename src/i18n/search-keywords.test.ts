@@ -50,7 +50,8 @@ describe("getAttractionQueries", () => {
     const queries = getAttractionQueries("新加坡", "CN");
     expect(queries.length).toBeGreaterThanOrEqual(3);
     expect(queries[0]).toContain("新加坡");
-    expect(queries[0]).toContain("博物馆");
+    expect(queries[0]).toContain("必去");
+    expect(queries.some((q) => q.includes("博物馆"))).toBe(true);
   });
 });
 

@@ -16,7 +16,7 @@
 | 调用方看到的 id 为 `places-agent` | 以主机名作为 agent id |
 | HTTP 和 MCP 使用相同的工具函数 | 分叉的仅 MCP 业务逻辑；将 Google Worker MCP 作为 `providers[]` id |
 | 工具接口使用调用方 API 密钥；管理后台使用会话 Cookie | 以管理员 Cookie 授权地图工具 |
-| 简单的 Quanzil 工具循环 | Kubeflow、特征存储、按供应商分立的 LLM 智能体 |
+| 简单的 OPENAI_CN 工具循环 | Kubeflow、特征存储、按供应商分立的 LLM 智能体 |
 | PostgreSQL 管理用户/密钥（[ADR-025](../../workspace-specs/adr/ADR-025-places-agent-postgres-prisma.md)） | 以 JSON 文件作为数据源；SQLite 卷（ADR-015）；共享 `what2eat` |
 | 四种语言目录 | OpenCC；HK↔TW 回退；`next-intl` `[locale]` 路由 |
 
@@ -97,7 +97,7 @@ Next.js **16.3** App Router，React **19**，TypeScript **7**，Tailwind **4**�
 ```text
 BFF / MCP host
  ├─ Direct tool HTTP/MCP ──┐   ← no LLM (caller already named the tool)
- └─ NL chat → Quanzil loop ─┤
+ └─ NL chat → OPENAI_CN loop ─┤
                             ▼
                      Tool core (one)
                             │
@@ -132,7 +132,7 @@ LOOP:
 
 **上传：** 提取简短结构化提示。不保留字节数据。不将 OCR 结果粘贴到系统提示中。上传失败 → 带 key 的错误；**不得从失败的上传中提取 POI**。图像生成不是 MVP 工具。
 
-**失败处理：** 跳过 + 原因 key，**不允许静默替换**。Google 直连失败 → Worker MCP，来源标注 `GOOGLE_MAPS`。Tripadvisor 失败 → 省略富化数据。天气失败 → 降级行程，不清空行程。搜索为空 → 空列表 + key。Quanzil 失败 → 返回错误，绝不返回空成功响应。幂等工具：**重试一次**后跳过；模型可基于**部分**结果作答。
+**失败处理：** 跳过 + 原因 key，**不允许静默替换**。Google 直连失败 → Worker MCP，来源标注 `GOOGLE_MAPS`。Tripadvisor 失败 → 省略富化数据。天气失败 → 降级行程，不清空行程。搜索为空 → 空列表 + key。OPENAI_CN 失败 → 返回错误，绝不返回空成功响应。幂等工具：**重试一次**后跳过；模型可基于**部分**结果作答。
 
 **人机交互（HITL）：** 搜索/详情/地理编码/导航/对话均无需人工干预。仅在后续出现不可逆副作用时才添加审批节点。
 
@@ -261,11 +261,11 @@ HTTP `/v1` 和 MCP 调用**相同的函数**。传输层负责认证、解析与
 
 #### `plan_itinerary` (detail: "timed")
 
-**语言感知查询生成**（MVP-4）：
-- 查询语言由 `languageContext.searchLanguage`（来自 language-router 模块）决定
-- 搜索关键词从 `src/i18n/search-keywords.ts` 加载 — 查询字符串中无硬编码的中文/英文
-- 移除按城市硬编码的查询；替换为通用模板：`"{city} {localized_keyword}"`
-- 餐饮场景匹配：早餐 → 早午餐关键词；晚餐 → 精致餐厅关键词；咖啡馆 → 茶馆关键词 — 均按 locale 区分
+**语言感知查询生成**（与 §5.2 QLP 对齐）：
+- **Agent 自组关键词**的路径（timed 自动搜、`discover_places` / LLM Phase1）按 **provider 联动 QLP** 拼词 — 不是「仅 UI locale → 中/英」
+- 关键词来自 [`search-keywords.ts`](../src/i18n/search-keywords.ts)；禁止写死英文 `attractions landmarks…` 之类硬编码句
+- 模板：`"{city} {localized_keyword}"`（或 catalog 多词模板）
+- 餐饮场景：午餐/晚餐/咖啡馆关键词按 **该次 job 的关键字 locale**（AMAP→CN；Google→EN 或 UI locale）区分
 
 **行程中的场所照片**（MVP-3）：
 - `blocks[]` 中每个场所在搜索供应商返回数据时包含 `photos` 字段
@@ -287,59 +287,87 @@ HTTP `/v1` 和 MCP 调用**相同的函数**。传输层负责认证、解析与
 | `distance_m` | number? | AMAP / Google directions | 路线不可用时省略 |
 | `duration_min` | number? | AMAP / Google directions | 路线不可用时省略 |
 
-### 5.2 语言路由与查询组装（MVP-4）
+### 5.2 语言路由与查询组装（MVP-4 + itinerary QLP）
 
-三个协同模块 — provider 选择、语言检测、query 组装 — 共同决定每次搜索如何执行。均为规则引擎，不调 LLM。
+三个协同模块 — **provider 选择**、**语言检测（UI/prompt）**、**query 组装（地图搜词）** — 共同决定「agent 自组关键词」时如何搜。均为规则引擎，不调 LLM。
+
+**与 prompt-assembler 的区别（勿混用）：**
+
+| 模块 | 服务对象 | 输出 |
+| --- | --- | --- |
+| [`prompt-assembler.ts`](../src/agent/prompt-assembler.ts) | **LLM** system / 场景 prompt | 说明文案 |
+| [`query-assembler.ts`](../src/core/query-assembler.ts) | **AMAP / Google** 搜索 API | `{ providers, query }[]` jobs |
+| [`language-router.ts`](../src/agent/language-router.ts) | UI / prompt locale 检测 | `LanguageContext`（`searchLocale` / `promptLocale`） |
+
+**QLP 适用范围（锁定）：**
+
+| 路径 | 是否走 QLP |
+| --- | --- |
+| `discover_places`、LLM Phase1 `searchCandidates`、timed `plan_itinerary` 自动搜景点/餐厅 | **是** — agent 自组关键词 |
+| 公开 `search_restaurants` / `search_places`（调用方或 chat 模型自带 `query`） | **否** — 保留调用方原文；仅 `applyProviderStrategy` 选地图 |
 
 ```typescript
-// src/agent/language-router.ts
+// src/agent/language-router.ts — UI / prompt（不单独决定地图搜词语言）
 interface LanguageContext {
-  detectedLanguage: 'zh' | 'en' | 'ja' | string;
-  promptLocale: string;             // for system prompt selection
+  detectedLanguage: "zh" | "en" | string;
+  searchLocale: Locale;   // catalog lookup for UI-facing keyword needs
+  promptLocale: Locale;   // system prompt selection
 }
 
-// src/adapters/provider-resolver.ts
+// src/adapters/provider-resolver.ts — ADR-026 / ADR-030
 interface ProviderStrategy {
-  searchProviders: ProviderId[];    // GOOGLE_MAPS, AMAP — order matters
-  enrichProviders: ProviderId[];    // TRIPADVISOR
+  searchProviders: ProviderId[];  // GOOGLE_MAPS, AMAP — order matters
+  enrichProviders: ProviderId[];  // TRIPADVISOR
 }
 
-// src/core/query-assembler.ts
-interface AssembledQueries {
-  google?: string[];                // 1-2 queries (bilingual when locale ≠ EN)
-  amap?: string[];                  // always pure CN
-}
+// src/core/query-assembler.ts — itinerary-composed search only
+type SearchJob = { providers: string[]; query: string };
+// assembleAttractionSearchJobs / assembleRestaurantSearchJobs → SearchJob[]
 ```
 
-#### 5.2.1 语言检测
+#### 5.2.1 语言检测（UI / prompt）
 
-1. 显式 `locale` 参数 → 直接使用
-2. 输入中 CJK 字符占比 >30% → `zh`
-3. 回退 → `en`
+1. 显式 `locale` 参数 → 直接使用  
+2. 输入中 CJK 字符占比 >30% → `zh` / `CN`  
+3. 回退 → `en` / `EN`  
+
+用于 prompt 与 QLP-G 的「第二趟 UI 语言」；**不能**单独决定 AMAP 搜词（见 QLP-A）。
 
 #### 5.2.2 Provider 策略
 
-按 §5.1 策略矩阵，根据目的地 + 界面语言输出 `{ searchProviders, enrichProviders }`。Caller 显式 `providers[]` 始终覆盖自动策略。
+按 §5.1 / ADR-030：目的地区域 → `{ searchProviders, enrichProviders }`（大陆 AMAP；港 AMAP+Google；其他 Google）。Caller 显式 `providers[]` **始终覆盖**自动策略。
+
+`search_restaurants` / `search_places` / discover 在省略 `providers[]` 时均经 `applyProviderStrategy` / `resolveProviderStrategy`。
 
 #### 5.2.3 Query Language Policy (QLP)
 
-搜索关键词的语言组装策略，与 provider 策略联动。
+**按「这次 job 打哪家地图」拼关键字**，不是「界面是 CN 就中文、EN 就英文」。
 
-| 策略 | Query 语言 | 适用条件 | 实现 |
-| --- | --- | --- | --- |
-| **QLP-G** (Google) | EN + 界面语言（两次搜索并行，结果合并去重） | §5.1 策略1 (Google) 生效时 | 双语搜索提升覆盖率 |
-| **QLP-A** (AMAP) | **纯 CN**（非中文输入自动翻译为简体中文） | §5.1 策略2 (AMAP) 生效时 | AMAP 搜索引擎只懂中文 |
+| 策略 | Query 语言 | 适用条件 |
+| --- | --- | --- |
+| **QLP-A** (AMAP) | **纯简体 CN**（catalog `CN`） | `providers` 含 `AMAP` 的 job |
+| **QLP-G** (Google) | EN；若 UI ≠ EN 再并行一趟 UI locale | `providers` 含 `GOOGLE_MAPS` 的 job |
 
-**QLP-G 细则：**
-- 界面语言 = EN 时：单次 EN 搜索即可，不做双语
-- 界面语言 ≠ EN 时：两次搜索**并行** (`Promise.all`)，结果按 `native_id` 或坐标近似（<50m）去重合并
-- 搜索①：EN 关键词 + EN 地名（`"Japanese restaurant near Tokyo"`）
-- 搜索②：界面语言关键词 + 界面语言地名（`"日本料理 東京"`）
+**细则：**
 
-**QLP-A 细则：**
-- **始终**使用简体中文 query，无论界面语言
-- 非中文输入通过关键词映射表翻译（见下方）
-- 不拼双语 — AMAP 对英文关键词几乎无效
+- **QLP-A：** 无论 UI 是 EN/CN/HK/TW，AMAP job **只用简体**；禁止英文景点句打高德（哈尔滨实测英文 attractions → 0，中文「景点」→ 有结果）。
+- **QLP-G：** UI=EN → 仅英文；UI≠EN → EN + UI locale **并行**，合并去重。
+- **双 provider**（如 where2play 传 `[AMAP, GOOGLE_MAPS]`）：**拆成多 job**，禁止一个英文 query 同时 fan-out 两家。
+- **延迟封顶：** AMAP 景点模板 ≤2；Google 景点 1～2 job；餐厅每 provider 通常 1（+ UI 双语时 +1）。
+
+**where2play 主路径：**
+
+```
+POST /v1/discover_places
+  { city, bounds, origin?, locale, numDays?, providers? }
+  → resolve providers（caller 或 auto）
+  → assembleAttractionSearchJobs + assembleRestaurantSearchJobs
+  → parallel searchPlaces / searchRestaurants per job
+  → merge by name → candidates
+POST /v1/arrange_day { candidates, dayIndex, … }
+```
+
+BFF 不组地图关键词；关键词政策在 places-agent。
 
 **关键词映射表** (`src/i18n/search-keywords.ts`)：
 
@@ -356,30 +384,24 @@ interface AssembledQueries {
 | budget | 平价 | 平價 | 平價 |
 | premium | 高档 | 高檔 | 高檔 |
 
-表不穷举所有词汇；未命中的关键词保持原语言传入 provider。
+表不穷举；未命中保持原语言。景点另有 `viewpoint` / `park` / `historic` 等键（CN「景点」等）。
 
-**实例：**
+**实例（itinerary / discover）：**
 
-| 场景 | 界面语言 | Provider 策略 | QLP | 实际搜索 |
-| --- | --- | --- | --- | --- |
-| 搜东京日料 | EN | Google+TA | QLP-G: 单次 EN | Google: `"Japanese restaurant near Tokyo"` |
-| 搜东京日料 | CN | Google+TA | QLP-G: EN+CN | Google①: `"Japanese restaurant Tokyo"` + ②: `"日料 东京"` → 合并 |
-| 搜东京日料 | HK | Google+TA | QLP-G: EN+HK | Google①: `"Japanese restaurant Tokyo"` + ②: `"日本料理 東京"` → 合并 |
-| 搜上海火锅 | CN | AMAP | QLP-A: 纯 CN | AMAP: `"火锅"` near 上海坐标 |
-| 搜上海火锅 | EN | Google+AMAP+TA | QLP-G + QLP-A | Google①: `"hotpot Shanghai"` + ②: `"火锅 上海"` → 合并；AMAP: `"火锅"` |
-| 搜昆明咖啡 | HK | Google+AMAP+TA | QLP-G + QLP-A | Google①: `"cafe Kunming"` + ②: `"咖啡店 昆明"` → 合并；AMAP: `"咖啡馆"` |
-| 搜台北夜市 | TW | Google+TA | QLP-G: EN+TW | Google①: `"night market Taipei"` + ②: `"夜市 台北"` → 合并 |
+| 场景 | UI | Providers | 实际搜词 jobs |
+| --- | --- | --- | --- |
+| 哈尔滨发现 | CN | AMAP+Google（caller） | AMAP: CN 景点模板；Google: EN（+ CN） |
+| 哈尔滨发现 | EN | AMAP+Google | AMAP: **仍 CN**；Google: EN only |
+| 东京发现 | EN | Google | Google: EN |
+| timed 上海 | EN UI + 城市含 CJK | AMAP wave | CN catalog（不得因 UI=EN 用英文 attractions） |
 
-**性能约束：**
-- Google 双语搜索的两次调用必须**并行**（`Promise.all`），不增加端到端延迟
-- 去重按 `native_id`（同 provider）或坐标 haversine < 50m + 名称相似度 > 0.7（跨 provider 合并）
-- 只在界面语言 ≠ EN 时才做双语搜索；EN 场景单次 Google 调用即可
+**性能：** 同 provider 多 job / 双语 Google 用 `Promise.all`；合并按 `name`（discover）或 timed 既有 `native_id` / 使用集合。
 
 ### 5.3 提示组装
 
 > **实现与契约见 §9.1（MVP-6）。** 本节不再单独维护「MVP-7」草稿。
 
-Chat / tool 的 system prompt 由 [`prompt-assembler.ts`](../src/agent/prompt-assembler.ts) 按 `locale` + `intent` 拼接；语言上下文仍来自 §5.2.1，关键词映射见 §5.2.3。
+Chat / tool 的 system prompt 由 [`prompt-assembler.ts`](../src/agent/prompt-assembler.ts) 按 `locale` + `intent` 拼接；**地图搜词**见 §5.2.3 query-assembler，二者分离。
 
 ---
 
@@ -450,7 +472,7 @@ Chat / tool 的 system prompt 由 [`prompt-assembler.ts`](../src/agent/prompt-as
 
 ---
 
-## 9. 智能体 LLM（Quanzil）
+## 9. 智能体 LLM（OPENAI_CN）
 
 - 使用 `openai` SDK，`baseURL` = `OPENAI_BASE_URL`，而非 `api.openai.com`。
 - `max_completion_tokens`。模型：`OPENAI_CHAT_MODEL`。
@@ -499,50 +521,80 @@ function assembleSystemPrompt(ctx: PromptContext): string;
 
 ### 9.2 行程规划：MCP 工具拆分 + Token 优化 (MVP-6)
 
+**性能与 MCP 路由：** 见 [`performance.md`](./performance.md) **v2.4** + [ADR-036](../../workspace-specs/adr/ADR-036-where2play-assistant-quanzil.md) + [ADR-037](../../workspace-specs/adr/ADR-037-where2play-plan-l2-quanzil.md) + [ADR-040](../../workspace-specs/adr/ADR-040-plan-itinerary-align-split-tools.md) — 形成行程 **必须 LLM**；**Mode H**（`execution=host`）已交付（Feature **35**）；**MCP 缺省 `execution=agent`**（ADR-040 D4'：不要求改客户端 system prompt）；**2play 初排 L2 + 助手 = 本应用 OPENAI_CN**（as-built：本地拼 prompt；目标 `plan-11` 拉 host）；禁叠跑。
+
 **MCP 工具拆分：** 将行程规划拆为可逐步返回的工具；`plan_itinerary` 仍为一站式 HTTP/MCP 入口。
 
 | 工具 | 职责 | MCP | HTTP |
 |------|------|-----|------|
-| `discover_places` | 搜景点+餐厅+天气，返回候选列表 | ✅ | ✅ `/v1/discover_places` |
-| `arrange_day` | 从候选中为第 N 天安排路线 | ✅ | ✅ `/v1/arrange_day` |
+| `discover_places` | 搜景点+餐厅+天气，返回候选列表（L1，无 LLM） | ✅ | ✅ `/v1/discover_places` |
+| `arrange_day` | 从候选中为第 N 天安排路线；`execution=agent`（默认）跑服务端 LLM，或 `execution=host` 仅返回 prompt | ✅ | ✅ `/v1/arrange_day` |
 | `plan_itinerary` | 一次返回完整行程（内部可走 LLM 或 legacy） | ✅ | ✅ `/v1/plan_itinerary` |
 
-**MCP / HTTP 分步流程：** `discover_places` → `arrange_day(day=1)` → `arrange_day(day=2)` → …  
-**一站式：** `plan_itinerary`（内部搜索 + LLM/legacy）
+**Mode H（Feature 35）：** `arrange_day` + `execution: "host"` → `{ execution: "host", system_prompt, user_prompt, output_contract, candidates_slim }`；**本请求不调 OpenAI**；共享 `buildSchedulePrompt`（MCP 与 HTTP）。宿主（ChatBox / Cursor / 2play `plan-11`）用自有模型执行。缺省或 `execution: "agent"` → 服务端 OPENAI_CN 结构化排程（既有行为）。
+
+**对话默认（ADR-043）：**
+- `discover_places`（缺字段 → 单条 `intake`）→ `arrange_day`（**强制 agent**）→ 按 `next_action` 先上屏当日 → `presented_previous_day=true` 再下一天  
+- **HTTP Mode H：** 仅 2play / 显式 host；MCP 忽略 host  
+- **一站式整包：** `plan_itinerary` / `trip_plan` / `trips`  
+- **一站式：** `plan_itinerary`（内部搜索 + LLM/legacy）  
+- **2play 主路径（ADR-037）：** `discover_places` only；L2 在 BFF OPENAI_CN（不默认 `execution=agent`）
+
+**HTTP progressive（ADR-032 #5，where2play L1）：** 当请求头 `Accept: application/x-ndjson` 时：
+
+| 端点 | 流事件（一行一 JSON） | 结束 |
+| --- | --- | --- |
+| `POST /v1/discover_places` | `{type:"candidate", kind:"place"\|"restaurant", card}` 每 POI | `{type:"discover_done", counts}`；无 Accept 时仍返回批量 JSON |
+| `POST /v1/arrange_day`（`execution=agent`） | Zod OK 后 `{type:"place", dayIndex, block}` 按序每块 | `{type:"day_done"}`；无 Accept 时仍返回批量 JSON |
+| `POST /v1/arrange_day`（`execution=host`） | 无 LLM 流；单次 JSON handoff | `{ execution, system_prompt, user_prompt, … }` |
+
+- `discover_places`：`numDays` 传入真实 N（不得硬编码 1）；`city` = 目的地字符串；L1 = 热门模板 query + Google **RELEVANCE**（ADR-043；**禁止 POPULARITY**）+ 冻结 CATALOG 临时 boost（ADR-042 禁扩表）。  
+- MCP `arrange_day`：**强制 agent**（忽略 `execution=host`）；返回 `start_time` / `legs_to_here` / `next_action`；软闸 `presented_previous_day`（ADR-043）。  
+- HTTP `arrange_day`：仍可 `execution=host`（2play Mode H）。
+- `arrange_day`：可选 `exclude_names: string[]`；硬必去 Feature **36**；真交通 enrichment Feature **37**（`legs_to_here`）。
+- **MCP 工具保持 request/response**（无 NDJSON）；session 见 Feature **38**。
 
 **Token 优化：**
 
 | 参数 | 旧值 | 新值 | 效果 |
 |------|------|------|------|
 | 候选数 | 15/type | **8/type** | user message -50% |
-| max_completion_tokens | 4096 | **2048** | 输出生成 -50% |
+| max_completion_tokens | 4096 | **arrange 1280 / multi-day 2048** | 单日更短；多日仍 2048 |
 | 候选描述 | name+type+rating+lat/lng+hours+price | **name+type+rating+lat/lng** | -30% |
-| LLM 超时 | 无限制 | **45s** + fallback | 用户最多等 ~50s |
+| LLM 超时 | 无限制 / SDK timeout | **AbortSignal 硬中断 45s**（`LLM_ARRANGE_TIMEOUT_MS` / `LLM_ITINERARY_TIMEOUT_MS`）；校验失败才重试一次；超时不重试 | 避免 OPENAI_CN 挂死；用户单次最多 ~45s |
 
 **行程配图：** Phase 4 格式化时，用 block.name 匹配候选的 `photos` 字段（来自 MVP-3b），挂回每个 block。封面图 = Day 1 第一个 attraction 的第一张 photo。零额外 API 调用。
 
 **架构流程（单 LLM + 自查 + Zod）：**
 
 ```
-discover_places(city, bounds):
-  searchPlaces(city) → top 8 候选景点
-  searchRestaurants(city) → top 8 候选餐厅
-  getWeather(dates) → 天气
-  → { candidates, weather }
+discover_places(city, bounds, locale, providers?):
+  providers = caller providers[] OR resolveProviderStrategy(city)   // ADR-030
+  seeds = temporary must-see CATALOG for frozen hot cities only     // TECH DEBT — ADR-042: do not grow; replace with popularity/pack
+  jobs = discover query-assembler: seeds + improved QLP              // §5.2.3 + ADR-038
+  parallel searchPlaces / searchRestaurants per job
+  merge by name → filterAttractionPlaces / filterDiningPlaces
+       → deny fragments (票/直通车/敌楼/「主名-」后缀)
+       → dedupeByCluster → ensureMustSeeDiversity
+  rank: must-see token hit first, then rating
+  → top 8×min(numDays,3) per pool
+  → { candidates, weather? }
+  // L1: no LLM. Pool head must be diverse primaries, not wall-fragment spam.
+```
 
-arrange_day(candidates, day_index, origin, destination, pace, budget, locale):
-  LLM 规划 + 自查（一次调用，max_tokens=2048）
-  Zod 校验 → 失败重试一次 → 仍失败 → fallback 旧代码
+arrange_day(candidates, day_index, origin, destination, pace, budget, locale, execution?):
+  if execution == "host":
+    return buildSchedulePrompt(...)   // no OpenAI; Feature 35
+  ensureHardMustSeeCoverage(...)      // Feature 36
+  LLM 规划 + 自查（temperature 0.35，max_tokens=1280，AbortSignal 45s）
+  Zod 校验 → 失败重试一次 → 超时/网络不重试 → 仍失败 → fallback 旧代码
+  enrichArrangeTransit(...)           // Feature 37 legs_to_here（可降级）
   匹配候选 photos → 挂回 blocks
   → { day: { blocks, from_origin?, to_destination? } }
 
 plan_itinerary(input):
-  discover = await discover_places(...)
-  days = []
-  for each day:
-    day = await arrange_day(discover.candidates, day_index, ...)
-    days.push(day)
-  → { days }
+  // LLM mode: Phase1 = same discover searchCandidatePools; or legacy timed with QLP-aware queries
+  …
 ```
 
 **新旧切换：**
@@ -557,7 +609,34 @@ plan_itinerary(input):
 
 **搜索范围：** 有城市名 → 5km 半径；无城市名 → `errors.location_too_broad`。
 
-**出发地/返回地交通：** 有 origin → 含 `from_origin` / `to_destination`；无 → 不含，第一个 block start_time ≥ 10:00。
+**出发地/返回地交通（每日酒店可选）：**  
+- 聊天应**询问**每日酒店/地标起点，但**非硬门禁**（用户可不提供）。  
+- **有** origin（名称或坐标）→ 含 `from_origin`（酒店→首站）与 `to_destination`（末站→回程）；站间必须有 `legs_to_here`。  
+- **无** origin → **省略** `from_origin` / `to_destination`；行程自第一个 block 起、至最后一个 block 止；**站间仍须** `legs_to_here`（游中交通时间）。首 block `start_time` ≥ 10:00。  
+
+**MCP 固定行程表（8 行，每次相同）：** 城市、开始日、天数、可选酒店、节奏（轻松/适中/紧凑，默认适中）、消费 `spend_level` 1 节约 / 2 适中 / 3 宽松（默认 2）、兴趣（可选）、必去/一日游地名。禁止随机少问。  
+
+**必去覆盖闸（ADR-043 D7；HTTP = MCP）：**  
+- `preferences.must_include` 每次带回。  
+- 共用 `arrangeDay`：对仍 missing 的 token **一次自动补搜一个**（theme 对齐优先，否则名单顺序）→ geocode 锚点 → search 合并进候选 → prompt HARD MUST SCHEDULE（可与城内点混排）。  
+- **硬覆盖：** block 属于该 token 的 search 必去 pool（name/`native_id`），或锚点 **10km** 内且名称命中 token/别名。**`day_theme` 文案不算 covered。**  
+- 响应字段 `must_include_coverage: { must_include, covered, missing }`（HTTP envelope 与 MCP 同结构）。  
+- 末日若仍有 missing → MCP `next_action: present_day_then_cover_must_include`，禁止总览。  
+
+**空候选自动 discover（ADR-043 D8；HTTP = MCP）：**  
+- 硬必填仅 city + 开始日 + 天数；调用方候选池可选。  
+- `exclude_names` 后若 **`places` 为空**且 `city` 已给 → `arrangeDay` 内调 `discoverPlaces` 填景点（餐厅侧若亦空则一并填），再进 D7 / LLM。仅餐厅空、景点已有时不 live discover。  
+- 无 city 且池空 → 清晰失败；失败文案禁止诱导宿主 invent POI。  
+- 末日 host_instructions：Day 卡与总览各写一次后 STOP；日卡仅列工具返回的 `blocks[]`。  
+
+**日卡版式：** 多行块（`### HH:MM–HH:MM｜店名` + 说明 + 前往 + 路线/地点链接）；禁止单行 `|` 压缩。  
+
+**节奏与「排满」收工（默认 `medium`）：**  
+| pace | 上限 blocks/日 | 收工期望 | 不满（须重试/补排） |
+| --- | --- | --- | --- |
+| `relaxed` | ≤4 | 末块结束 ≥ **17:00** | 末块结束早于 **16:00** |
+| `medium`（默认） | ≤5 | 须含 **dinner**；末块结束约在晚餐结束（目标 **~20:00**，窗 18:00–20:30） | 无晚餐，或末块结束早于 **16:00**，或适中日在 **19:00** 前收工且无晚餐 |
+| `tight` | ≤6 | 须含 **dinner**；末块结束 ≥ **19:30** | 同 medium 的不满底线，且过稀 |
 
 **LLM 输出 schema（per day，Zod 校验）：**
 
@@ -766,7 +845,7 @@ app/
 
 - 按运营者的操作命名控件（签发、复制、重新生成、删除、邀请）。
 - 错误信息指明失败原因和下一步操作。不做无意义的道歉。
-- 界面中不提及地图供应商密钥、Portainer 或 Quanzil。
+- 界面中不提及地图供应商密钥、Portainer 或 OPENAI_CN。
 - 桌面端（约 1280px）和移动端（约 390px）：公开页/认证页列可读；应用导航 → 文字菜单。
 - 焦点顺序：跳过链接 → 语言选择 → 主要区域 → 主操作。
 - 生产环境中密钥绝不写入 `localStorage`。

@@ -103,6 +103,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       "navigate",
       "discover_places",
       "arrange_day",
+      "enrich_arrange_transit",
       "chat",
     ]);
   });

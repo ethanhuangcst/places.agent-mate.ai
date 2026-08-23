@@ -15,6 +15,7 @@ describe("healthEnvelope", () => {
       "navigate",
       "discover_places",
       "arrange_day",
+      "enrich_arrange_transit",
       "chat",
     ]);
   });

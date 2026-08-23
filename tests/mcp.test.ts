@@ -31,6 +31,80 @@ describe("MCP tools", () => {
     await server.close();
   });
 
+  it("TC-M6-P0-04: should_advertise_mutual_exclusion_and_no_photo_echo_in_descriptions", async () => {
+    const { client, server } = await connectedClient();
+    const listed = await client.listTools();
+    const byName = Object.fromEntries(
+      listed.tools.map((t) => [t.name, t.description ?? ""]),
+    );
+
+    expect(byName.discover_places).toMatch(/plan_itinerary/i);
+    expect(byName.discover_places).toMatch(/do not|never|互斥|勿/i);
+
+    expect(byName.arrange_day).toMatch(/photos|hours/i);
+    expect(byName.arrange_day).toMatch(/strip|do not (echo|pass|re-?send)|勿|禁/i);
+
+    expect(byName.plan_itinerary).toMatch(/discover|arrange/i);
+    expect(byName.plan_itinerary).toMatch(/do not|never|slow|勿|互斥/i);
+
+    expect(byName.search_restaurants).toMatch(/discover_places|not a substitute|not substitute/i);
+    expect(byName.search_places).toMatch(/discover_places|not a substitute|not substitute/i);
+
+    await client.close();
+    await server.close();
+  });
+
+  it("TC-M6-P0-01: should_accept_arrange_day_when_date_is_null", async () => {
+    const { client, server } = await connectedClient();
+    const result = await client.callTool({
+      name: "arrange_day",
+      arguments: {
+        candidates: {
+          places: [
+            {
+              provider: "GOOGLE_MAPS",
+              name: "上海博物馆",
+              category: "museum",
+              rating: 4.5,
+              location: { lat: 31.23, lng: 121.47, crs: "WGS84" },
+              sources: [],
+            },
+          ],
+          restaurants: [],
+        },
+        dayIndex: 1,
+        date: null,
+        locale: "CN",
+      },
+    });
+    // Schema must accept null; fixture LLM may still fail — assert not input-validation -32602
+    expect(result).not.toMatchObject({
+      content: expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringMatching(/-32602|invalid_type|Expected string/) }),
+      ]),
+    });
+    const isError = Boolean((result as { isError?: boolean }).isError);
+    if (isError) {
+      const text = (result.content as { type: string; text?: string }[])
+        .filter((p) => p.type === "text")
+        .map((p) => p.text ?? "")
+        .join("");
+      expect(text).not.toMatch(/Invalid arguments|date.*null|Expected string, received null/i);
+    }
+    await client.close();
+    await server.close();
+  });
+
+  it("TC-M8-M35-01: should_advertise_mcp_always_agent_not_host_default", async () => {
+    const { client, server } = await connectedClient();
+    const listed = await client.listTools();
+    const arrange = listed.tools.find((t) => t.name === "arrange_day");
+    expect(arrange?.description).toMatch(/always.*agent|MCP always/i);
+    expect(arrange?.description).toMatch(/Do not pass execution=host on MCP/i);
+    await client.close();
+    await server.close();
+  });
+
   it("should_list_unprefixed_mvp_tools", async () => {
     const { client, server } = await connectedClient();
     const listed = await client.listTools();

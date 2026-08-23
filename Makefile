@@ -1,4 +1,4 @@
-.PHONY: help dev up down status reset-dev test test-e2e test-e2e-caller test-live test-coverage verify-gmaps-fallback verify-amap-live verify-tripadvisor-live verify-open-meteo-live lint typecheck quality db db-up db-down db-migrate-test
+.PHONY: help dev up down status reset-dev test test-scripts test-e2e test-e2e-caller test-live test-coverage verify-gmaps-fallback verify-amap-live verify-tripadvisor-live verify-open-meteo-live lint typecheck quality db db-up db-down db-migrate-test
 
 .DEFAULT_GOAL := help
 
@@ -38,22 +38,18 @@ down: ## Stop local stack and clear stale Next dev lock
 	@chmod +x scripts/dev-down.sh
 	@./scripts/dev-down.sh
 
-status: ## Check whether places-agent is running
-	@PORT=$$(grep -E '^PORT=' .env.local 2>/dev/null | cut -d= -f2 | tr -d ' '); \
-	PORT=$${PORT:-3010}; \
-	if [ -f .data/server.pid ] && kill -0 $$(cat .data/server.pid) 2>/dev/null; then \
-		echo "process: up (pid $$(cat .data/server.pid))"; \
-	else \
-		echo "process: down (stale .data/server.pid — run make down)"; \
-	fi; \
-	curl -sf "http://localhost:$$PORT/v1/health" && echo "health: OK" || echo "health: FAIL (http://localhost:$$PORT)"
+status: ## Check whether places-agent is running (LISTEN + /v1/health; ADR-035)
+	@python3 scripts/daemon_detach.py status
 
 reset-dev: ## Nuclear: stop server, delete .next cache, start fresh (fixes ENOENT / lock issues)
 	@$(MAKE) down
 	rm -rf .next
 	@echo "removed .next — run 'make dev' in a dedicated terminal"
 
-test: db-migrate-test ## Unit + contract (fixture vendors)
+test-scripts: ## Python unit tests for scripts (daemon_detach / ADR-035)
+	cd scripts && python3 -m unittest test_daemon_detach -v
+
+test: db-migrate-test test-scripts ## Unit + contract (fixture vendors) + script tests
 	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" npx vitest run
 
 test-e2e: db ## Admin Playwright journeys (needs Chromium)
@@ -74,7 +70,7 @@ verify-tripadvisor-live: ## Opt-in live Tripadvisor Terra enrich (needs TRIPADVI
 verify-open-meteo-live: ## Opt-in live Open-Meteo forecast on plan_itinerary (free host needs no key)
 	@bash ./scripts/verify-open-meteo-live.sh
 
-test-e2e-caller: ## Opt-in caller simulation E2E (TC-E2E-01~08; needs live vendor keys in .env.local)
+test-e2e-caller: ## Opt-in caller simulation E2E (TC-E2E-01~11; needs live vendor keys in .env.local)
 	@bash ./scripts/test-e2e-caller.sh
 
 lint: ## ESLint (syntax + Next core-web-vitals; TypeScript 7 uses Babel parser)

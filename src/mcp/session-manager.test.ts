@@ -55,6 +55,22 @@ describe("SessionManager", () => {
     mgr.close();
   });
 
+  it("should_slide_ttl_when_session_is_used", () => {
+    const mgr = new SessionManager(1000, 0);
+    mgr.add("s1", mockTransport("s1"));
+
+    vi.advanceTimersByTime(900);
+    expect(mgr.get("s1")).toBeDefined(); // refresh lastUsedAt
+    vi.advanceTimersByTime(900);
+    expect(mgr.cleanup()).toBe(0);
+    expect(mgr.size).toBe(1);
+
+    vi.advanceTimersByTime(1001);
+    expect(mgr.cleanup()).toBe(1);
+    expect(mgr.size).toBe(0);
+    mgr.close();
+  });
+
   // TC-M3a-S03
   it("should clear all sessions on close", () => {
     const mgr = new SessionManager(60_000, 0);

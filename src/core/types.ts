@@ -48,6 +48,12 @@ export type SearchInput = {
   locales?: Locale[];
   merge?: boolean;
   enrich?: { tripadvisor?: boolean };
+  /**
+   * Google Places searchText RankPreference (ADR-043 revised).
+   * API allows only RELEVANCE | DISTANCE — never POPULARITY (400 INVALID_ARGUMENT).
+   * Ignored by other adapters.
+   */
+  rankPreference?: "RELEVANCE" | "DISTANCE";
 };
 
 export type ItineraryBounds = {
@@ -106,6 +112,8 @@ export type PlanItineraryInput = {
   providers?: string[];
   locale?: Locale;
   locales?: Locale[];
+  /** ADR-040 D6 */
+  party_size?: number;
 };
 
 export type ToolResult<T> = {

@@ -7,7 +7,7 @@ import {
   searchRestaurants,
 } from "../core/tools";
 import { planItinerary } from "../core/itinerary";
-import { arrangeDay, discoverPlaces } from "../core/itinerary-planner";
+import { arrangeDay, discoverPlaces, enrichArrangeTransit } from "../core/itinerary-planner";
 import { type PlanItineraryInput, type PlaceCard } from "../core/types";
 import { parseLocale, type Locale } from "../core/locales";
 import {
@@ -20,6 +20,7 @@ import {
 import {
   arrangeDayBody,
   discoverPlacesBody,
+  enrichArrangeTransitBody,
   geocodeBody,
   getPlaceDetailsBody,
   navigateBody,
@@ -36,7 +37,8 @@ export type ToolName =
   | "geocode"
   | "navigate"
   | "discover_places"
-  | "arrange_day";
+  | "arrange_day"
+  | "enrich_arrange_transit";
 
 export type DispatchResult = { status: number; envelope: Envelope };
 
@@ -105,6 +107,8 @@ export async function dispatchTool(
         bounds: parsed.data.bounds,
         origin: parsed.data.origin,
         locale,
+        numDays: parsed.data.numDays,
+        providers: parsed.data.providers,
       });
       return { status: 200, envelope: okEnvelope(result, locale, { locales: extra }) };
     } catch {
@@ -120,15 +124,22 @@ export async function dispatchTool(
     try {
       const result = await arrangeDay({
         candidates: {
-          places: parsed.data.candidates.places as PlaceCard[],
-          restaurants: parsed.data.candidates.restaurants as PlaceCard[],
+          places: (parsed.data.candidates?.places ?? []) as PlaceCard[],
+          restaurants: (parsed.data.candidates?.restaurants ?? []) as PlaceCard[],
         },
         dayIndex: parsed.data.dayIndex,
-        date: parsed.data.date,
+        date: parsed.data.date ?? undefined,
+        city: parsed.data.city,
         origin: parsed.data.origin,
         destination: parsed.data.destination,
         pace: parsed.data.pace,
         budget: parsed.data.budget,
+        exclude_names: parsed.data.exclude_names,
+        execution: parsed.data.execution,
+        providers: parsed.data.providers,
+        preferences: parsed.data.preferences,
+        party_size: parsed.data.party_size,
+        num_days: parsed.data.num_days,
         locale,
       });
       return { status: 200, envelope: okEnvelope(result, locale, { locales: extra }) };
@@ -136,6 +147,32 @@ export async function dispatchTool(
       return {
         status: 502,
         envelope: errorEnvelope("errors.arrange_day_failed", locale, extra),
+      };
+    }
+  }
+  if (tool === "enrich_arrange_transit") {
+    const parsed = enrichArrangeTransitBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    try {
+      const result = await enrichArrangeTransit({
+        day: {
+          ...parsed.data.day,
+          day_index: parsed.data.day.day_index ?? 1,
+        } as Parameters<typeof enrichArrangeTransit>[0]["day"],
+        candidates: {
+          places: parsed.data.candidates.places as PlaceCard[],
+          restaurants: parsed.data.candidates.restaurants as PlaceCard[],
+        },
+        origin: parsed.data.origin,
+        destination: parsed.data.destination,
+        providers: parsed.data.providers,
+        preferences: parsed.data.preferences,
+      });
+      return { status: 200, envelope: okEnvelope(result, locale, { locales: extra }) };
+    } catch {
+      return {
+        status: 502,
+        envelope: errorEnvelope("errors.provider_failed", locale, extra),
       };
     }
   }

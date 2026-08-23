@@ -107,6 +107,7 @@ export const planItineraryBody = z.object({
       natural_language: z.string().optional(),
     })
     .optional(),
+  party_size: z.number().int().min(1).max(20).optional(),
   ...shared,
 });
 
@@ -125,20 +126,87 @@ export const discoverPlacesBody = z.object({
     end: z.string(),
   }),
   origin: originSchema,
+  numDays: z.number().int().min(1).max(14).optional(),
   ...shared,
 });
 
 export const arrangeDayBody = z.object({
-  candidates: z.object({
-    places: z.array(z.object({ name: z.string() }).passthrough()),
-    restaurants: z.array(z.object({ name: z.string() }).passthrough()),
-  }),
+  candidates: z
+    .object({
+      places: z.array(z.object({ name: z.string() }).passthrough()),
+      restaurants: z.array(z.object({ name: z.string() }).passthrough()),
+    })
+    .optional()
+    .default({ places: [], restaurants: [] }),
   dayIndex: z.number().int().min(1),
-  date: z.string().optional(),
+  date: z.string().nullish(),
+  city: z.string().min(1).optional(),
   origin: originSchema,
   destination: originSchema,
   pace: z.enum(["tight", "medium", "relaxed"]).optional(),
   budget: z.enum(["budget", "premium"]).optional(),
+  exclude_names: z.array(z.string()).optional(),
+  preferences: z
+    .object({
+      time_from: z.string().optional(),
+      time_to: z.string().optional(),
+      transit_preferred: z.boolean().optional(),
+      natural_language: z.string().optional(),
+      day_theme: z.string().optional(),
+      must_include: z.array(z.string()).optional(),
+      spend_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+      interests: z.string().optional(),
+    })
+    .passthrough()
+    .optional(),
+  /** Mode H: host returns prompts without server LLM. HTTP default remains agent when omitted. */
+  execution: z.enum(["agent", "host"]).optional(),
+  party_size: z.number().int().min(1).max(20).optional(),
+  num_days: z.number().int().min(1).max(14).optional(),
+  spend_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+  ...shared,
+});
+
+const arrangeBlockSchema = z.object({
+  name: z.string().min(1),
+  type: z.string().min(1),
+  start_time: z.string(),
+  duration_min: z.number().int().positive(),
+  reason: z.string().optional(),
+  photos: z.array(z.string()).optional(),
+});
+
+export const enrichArrangeTransitBody = z.object({
+  day: z.object({
+    day_index: z.number().int().positive().optional(),
+    date: z.string().optional(),
+    theme: z.string().optional(),
+    from_origin: z
+      .object({
+        transport: z.string().optional(),
+        duration_min: z.number().optional(),
+      })
+      .optional(),
+    to_destination: z
+      .object({
+        transport: z.string().optional(),
+        duration_min: z.number().optional(),
+      })
+      .optional(),
+    blocks: z.array(arrangeBlockSchema).min(1),
+  }),
+  candidates: z.object({
+    places: z.array(z.object({ name: z.string() }).passthrough()),
+    restaurants: z.array(z.object({ name: z.string() }).passthrough()),
+  }),
+  origin: originSchema,
+  destination: originSchema,
+  preferences: z
+    .object({
+      transit_preferred: z.boolean().optional(),
+    })
+    .passthrough()
+    .optional(),
   ...shared,
 });
 
@@ -170,3 +238,4 @@ export type NavigateBody = z.infer<typeof navigateBody>;
 export type PlanItineraryBody = z.infer<typeof planItineraryBody>;
 export type DiscoverPlacesBody = z.infer<typeof discoverPlacesBody>;
 export type ArrangeDayBody = z.infer<typeof arrangeDayBody>;
+export type EnrichArrangeTransitBody = z.infer<typeof enrichArrangeTransitBody>;
