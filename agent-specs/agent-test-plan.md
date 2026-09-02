@@ -1349,6 +1349,12 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M8-U37-01 | ✓ | 单元 | arrange 真交通 `legs_to_here` | `src/core/enrich-arrange-transit.test.ts` | 8 |
 | TC-M8-S38-01 | ✓ | 进程 | MCP session 缺失/过期可恢复 | `tests/mcp-sse-session.test.ts` | 8 |
 
+| TC-M9-U42-01 | | 单元 | arrange 站间时序一致性：违规触发硬失败重试（容差 5min） | `src/core/itinerary-planner.test.ts`（新增） | 9 |
+| TC-M9-U42-02 | | 单元 | arrange 同日餐厅去重：lunch/dinner 同名违规触发硬失败重试 | `src/core/itinerary-planner.test.ts`（新增） | 9 |
+| TC-M9-U42-03 | | 单元 | day-trip focus 补搜词扩展为通用景点类词（非城市硬编码，ADR-042 守卫） | `src/core/itinerary-planner.test.ts`（扩展） | 9 |
+| TC-M9-U42-04 | | 单元 | arrange 午间窗口无 meal 块时 prompt 软提示（非硬失败） | `src/core/itinerary-planner.test.ts`（新增） | 9 |
+| TC-M9-U42-05 | | 单元 | Lisbon 4D 样本回归：D2 时序、D3 餐厅去重、D2/D3 池粒度（fixture 化样本） | `tests/arrange-output-validation.test.ts`（新增） | 9 |
+
 | TC-M3a-S01 | ✓ | 单元 | readJsonBody malformed → {ok:false} | `server.test.ts` | 3a |
 | TC-M3a-S02 | ✓ | 单元 | SessionManager TTL 清理 | `src/mcp/session-manager.test.ts` | 3a |
 | TC-M3a-S03 | | 单元 | SessionManager close() 清空 | `src/mcp/session-manager.test.ts` | 3a |
@@ -1708,3 +1714,211 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 |------|------|
 | TC-M6-PA* / IT* 索引 | 已有单测文件；可在索引表补正式 ID 映射 |
 | Plan E2E-live R/T/B/E | 范围过宽、交通边界、冷门城市等 — 未全部脚本化；opt-in live |
+
+---
+
+## §20 MVP-10 — §12 轻骨架工具族（agent 侧已实现 2026-09-01）
+
+**真源：** `[performance.md](./performance.md)` §12 · `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 11 · `[agent-stories.md](./agent-stories.md)` Feature 43–47 · where2play `[itinerary-design.md §16–17](../../3.where2play/2play-specs/itinerary-design.md)`。
+
+| Story | Feature | 单元 / 契约（Fast CI） | Live / E2E | Story 可标 Done？ |
+| --- | --- | --- | --- | --- |
+| P1 | **43** make_itinerary | TC-M10-43-* ✅ | Lisbon 4D skeleton 流式 + must_include（opt-in live） | **Done**（2026-09-01） |
+| P2 | **44** plan_next_stop | TC-M10-44-* ✅ | 串行 transit + F42 等价校验 | **Done**（2026-09-01） |
+| P3 | **45** tool cleanup | TC-M10-45-*（navigate 部分 ✅） | MCP tools/list 无 navigate；arrange_day 待 gate | 部分 Done（`navigate` 已删；arrange_day gate 于 2play 46） |
+| P5 | **47** MCP clients | TC-M10-47-* ✅ | ChatBox 手测新工具族（待用户） | **Done**（2026-09-01） |
+
+#### TC-M10-43（make_itinerary）
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M10-43-01 | Unit | NDJSON 事件顺序 skeleton_start → skeleton_day × N → skeleton_done | `src/core/make-itinerary.test.ts` | ✅ |
+| TC-M10-43-02 | Unit | stops 无 start_time；must_include 漏排 → 一次重试；池外 name 拒绝 | 同上 | ✅ |
+| TC-M10-43-03 | HTTP | POST /v1/make_itinerary 流式 Content-Type | `tests/make-itinerary-route.test.ts` | ✅ |
+
+#### TC-M10-44（plan_next_stop / display_current_stop）
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M10-44-01 | Unit | 串行 directions；双 mode 高低搭配；单 mode 偏好 | `src/core/plan-next-stop.test.ts` | ✅ |
+| TC-M10-44-02 | Unit | F42 站间时序 5min 容差 + 午间窗口软提示 | 同上 | ✅ |
+| TC-M10-44-03 | HTTP | dispatch plan_next_stop / display_current_stop 200/400/502 | `tests/plan-next-stop-dispatch.test.ts` | ✅ |
+| TC-M10-44-04 | Unit | origin name-only → geocode → 首段 transit；geocode 失败不伪造时长 | `src/core/plan-next-stop.test.ts` | ✅ |
+
+#### TC-M10-45（tool cleanup）
+
+| ID | 类型 | 主题 |
+| --- | --- | --- |
+| TC-M10-45-01 | HTTP | tools/list 不含 arrange_day / enrich_arrange_transit / navigate |
+| TC-M10-45-02 | HTTP | plan_itinerary 别名 → make_itinerary |
+
+#### TC-M10-47（MCP clients）
+
+| ID | 类型 | 主题 |
+| --- | --- | --- |
+| TC-M10-47-01 | 文档/手测 | 宿主指令含 discover → make_itinerary → 逐 stop |
+
+---
+
+## §21 MVP-11 — Orizn 签证 `visa_requirement`（2026-09-01 规格确定）
+
+**真源：** [ADR-044](../../workspace-specs/adr/ADR-044-orizn-visa-rest-adapter.md) · `[agent-stories.md](./agent-stories.md)` Feature **48** · `[agent-design.md](./agent-design.md)` §19。
+
+| Story | Feature | 单元 / 契约（Fast CI） | Live / opt-in | Story 可标 Done？ |
+| --- | --- | --- | --- | --- |
+| P1 | **48** visa_requirement | TC-M11-48-* | TC-M11-48-LIVE 探针 CHN→JPN/KOR/SGP | ToDo |
+
+**MVP DoD 增量：**
+
+1. `PLACES_VENDOR_MODE=fixture` 下 Fast CI 绿，不消耗 Orizn 配额。
+2. Live opt-in：`ORIZN_API_KEY` 配置后 CHN→JPN/KOR/SGP 探针通过（见 agent-stories Feature 48 探针表）。
+3. 配额耗尽路径返回明确 i18n key，不编造签证事实。
+4. HTTP 与 MCP 双传输契约对等（ADR-003）。
+
+#### TC-M11-48（visa_requirement）
+
+| ID | 类型 | 主题 | 文件（目标） |
+| --- | --- | --- | --- |
+| TC-M11-48-01 | Unit | `loadOriznConfig`：缺 key live 模式 → undefined；fixture 不要求 key | `src/adapters/orizn/config.test.ts` |
+| TC-M11-48-02 | Unit | alpha-3 校验：非法 `passport`/`destination` → 结构化错误 | `src/core/visa-requirement.test.ts` |
+| TC-M11-48-03 | Unit | locale 映射：CN/HK/TW→`zh`，EN→`en` | 同上 |
+| TC-M11-48-04 | Unit | fixture：CHN→JPN `visa_required`；CHN→SGP `visa_free` + 30 天 | `src/adapters/orizn/fixture.test.ts` |
+| TC-M11-48-05 | Unit | 缓存：同对第二次调用不重复 fetch（mock 计数） | `src/adapters/orizn/direct.test.ts` |
+| TC-M11-48-06 | Unit | Orizn 429 → `errors.visa_quota_exceeded`；无伪造 requirement | `src/adapters/orizn/direct.test.ts` |
+| TC-M11-48-07 | Unit | upgrade 占位字段 → `unavailable_fields` 列表 | `src/core/visa-requirement.test.ts` |
+| TC-M11-48-08 | HTTP | `POST /v1/visa_requirement` fixture 200 + envelope | `tests/dispatch.test.ts` |
+| TC-M11-48-09 | MCP | `tools/list` 含 `visa_requirement`；call 与 HTTP 同 data 形状 | `tests/mcp.test.ts` |
+
+#### TC-M11-48-LIVE（opt-in）
+
+| ID | 类型 | 主题 |
+| --- | --- | --- |
+| TC-M11-48-LIVE-01 | Integration | CHN→JPN：`visa_required` + 非空 `documents` |
+| TC-M11-48-LIVE-02 | Integration | CHN→SGP：`visa_free` + `visa_free_days: 30` + `source_url` |
+| TC-M11-48-LIVE-03 | Integration | CHN→KOR：`visa_required`（国家级；无区域免签字段） |
+
+---
+
+## §21 MVP-12 — 必去地统一获取 + travel_tips（ADR-045 Accepted 2026-09-01）
+
+**真源：** `[ADR-045](../../workspace-specs/adr/ADR-045-iconic-places-unified-acquisition.md)` · `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 12 · `[agent-stories.md](./agent-stories.md)` Feature 49–51。
+
+| Story | Feature | 单元 / 契约（Fast CI） | Live / E2E | Story 可标 Done？ |
+| --- | --- | --- | --- | --- |
+| P1 | **49** find_iconic_places | TC-M12-49-* | Lisbon 4D discover 并行+补搜（opt-in live） | ToDo |
+| P1 | **50** travel_tips | TC-M12-50-* | Lisbon travel_tips 无池独立调用（opt-in live） | ToDo |
+| P1 | **51** alias repoint | TC-M12-51-* | MCP tools/list 别名命中 make_itinerary | ToDo（gate：F45 删除同步） |
+| P1 | **52** mcp-stateless | TC-M12-52-* | MCP 重启后无会话仍可用 + 防编造指令 | ToDo |
+
+#### TC-M12-49（find_iconic_places / discover 改造）
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M12-49-01 | Unit | grounded：pool 非空，LLM 从池挑，池校验，丢弃池外名，`grounded:true` | `src/core/find-iconic-places.test.ts` | ToDo |
+| TC-M12-49-02 | Unit | ungrounded：pool 空，LLM 按目的地生成，`grounded:false`，仅展示 | 同上 | ToDo |
+| TC-M12-49-03 | Unit | limit 截断 + 归一化去重（user ∪ iconic，user 优先） | `src/core/must-include-merge.test.ts` | ToDo |
+| TC-M12-49-04 | Unit | discover 并行：findIconicPlaces 与 searchCandidatePools 并行；补搜 unmatched 进池 | `src/core/itinerary-planner.test.ts` | ToDo |
+| TC-M12-49-05 | Unit | must_see 标志：命中卡片 `must_see:true`；make_itinerary 读标志无需 must_include 对账 | `src/core/make-itinerary.test.ts` | ToDo |
+| TC-M12-49-06 | Unit | 补搜仍搜不到 → 丢弃 + 记日志，不阻塞 discover | `src/core/itinerary-planner.test.ts` | ToDo |
+
+#### TC-M12-50（travel_tips）
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M12-50-01 | Unit | 输出含 intro(≤80字)/iconic_places(≤3)/transit/weather/clothing/safety；i18n 键非硬编码 | `src/core/travel-tips.test.ts` | ToDo |
+| TC-M12-50-02 | Unit | 无池独立调用：不传 pool/skeleton → findIconicPlaces ungrounded，不阻塞；`grounded:false` | 同上 | ToDo |
+| TC-M12-50-03 | Unit | LLM 调用 ≤ 2 次（findIconicPlaces + tips-prose）；超时/失败返回 i18n 错误 | 同上 | ToDo |
+| TC-M12-50-04 | Unit | 天气：bounds 有则 open-meteo 真实预报；失败降级 unavailable_fields，不伪造 | 同上 | ToDo |
+| TC-M12-50-05 | HTTP | POST /v1/travel_tips 200/400/502；envelope 与 MCP 对等 | `tests/travel-tips-route.test.ts` | ToDo |
+| TC-M12-50-06 | Unit | fixture 模式返回固定样本，Fast CI 不消耗 live 配额 | `src/core/travel-tips.test.ts` | ToDo |
+| TC-M12-50-07 | Unit | skeleton 消费：传 skeleton → 提取 stops 名作 pool 传 findIconicPlaces（grounded）；提取无 LLM；skeleton 与 pool 都传时 skeleton 优先 | `src/core/travel-tips.test.ts` | ToDo |
+| TC-M12-50-08 | Unit | 天气聚合（多日）：severity 取全段最差；drivers 全段并集去重；temperature 为 [min,max] 区间；单日不聚合 | 同上 | ToDo |
+| TC-M12-50-09 | Unit | 20s 超时硬保证：geocode+weather 与 findIconicPlaces 并行；tips-prose 在两者后；外层 AbortSignal 20s | 同上 | ToDo |
+| TC-M12-50-10 | Unit | 降级：geocode/weather 失败 → tips-prose 无天气继续返回其余；findIconicPlaces 超时 → tips-prose 无 iconic 自生成（grounded:false）；tips-prose 超时 → errors.travel_tips_timeout | 同上 | ToDo |
+| TC-M12-50-11 | Unit | 不二次验证：findIconicPlaces 返回结果直接信任，不调 searchPlaces 验证 | 同上 | ToDo |
+
+#### TC-M12-51（别名重指向）
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M12-51-01 | Unit | plan_itinerary/trip_plan/trips 别名 handler 调 makeItinerary，返回骨架 | `src/mcp/create-server.test.ts` | ToDo |
+| TC-M12-51-02 | HTTP | tools/list 含别名；别名调用返回 skeleton 而非旧 one-shot | `tests/mcp.test.ts` | ToDo |
+
+#### TC-M12-52（MCP 无会话化 + 防编造）
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M12-52-01 | Unit | `/mcp` 响应无 `mcp-session-id` 头；`tools/call` 不带会话 id 仍成功 | `tests/mcp.test.ts` | ToDo |
+| TC-M12-52-02 | Unit | `GET /mcp` → 405；`DELETE /mcp` → 405 | `tests/mcp.test.ts` | ToDo |
+| TC-M12-52-03 | Unit | 无 `mcp_session_invalid` 错误分支（代码删除/不可达） | `src/mcp/http-transport.test.ts` | ToDo |
+| TC-M12-52-04 | Unit | host_instructions 含"工具失败禁编造"硬约束文案 | `src/mcp/host-instructions.test.ts` | ToDo |
+
+#### TC-M12-LIVE（opt-in）
+
+| ID | 类型 | 主题 |
+| --- | --- | --- |
+| TC-M12-LIVE-01 | Integration | Lisbon 4D discover：并行 findIconicPlaces + 类目搜索，墙钟 < 15s；必去地进池 |
+| TC-M12-LIVE-02 | Integration | Lisbon travel_tips 无池：返回 intro + iconic top3 + 天气 + 着装 + 安全；墙钟 ≤ 20s；iconic `grounded:false` |
+| TC-M12-LIVE-03 | Integration | 非著名目的地（如青岛）travel_tips：ungrounded 仍返回合理 iconic |
+| TC-M12-LIVE-04 | Integration | Lisbon travel_tips 传 skeleton：提取 stops 名作 pool，iconic `grounded:true`；多日天气聚合 severity/drivers/temperature 正确 |
+| TC-M12-LIVE-05 | Integration | MCP 重启后用旧会话 id（或无 id）调 discover_places/make_itinerary/travel_tips：无 `mcp-session-id` 头，请求成功，无 `mcp_session_invalid` |
+
+## 22. MVP-13 E2E 质量整改（TC-M13-*）
+
+绑定 `[e2e-test.md](./e2e-test.md)` · Feature 53–58。
+
+| ID | 类型 | 主题 | 文件 |
+| --- | --- | --- | --- |
+| TC-M13-53-01 | Unit | `plan_next_stop` next_tool_call 的 `previous_stop.end_time` = 上一站 slot.end | `src/mcp/create-server.adr040.test.ts` |
+| TC-M13-53-02 | Unit | 链式两站 `slot.start` 单调递增 | 同上 |
+| TC-M13-54-01 | Unit | lunch meal start ≥ 11:30 | `src/core/plan-next-stop.test.ts` |
+| TC-M13-54-02 | Unit | dinner meal start ≥ 18:00 | 同上 |
+| TC-M13-55-01 | Unit | 超节奏骨架裁 attraction 后 validate 通过 | `src/core/make-itinerary.test.ts` |
+| TC-M13-56-01 | Unit | 归一化匹配把本地名改写为池内规范名 | 同上 |
+| TC-M13-57-01 | Unit | 未命中候选的 must_include 经 geocode+search 并入池 | `src/core/make-itinerary.test.ts` |
+| TC-M13-58-01 | HTTP/MCP | make_itinerary 失败 `data.detail` 非空 | `src/mcp/create-server.adr040.test.ts` |
+
+## 23. MVP-14 填充可用性（TC-M14-*）
+
+绑定 `[e2e-test.md](./e2e-test.md)` Q7–Q9 · Feature 59–61。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M14-59-01 | Unit | 非首站 stay 保留 legs、累加 slot、note≠origin_stop | `src/core/plan-next-stop.test.ts` | Done |
+| TC-M14-59-02 | Unit | 首站 origin stay 仍 09:00、origin_stop | 同上 | Done |
+| TC-M14-59-03 | Unit | validateSkeleton 拒绝非首 stay | `src/core/make-itinerary.test.ts` | Done |
+| TC-M14-60-01 | Unit | geocode 带 city；距 anchor >80km 丢弃 | `src/core/plan-next-stop.test.ts` | Done |
+| TC-M14-60-02 | Unit | duration_min>180 不进入 earliestFeasibleStart | 同上 | Done |
+| TC-M14-60-03 | Unit | 区域名单站骨架剔除/失败 | `src/core/make-itinerary.test.ts` | Done |
+| TC-M14-61-01 | Unit | feasible>14:30 的 lunch → start≥18:00 | `src/core/plan-next-stop.test.ts` | Done |
+| TC-M14-61-02 | Unit | lunch 在末 attraction 后 → 前移或失败 | `src/core/make-itinerary.test.ts` | Done |
+| TC-M14-LIVE-01 | E2E opt-in | Lisbon：无 39624min；无假 stay；无 16–17 lunch | `scripts/e2e-places-agent.py` | Done |
+
+## 24. MVP-15 骨架稳定性（TC-M15-*）
+
+绑定 `[e2e-test.md](./e2e-test.md)` Q10 · Feature 62。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M15-62-01 | Unit | `reseatStayToDayOrigin` 把非首位 stay 挪到 index 0 | `src/core/make-itinerary.test.ts` | Done |
+| TC-M15-62-02 | Unit | 多 stay 日只留一个在首位 | 同上 | Done |
+| TC-M15-62-03 | Unit | `dropCityNameStops` 去掉 city 名 attraction | 同上 | Done |
+| TC-M15-62-04 | Unit | 超时错误含 previous validation | 同上 | Done |
+| TC-M15-LIVE-01 | E2E opt-in | 东京/曼谷/吉隆坡到 trip_complete；全量接近 30/30 | `scripts/e2e-places-agent.py` | ToDo（环境相关） |
+
+## 25. MVP-16 Trip Store（TC-M16-*）
+
+绑定 [ADR-046](../../workspace-specs/adr/ADR-046-trip-store-pg-memory-fetch.md) · Feature **63–66** · `[agent-design.md](./agent-design.md)` §21 · `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 16。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M16-63-01 | Unit | 无 trip_id 时懒创建；返回 trip_id + revision | `src/core/trip-store*.test.ts`（待建） | ToDo |
+| TC-M16-63-02 | Unit | 写后内存与 PG 一致；revision 递增 | 同上 | ToDo |
+| TC-M16-63-03 | Unit | 过期 revision 写冲突失败 | 同上 | ToDo |
+| TC-M16-63-04 | Unit | 错误 caller / 过期 trip → trip_not_found | 同上 | ToDo |
+| TC-M16-64-01 | Unit/Contract | `fetch_trip_details` 按 fields 切片 | `src/core` + MCP/HTTP contract | ToDo |
+| TC-M16-64-02 | Contract | 无效 trip_id 结构化错误；无编造 | 同上 | ToDo |
+| TC-M16-65-01 | Unit | 无 display 时 plan_next_stop 链可完成一日 | `src/mcp/create-server*.test.ts` | ToDo |
+| TC-M16-65-02 | Contract | MCP/HTTP 不再注册 display_current_stop | 同上 + guide | ToDo |
+| TC-M16-66-01 | Spec | 对外工具精简评估表已写入（保留/删/合并） | refactor-plan / stories | ToDo |
+| TC-M16-LIVE-01 | E2E opt-in | 持 trip_id 完成 Lisbon 链到 trip_complete；可 fetch skeleton/某日 | `scripts/e2e-places-agent.py` | ToDo |

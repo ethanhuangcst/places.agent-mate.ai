@@ -1,6 +1,6 @@
 # places-agent 性能与 MCP 路由调优方案
 
-**Status:** Draft（v2.5 — L2 必须 LLM；§11-P0 Progressive **已实现**；agent Mode H Feature **35** **已交付**；2play Mode H + enrich **as-built**；ChatBox MCP **强制 agent** 见 [ADR-043](../../workspace-specs/adr/ADR-043-chatbox-mcp-and-cross-product-closure.md)）
+**Status:** Draft（v2.6 — §11-P0 Progressive **已实现**；2play Mode H + enrich **as-built**；**§12 轻骨架方案已确定**（2026-08-31 UI mock 定稿），探针已跑 §12.9）
 **Scope:** `1.places-agent` 行程相关工具 + HTTP / MCP 双通道；where2play 初排/助手交叉引用  
 **Related:** [ADR-032](../../workspace-specs/adr/ADR-032-llm-itinerary-mcp-tool-split.md)、[ADR-037](../../workspace-specs/adr/ADR-037-where2play-plan-l2-quanzil.md)、[ADR-038](../../workspace-specs/adr/ADR-038-discover-places-quality.md)、[agent-design §9.2](./agent-design.md)、[agent-stories MVP-8](./agent-stories.md)、where2play [2play-design §2.4](../../3.where2play/2play-specs/2play-design.md)、[itinerary-design.md](../../3.where2play/2play-specs/itinerary-design.md)（Progressive UI 交互真源）
 
@@ -267,7 +267,7 @@ HTTP Mode H handoff **保留**（Feature 35）。
 | where2play 编排 | `3.where2play/src/core/plan-day-by-day.ts`、`plan-arrange-llm.ts` |
 | where2play Progressive 规格 | `3.where2play/2play-specs/itinerary-design.md`（交互真源）；本文件 **§11**（落地状态与分期） |
 | where2play Plan UI | `3.where2play/src/ui/plan-page.tsx`、`plan-itinerary-view.tsx` |
-| 探针 | `scripts/probe-xian-discover-ab.py`、`probe-lisbon-discover-ab.py` |
+| 探针 | `scripts/probe-xian-discover-ab.py`、`probe-lisbon-discover-ab.py`、`probe-lisbon-skeleton-incremental.py`（§12） |
 
 ---
 
@@ -284,6 +284,8 @@ HTTP Mode H handoff **保留**（Feature 35）。
 | 2026-08-22 | **v2.2：新增 §11 where2play Progressive UX 完整方案（对照代码审查 + itinerary-design）；P2 增 Progressive 行** |
 | 2026-08-22 | **v2.3：§11-P0 落地** — `expandArrangeDayToSlots`、staged `slot_preview`/`slot`、四段 UI、i18n、pending skeleton；状态表更新 |
 | 2026-08-23 | **v2.4：MVP-8 Feature 34–38 Done** — Mode H / Arm A / 硬必去 / 真交通 DTO / MCP session 状态与 agent-stories 对齐；§11-P1 缺口改为 **2play 消费** |
+| 2026-08-31 | **v2.6：新增 §12 轻骨架+增量无 LLM 填充方案** — 采纳 B1（流式骨架先出）作为新工具架构（make_itinerary 骨架 + plan_next_stop 无 LLM 填充 + display_current_stop）；附探针实测计划与估算对照 |
+| 2026-08-31 | **v2.6 确认决策** — §12.5/12.5.1/12.11 锁定：骨架无时间（选项 2）、transit 偏好自然语言、串行、事件契约 skeleton_start→skeleton_day→skeleton_done、arrange_day 硬删除（策略 2）、助手默认值与弹窗文案、骨架预览只显示 stop 名称 |
 
 ---
 
@@ -448,3 +450,332 @@ Locale：CN / TW / HK / EN。
 | #6 按日优先 | **已实现**；§11 在日内再切细 |
 
 相对「仅 Mode H」：2play **已在 BFF 跑 OPENAI_CN**；当前体感差主要来自 **非流式整日 JSON + 假 progressive UI**，§11-P0 即可单独改善，不阻塞 MCP Mode H。
+
+---
+
+## 12. 轻骨架 + 增量无 LLM 填充方案（v2.6 — 已确定，探针已跑）
+
+**Status:** 方案已确定（2026-08-31 UI mock 定稿）；新工具未实现；探针已跑（§12.9 实测结果）；探针脚本 `scripts/probe-lisbon-skeleton-incremental.py`。
+
+**动机：** §11 Progressive 改善了「整日刷屏」体感，但 L2 仍 **非流式等满整日 JSON**（30–45s/日），首 block 仍受整日 LLM 约束。§12 用 **工具拆分** 把「全局骨架」与「逐 stop 填充」分离：骨架一次 LLM 出顺序，后续 stop 填充 **不调 LLM**（只算 transit + 取富信息），从而把首 stop 等待压到骨架完成时，总墙钟靠减少 LLM 次数下降。
+
+**与纯增量无骨架方案的对比结论（已否决纯增量）：** 纯增量（discover → display 起点 → plan_next_stop × N → review）首 stop 最快（10–18s），但贪心路由在集群化城市（Lisbon Belém/Alfama/Sintra）质量不可控，review 补偿无数据支撑且重排会抖动，总墙钟最慢（3.3–5.8 min，25 次 LLM）。§12 保留骨架的全局优化（路由/must_include/day-trip/餐位一次定），去掉逐 stop 的 LLM 调用，兼顾质量与速度。
+
+### 12.1 工具架构
+
+| 工具 | 职责 | LLM | 输出 |
+| --- | --- | --- | --- |
+| `discover_places`（保留） | 候选池（景点+餐厅）+ LLM 推断 must-see | L1 否；must-see 推断 1 次 | `{ candidates, inferred_must_see }` |
+| `make_itinerary`（新） | 生成行程骨架：每天 day_theme + stop 名称顺序 + 餐位 slot 位置，**无时间** | **是，1 次**，流式（骨架先吐） | `ItinerarySkeleton` |
+| `plan_next_stop`（新） | 基于骨架顺序，算 current→next 的 transit（多 mode 并行）+ 取 next 富信息；按时间插餐 | **否**（骨架已定顺序与餐位） | `PlanNextStopOutput` |
+| `display_current_stop`（新） | 渲染当前 stop 的 transit（高低搭配）+ 富信息（POI/评价/图片/deeplink） | 否 | `DisplayCurrentStopOutput` |
+
+**删除/别名：** `arrange_day` 删除；`plan_itinerary`/`trip_plan`/`trips` 别名到 `make_itinerary`；`enrich_arrange_transit` 吸收进 `plan_next_stop`；`navigate` 删除。
+
+### 12.2 调用流程
+
+```text
+discover_places → make_itinerary（流式骨架先吐顺序）
+  → display_current_stop(起点) 计入 itinerary
+  → 循环: plan_next_stop(current) → display_current_stop(next) → 计入 itinerary
+  → 一天结束 → 下一天（骨架已定顺序，继续填充）
+  → 全程结束
+```
+
+**首 stop 可见时机：** make_itinerary 骨架流完（顺序已知）→ display_current_stop 起点 → plan_next_stop stop 1 transit。骨架不含时间，首 stop 先以"时间待定"展示，时间在骨架流后续阶段或启发式即时填。
+
+### 12.3 数据结构（草案）
+
+```ts
+type ItinerarySkeleton = {
+  days: Array<{
+    day_index: number;
+    date?: string;
+    day_theme: string;            // "Belém 经典" / "Sintra 一日游"
+    stops: Array<{
+      name: string;               // 必须在候选池内
+      kind: "attraction" | "meal"; // meal = 餐位 slot
+      meal_slot?: "lunch" | "afternoon_tea" | "dinner";
+      must_include?: boolean;      // 用户/推断标记
+    }>;
+  }>;
+};
+
+type PlanNextStopInput = {
+  skeleton: ItinerarySkeleton;
+  current_stop: { name: string; location?: { lat: number; lng: number } };
+  next_stop: { name: string; kind: string; meal_slot?: string };
+  origin?: { name?: string; lat?: number; lng?: number };
+  /** 自然语言交通偏好，原样拼入 prompt（如"公共交通+步行"/"打车优先"/空=高低搭配） */
+  transit_preference?: string;
+  candidates: { places: PlaceCard[]; restaurants: PlaceCard[] };
+};
+
+type PlanNextStopOutput = {
+  next_stop: { name: string; location: { lat: number; lng: number } };
+  legs: ItineraryLeg[];           // 用户有偏好→单 mode 匹配；无偏好→高低搭配 2 mode
+  transit_outcome: "directions" | "heuristic" | "partial";
+};
+
+type DisplayCurrentStopOutput = {
+  stop: { name: string; card: PlaceCard; deeplinks: Record<string, string> };
+  legs_to_here: ItineraryLeg[];   // 从上一 stop 到此 stop
+  from_origin?: { transport: string; duration_min: number };
+};
+```
+
+**transit 偏好规则（确认）：** 用户有输入交通工具偏好（如"打车"/"本地交通"）→ plan_next_stop 计划最符合偏好的单 mode；用户无输入 → 计划高低搭配两种 mode。`transit_preference` 为自然语言字符串，原样拼入 places-agent prompt，不枚举。
+
+### 12.4 性能估算（Lisbon 4D，~21 stops）
+
+| 步骤 | 估算 | 说明 |
+| --- | --- | --- |
+| discover_places | 8–15s | 并行搜索 + LLM 推断 must-see |
+| make_itinerary（流式骨架） | 10–15s 首顺序 / 40–60s 全量含时间 | 1 次 LLM；骨架（顺序）先吐，时间后吐 |
+| plan_next_stop × 21 | 1–3s/次 → 21–63s | 无 LLM：并行 transit（3 mode 同时 ~1–2s）+ 池内富信息 |
+| display_current_stop × 21 | 0.1–0.5s/次 → 2–10s | 池内取富信息；偶尔 get_place_details（~1s） |
+| **首 stop 可见** | **12–18s** | discover + 骨架首顺序 + display 起点 |
+| **首 stop 完整（含时间）** | 42–63s | 骨架时间流完 |
+| **总墙钟** | **1–2 min** | 1 次 LLM（骨架）+ 21 次无 LLM 填充 |
+
+**对比当前架构（arrange_day × 4）：**
+
+| 指标 | 当前（arrange_day × 4） | §12（骨架+增量） | 差异 |
+| --- | --- | --- | --- |
+| 总墙钟 | 2.6–4.2 min | 1–2 min | **快 ~50–60%** |
+| 首 stop 可见 | 45–74s（首日整日完成） | 12–18s | **快 ~70%** |
+| LLM 次数 | 4（每天 1 次） | 1（骨架） | **少 75%** |
+| enrich 并行 | 顺序（6 块串行） | 并行（3 mode 同时） | **单次 transit 快 3x** |
+| 路由质量 | 高（每日全局） | 高（骨架全局） | 持平 |
+| must_include / day-trip | 每日注入 | 骨架一次定 | 持平 |
+
+### 12.5 关键设计决策（已确认）
+
+| 决策 | 内容 | 理由 |
+| --- | --- | --- |
+| 骨架无时间（选项 2 确认） | make_itinerary 只出顺序+餐位 slot，**无时间**；助手预览只显示 stop 名称（无时间）；时间由 plan_next_stop 算完 transit 后回填到行程列表 | 首 stop 可见压到骨架顺序完成；助手预览无时间可接受 |
+| plan_next_stop 无 LLM | 顺序与餐位由骨架定，plan_next_stop 只算 transit + 取富信息 | 减少 LLM 次数（21→0），总墙钟下降 |
+| transit 串行（确认） | plan_next_stop 保持串行算 transit，不做并行化 | 探针实测 enrich 串行已 2.2s/日（快），并行化收益有限 |
+| transit 偏好为自然语言 | `transit_preference` 字符串原样拼入 prompt，不枚举；有偏好→单 mode，无→高低搭配 | 便于传给 LLM 拼装提示词，灵活 |
+| 餐位由骨架预置 | 骨架标 meal_slot 位置，plan_next_stop 不决定何时插餐 | 避免贪心餐位位置差（无全天预知） |
+| day-trip 由骨架分配 | 骨架 day_theme 标 "Sintra 一日游"，当天 stops 都在 Sintra 区域 | 避免贪心把一日游当一个 stop |
+| must_include 由骨架硬排 | 骨架生成时 must_include 必须出现在某天 stops 内，漏排硬失败重试 | 保留当前 arrange_day 硬必去语义 |
+| `arrange_day` 硬删除（策略 2 确认） | 不保留别名，客户端必须迁移到新工具；当前仅测试 MCP 调用者，无生产依赖 | 简化工具面，避免适配层 |
+| `enrich_arrange_transit` 吸收 | 并入 plan_next_stop，删除独立工具 | where2play 迁移后删 |
+| `navigate` 删除 | what2eat client 死代码，无调用方 | 安全删除 |
+
+### 12.5.1 make_itinerary 流式事件契约（已确认）
+
+```text
+skeleton_start
+  → skeleton_day { day_index, day_theme, stops: [{ name, kind, meal_slot? }] }  × N 天
+  → skeleton_done
+```
+
+- `skeleton_start`：骨架生成开始
+- `skeleton_day`：每天骨架落地（含 day_theme + stops 顺序 + 餐位 slot，无时间）
+- `skeleton_done`：骨架全部完成，可开始 plan_next_stop 循环
+
+### 12.6 风险与缓解
+
+| 风险 | 缓解 |
+| --- | --- |
+| 骨架一次排错全天，用户中途想改 | 引入轻量 patch LLM（改单 stop/换天），不必重跑全骨架 |
+| 首 stop "时间待定"短暂态 UX | UI 支持时间后填过渡；或用启发式即时填（B4 变体） |
+| plan_next_stop 需 next stop 坐标，池中无坐标 | geocode 兜底（已实现）；失败标 transit_outcome=partial |
+| display_current_stop 池中无富信息（photos/ratings） | discover 时尽量带富信息；缺则调 get_place_details |
+| 骨架 LLM 仍可能 30–45s（虽更轻） | 流式骨架先吐顺序，用户不必等时间；超时降级启发式骨架 |
+
+### 12.7 探针计划
+
+**目的：** 实测当前架构各步骤耗时，验证 §12 估算，为后续实现提供基线。
+
+**脚本：** `scripts/probe-lisbon-skeleton-incremental.py`
+
+**实测项：**
+
+| # | 步骤 | 实测方式 | 验证目标 |
+| --- | --- | --- | --- |
+| 1 | discover_places | 真实调用 `/v1/discover_places` | 候选池耗时基线 |
+| 2 | arrange_day × 4（当前架构） | 真实调用 `/v1/arrange_day` 逐日，计时 | 当前总墙钟基线 + 单日 LLM 耗时 |
+| 3 | enrich_arrange_transit × 4 | 真实调用 `/v1/enrich_arrange_transit` 逐日，计时 | transit 串行耗时（plan_next_stop 并行化对照） |
+| 4 | geocode origin | 真实调用 `/v1/geocode` | 坐标解析耗时 |
+| 5 | 小 LLM "选下一 stop" 调用 | 直接调 OPENAI_CN，prompt 仅选 1 stop | plan_next_stop 若用 LLM 的单次成本（对照无 LLM 方案） |
+
+**输出：** `tmp/probe-lisbon-skeleton-incremental.json`，含各步骤 elapsed_s + 候选数 + stop 数。
+
+**预期结论：**
+- 若 arrange_day 单日实测 ~30–45s，则当前 4 日 ~120–180s，§12 骨架（1 次）+ 填充（无 LLM）应显著更快
+- 若 enrich 串行 ~6–12s/日，则 plan_next_stop 并行应 ~2–4s/日
+- 若小 LLM 选 stop ~5–10s，则确认"plan_next_stop 去 LLM 化"是总墙钟下降关键
+
+### 12.8 实现分期（待探针后细化）
+
+| 阶段 | 内容 | 依赖 |
+| --- | --- | --- |
+| P0 | 探针实测，验证估算 | 无 |
+| P1 | `make_itinerary`（骨架 LLM，流式）+ `ItinerarySkeleton` schema | P0 |
+| P2 | `plan_next_stop`（无 LLM，并行 transit）+ `display_current_stop` | P1 |
+| P3 | F42 校验迁入（站间时序、同日餐厅去重、一日游补搜、午餐软提示） | P2 |
+| P4 | 2play 消费新工具（弃 Mode H，全用 agent LLM）+ 悬浮助手 UI | P2 |
+| P5 | MCP 客户端迁移（ChatBox/Cursor 改用新工具） | P2 |
+
+### 12.9 探针实测结果（2026-08-31）
+
+**脚本：** `scripts/probe-lisbon-skeleton-incremental.py`（Lisbon 4D，Hills Hotel Lisboa，09:30–20:00，medium/premium/2 人/情侣出游）
+
+**实测数据（2/4 天成功；Day 3/4 因 arrange_day 502 失败——must_include focus 重试后仍漏排，当前架构已知可靠性问题）：**
+
+| 步骤 | 实测 | 原估算 | 偏差 |
+| --- | --- | --- | --- |
+| discover_places | **2.62s**（流式首事件 0.83s） | 8–15s | **快 3–5x**（LLM must-see 推断比预期快） |
+| geocode origin | **0.26s** | 1–2s | 快 |
+| arrange_day（成功日） | **20.93s / 25.92s**（avg 23.4s/日） | 30–45s/日 | **快 ~30%** |
+| enrich_arrange_transit | **2.27s / 2.14s**（avg 2.2s/日，5 blocks，15 legs，directions） | 6–12s/日 | **快 3–5x**（directions API 比预期快；5 块串行仅 2.2s） |
+| LLM 选单 stop（plan_next_stop 代理） | **3.23s** | 5–10s | 快 ~40% |
+
+**基于实测的修正估算：**
+
+| 指标 | 原估算 | 修正估算（基于实测） |
+| --- | --- | --- |
+| 当前架构 4 日总墙钟 | 2.6–4.2 min | **~1.8 min**（4×23.4s arrange + 4×2.2s enrich + 2.6s discover ≈ 107s） |
+| §12 新架构总墙钟 | 1–2 min | **~0.5–0.7 min**（2.6s discover + 15–25s 骨架 + ~15s 填充） |
+| §12 首 stop 可见 | 12–18s | **~15–28s**（2.6s discover + 骨架流式首顺序 ~12–25s） |
+| enrich 串行 vs 并行 | 串行 6–12s → 并行 2–4s | **实测串行已 2.2s/日**，并行化收益有限（directions 本身快） |
+
+**关键发现：**
+
+1. **discover 比预期快 3–5x**（2.6s vs 8–15s）：LLM must-see 推断 + 并行搜索比 performance.md §1.1 旧共识快得多。首 stop 等待的主要瓶颈是 make_itinerary 骨架 LLM，不是 discover。
+2. **arrange_day 比预期快 ~30%**（23.4s vs 30–45s）：但仍是非流式等满 JSON，是当前架构主瓶颈。§12 用 1 次骨架替代 4 次 arrange，是总墙钟下降主因。
+3. **enrich 比预期快 3–5x**（2.2s vs 6–12s）：directions API 实际很快，5 块串行仅 2.2s。**并行化收益有限**——§12 原"并行 transit 快 3x"的论据弱化。plan_next_stop 去 LLM 化仍是主收益，但 transit 并行化非关键。
+4. **Day 3/4 失败（502）**：当前架构 arrange_day 在 must_include focus 重试后仍漏排时硬失败。§12 骨架一次生成全局顺序，must_include 在骨架层硬排，可避免逐日 focus 失败累积。
+5. **LLM 选单 stop 3.2s**：若 §12 plan_next_stop 保留 LLM（非去 LLM 化），21 次 ≈ 68s，仍比 4 次 arrange（94s）快。但去 LLM 化（骨架定顺序）更优：21 次 ≈ 15s（仅 transit + display）。
+
+**结论：** §12 方案收益成立且比原估算更优。主收益来自 **LLM 次数减少**（4→1），非 transit 并行化。enrich 已快，并行化是次要优化。当前架构 Day 3/4 失败进一步支持骨架全局优化的可靠性优势。
+
+**探针输出：** `tmp/probe-lisbon-skeleton-incremental.json`
+
+### 12.10 探针过程记录（2026-08-31）
+
+**命令：**
+
+```bash
+python3 scripts/probe-lisbon-skeleton-incremental.py
+```
+
+**运行环境：** places-agent 本地 daemon（`http://localhost:3010`），OPENAI_CN = gpt-5.4，GOOGLE_MAPS provider，Lisbon 4D，Hills Hotel Lisboa 09:30–20:00，medium/premium/2 人/情侣出游。
+
+**运行实录：**
+
+```text
+=== Lisbon 4D skeleton+incremental probe ===
+base=http://localhost:3010 origin=Hills Hotel Lisboa 09:30-20:00
+
+[1/5] discover_places ...
+  ok 2.62s (stream first 0.83s) places=35 rest=20 must_see=['Belém Tower', 'Jerónimos Monastery', 'Castelo de São Jorge']
+
+[4/5] geocode origin ...
+  ok 0.26s lat=38.7303691 lng=-9.1404614 name=R. de Dona Estefânia 24, 1150-134 Lisboa, Portugal
+
+[2/5] arrange_day x 4 (current architecture) ...
+  day1 ok 20.93s theme=None blocks=5 ['Calouste Gulbenkian Museum', 'LEVE Food for all', 'Rua Augusta Arch', 'Miradouro de Santa Luzia', 'Breakfast Lovers Alfama']
+  day2 ok 25.92s theme=None blocks=5 ['Our Lady of the Mount Viewpoint', 'Castelo de São Jorge', 'Eating Europe Food Tours Lisbon', 'Carmo Archaeological Museum', 'Volta dos Sabores']
+  day3 FAIL HTTP 502 /v1/arrange_day: {"agent":"places-agent","ok":false,"outcome":{"key":"errors.arrange_day_failed","locales":{"EN":"Day arrangement could not be completed."}},"locale":"EN"}
+  day4 FAIL HTTP 502 /v1/arrange_day: {"agent":"places-agent","ok":false,"outcome":{"key":"errors.arrange_day_failed","locales":{"EN":"Day arrangement could not be completed."}},"locale":"EN"}
+  total 46.9s blocks=10
+
+[3/5] enrich_arrange_transit x 4 ...
+  day1 ok 2.27s blocks=5 legs=15 outcome=directions
+  day2 ok 2.14s blocks=5 legs=15 outcome=directions
+  day3 SKIP (no day data)
+  day4 SKIP (no day data)
+  total 4.4s
+
+[5/5] LLM pick next stop (plan_next_stop proxy) ...
+  ok 3.23s picked=Reservatório da Mãe d'Água das Amoreiras
+
+=== SUMMARY ===
+current architecture total: 51.3s (0.9 min)
+  arrange_day: 46.9s (11.7s/day avg)
+  enrich:       4.4s (1.1s/day avg)
+  total blocks: 10
+section 12 estimate: 1-2 min total, 12-18s first stop
+
+Wrote /Users/ethanhuang/code/places-workspace/1.places-agent/tmp/probe-lisbon-skeleton-incremental.json
+```
+
+**过程说明：**
+
+1. **discover_places（2.62s）**：NDJSON 流式调用，首事件 0.83s 即开始返回候选；最终 35 景点 + 20 餐厅，LLM 推断 must-see = [Belém Tower, Jerónimos Monastery, Castelo de São Jorge]。比 §1.1 旧共识（8–15s）快 3–5x。
+2. **geocode origin（0.26s）**：解析 Hills Hotel Lisboa → 38.7304, -9.1405（WGS84），供 arrange/enrich 用真实坐标算 transit。
+3. **arrange_day × 4（46.9s，2 成功 2 失败）**：逐日串行，exclude_names 累积。Day1 20.9s（5 blocks），Day2 25.9s（5 blocks）。Day3/4 返回 502 `errors.arrange_day_failed`——must_include focus 重试后仍漏排，触发硬失败。这是当前架构逐日 focus 的已知可靠性问题。
+4. **enrich_arrange_transit × 4（4.4s，2 成功）**：仅成功日有 day 数据可 enrich。每日 5 blocks → 15 legs，transit_outcome=directions（真实 Google directions），2.2s/日。比原估算 6–12s 快 3–5x。
+5. **LLM 选单 stop（3.23s）**：直接调 OPENAI_CN，prompt 仅从候选池选 1 个 next stop，返回 JSON。3.2s/次——若 plan_next_stop 保留 LLM，21 次 ≈ 68s；去 LLM 化（骨架定顺序）则 21 次仅 transit+display ≈ 15s。
+
+**失败分析（Day 3/4 502）：**
+
+arrange_day 在 must_include focus token 重试一次后仍漏排时硬失败（`itinerary-planner.ts` 末段 safety net）。根因：逐日 focus 只看当天，跨天 must_include 分配无全局视图，exclude_names 累积后候选池缩小，LLM 更易漏排。§12 骨架一次生成全局顺序，must_include 在骨架层硬排（漏排硬失败重试），避免逐日累积失败。
+
+**探针脚本结构：** `scripts/probe-lisbon-skeleton-incremental.py`（5 个 step 函数 + main 编排，输出 JSON 到 `tmp/`）。可重复运行：`python3 scripts/probe-lisbon-skeleton-incremental.py [--days N] [--skip-llm-stop]`。
+
+### 12.11 行程助手确认决策（2026-08-31）
+
+**条件输入简化（5 项必填，其余走助手问答）：**
+
+| 必填字段 | 说明 |
+| --- | --- |
+| 目的地 | 表单输入 |
+| 起始日期 | 表单输入 |
+| 天数 | 表单输入 |
+| 人数 | 表单输入 |
+| 预算（$/$$/$$$) | 表单输入 |
+
+按钮"生成行程"改为"规划行程"，点击后调起行程助手 Agent 接管。
+
+**助手问答默认值（允许跳过/默认）：**
+
+| 步骤 | 问题 | 默认值 |
+| --- | --- | --- |
+| b | 酒店/每天起终点 | 无（不安排每日交通） |
+| c | 每天行程开始时间 | 09:00 |
+| d | 行程类型 | 景点打卡 |
+| e | 节奏 | 适中 |
+| f | 交通偏好 | 公共交通+步行 |
+| g | 必去点 | 默认有，列出必去点 |
+| h | 其他要求 | 无 |
+
+**助手接管与终止：**
+
+- 助手接管后，表单重新提交将终止助手当前工作并重新开始新行程规划。
+- 终止前弹窗确认。
+- 助手任何一步都可被终止（discover / make_itinerary / plan_next_stop 中均可中断）。
+
+**弹窗确认文案（i18n key 提议）：**
+
+| Key | EN | CN |
+| --- | --- | --- |
+| `play.plan.confirm_replan_title` | Start a new trip? | 开始新的行程规划？ |
+| `play.plan.confirm_replan_body` | This will stop the current planning and start over. Continue? | 这将停止当前规划并重新开始。继续吗？ |
+| `play.plan.confirm_replan_confirm` | Start over | 重新开始 |
+| `play.plan.confirm_replan_cancel` | Keep planning | 继续规划 |
+
+**助手悬浮框：** 页面右下角悬浮框（参考 what2eat UI），非页面下方固定聊天框。
+
+**骨架预览（选项 2 确认）：** 骨架生成后在助手里以简单文字列表预览，day-by-day、stop-by-stop，**只展示 stop 名称**（无时间，骨架无时间）。时间在 plan_next_stop 填充后回填到行程规划列表。
+
+**渐进展示节奏：** 每 stop 算完 transit 即 display_current_stop 上屏，不等全天。
+
+---
+
+## 13. Trip Store 与传输成本（ADR-046 / MVP-16）
+
+**真源：** [ADR-046](../../workspace-specs/adr/ADR-046-trip-store-pg-memory-fetch.md) · `agent-design` §21。
+
+| 点 | 结论 |
+| --- | --- |
+| 主瓶颈（现行） | 仍是 **骨架 LLM**（网关相关）；大 JSON 拼装/回传是 **协作与上下文税**，在 quanzil 快路径下对墙钟通常为秒级以下附带 |
+| Trip Store 收益 | 多工具改同一行程；宿主可只持 `trip_id` + fetch 切片；where2play hydrate |
+| 不做什么 | 不指望 PG 读写「再抠」骨架 LLM 秒数；不默认按日并发骨架（原 TBD-1B 探针平均更慢） |
+| 填充链 | 目标去掉每步回传 candidates/skeleton 大包；改为 `trip_id`+cursor + patch |
+
+**验收（性能相关）：** P1 后 MCP 单步 args 体积相对 as-built 明显下降（定性即可；可加探针对比 Lisbon 链 args 字节数）。

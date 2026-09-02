@@ -151,6 +151,7 @@ HTTP `/v1` 和 MCP 调用**相同的函数**。传输层负责认证、解析与
 | `getPlaceDetails` | `get_place_details` | 是 |
 | `navigate` | `navigate` | 是 |
 | `geocode` | `geocode` | 是（必须保持公开） |
+| `visaRequirement` | `visa_requirement` | 否（结构化；Orizn REST，ADR-044） |
 | `planItinerary` | `plan_itinerary` | 仅当对话请求生成行程时 |
 | `discoverPlaces` | `discover_places` | 否（结构化拆分） |
 | `arrangeDay` | `arrange_day` | 否（结构化拆分） |
@@ -287,6 +288,43 @@ HTTP `/v1` 和 MCP 调用**相同的函数**。传输层负责认证、解析与
 | `distance_m` | number? | AMAP / Google directions | 路线不可用时省略 |
 | `duration_min` | number? | AMAP / Google directions | 路线不可用时省略 |
 
+#### `visa_requirement`（MVP-11，ADR-044）
+
+**HTTP：** `POST /v1/visa_requirement` — JSON 响应（非 NDJSON）。**MCP：** 同名工具。
+
+| 输入 | 类型 | 说明 |
+| --- | --- | --- |
+| `passport` | string | ISO 3166-1 alpha-3（如 `CHN`） |
+| `destination` | string | ISO 3166-1 alpha-3（如 `JPN`） |
+| `locale` | `EN`\|`CN`\|`HK`\|`TW`? | 映射 Orizn `lang`（缺省 `EN`） |
+
+| 输出字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `requirement` | string | `visa_free` \| `visa_required` \| `e_visa` \| … |
+| `visa_free_days` | number \| null | 免签天数 |
+| `description` | string? | locale 化概述 |
+| `documents` | string[]? | 所需材料 |
+| `process` | string[]? | 申请/入境流程 |
+| `processing_time` / `validity` / `max_stay` | string? | 审理时间 / 有效期 / 停留 |
+| `extension` | object? | `{ possible, details? }` |
+| `last_verified` | string \| null | 数据核验日期 |
+| `source_url` | string \| null | 官方来源 URL |
+| `unavailable_fields` | string[]? | 免费档 upgrade 占位字段名 |
+
+错误 key：`errors.visa_invalid_country_code`、`errors.visa_unconfigured`、`errors.visa_quota_exceeded`。
+
+**智能体指令示例（管理端 §12.5）：**
+
+```http
+POST /v1/visa_requirement
+Authorization: Bearer <caller-key>
+Content-Type: application/json
+
+{ "passport": "CHN", "destination": "JPN", "locale": "CN" }
+```
+
+MCP：`visa_requirement` 同名；description 须含字面量 `places-agent`。
+
 ### 5.2 语言路由与查询组装（MVP-4 + itinerary QLP）
 
 三个协同模块 — **provider 选择**、**语言检测（UI/prompt）**、**query 组装（地图搜词）** — 共同决定「agent 自组关键词」时如何搜。均为规则引擎，不调 LLM。
@@ -414,6 +452,7 @@ Chat / tool 的 system prompt 由 [`prompt-assembler.ts`](../src/agent/prompt-as
 | Google Worker MCP | 同 `GOOGLE_MAPS` | 直连出站失败后使用。`GMAPS_MCP_*`。首先调用 `tools/list`。模块：[`src/adapters/google/mcp-client.ts`](../src/adapters/google/mcp-client.ts)。组合模块：[`src/adapters/google/live.ts`](../src/adapters/google/live.ts)。**开发测试：** `GOOGLE_DIRECT_FORCE_FAIL=1`（生产环境拒绝使用）。 |
 | Tripadvisor Terra | `TRIPADVISOR` | **仅用于富化**（ADR-007，ADR-020）：评分、评论、**照片回退**（MVP-3）。`PLACES_VENDOR_MODE=live` 时使用实时模式：[`config.ts`](../src/adapters/tripadvisor/config.ts)、[`direct.ts`](../src/adapters/tripadvisor/direct.ts)、[`match.ts`](../src/adapters/tripadvisor/match.ts)、[`card-mapper.ts`](../src/adapters/tripadvisor/card-mapper.ts)、[`live.ts`](../src/adapters/tripadvisor/live.ts)。`GET /locations/nearby` 携带 `lat`+`lon`+`radius=1`+`unit=KM`；请求头 `X-API-Key`；附近搜索 URL 中不传 `location_id` 或 Google/AMAP 原生 id。**照片：** `GET /locations/{id}/photos` — 仅在 Google Photos 不可用或需付费时调用；`location_id` 来自附近搜索步骤。非实时模式时使用 Fixture：[`fixture.ts`](../src/adapters/tripadvisor/fixture.ts)。 |
 | Open-Meteo | `OPEN_METEO` | **不**出现在 `providers[]` 中。`PLACES_VENDOR_MODE=live` 时使用实时模式：[`config.ts`](../src/adapters/open-meteo/config.ts)、[`direct.ts`](../src/adapters/open-meteo/direct.ts)、[`live.ts`](../src/adapters/open-meteo/live.ts)。`GET /forecast` 携带 `latitude`+`longitude`+`daily=weather_code,temperature_2m_max,temperature_2m_min`+`timezone=auto`；客户主机上可选 `apikey`。非实时模式时使用 Fixture：[`fixture.ts`](../src/adapters/open-meteo/fixture.ts)。保留 `weather_code` + 数值；本地化 `weather.wmo.{code}`。 |
+| Orizn Visa | `ORIZN_VISA` | **不**出现在 `providers[]` 中（与 Open-Meteo 同类辅助数据源）。`PLACES_VENDOR_MODE=live` 时 REST 直连 `GET /api/v1/visa`（`x-api-key`）；**不** spawn `orizn-visa-mcp` 子进程（远程 MCP 端点即使带 Key 也仅暴露 `quick_visa_check`，不足材料/流程级答案 — 见 [ADR-044](../../workspace-specs/adr/ADR-044-orizn-visa-rest-adapter.md)）。模块：`src/adapters/orizn/{config,direct,fixture,live}.ts`。进程内 `(passport, destination, lang)` TTL 缓存（默认 24h，`ORIZN_CACHE_TTL_H`）。fixture 样本：CHN→JPN、CHN→SGP 等。 |
 
 | 字段 | 规则 |
 | --- | --- |
@@ -687,6 +726,7 @@ PostgreSQL + Prisma。本地 `DATABASE_URL=postgresql://places_agent:places_agen
 | --- | --- |
 | `AdminUser` | `id`、`username` 唯一、`email` 唯一、`passwordHash`（设置前为空）、邀请/重置 token **哈希值** + 过期时间 |
 | `CallerApiKey` | `id`、`name`、`description`、`keyHash` 唯一、`prefix`、可选 `secret`（明文，供管理后台列表 Copy；迁移前行为 `null`）、`status` `ACTIVE`\|`REVOKED`、`lastUsedAt` |
+| `Trip`（MVP-16 / ADR-046） | `id`、`revision`、`status`、`callerKey`、`locale`、`expiresAt`、分区 JSON（constraints / candidates / skeleton / cursor / filled / artifacts）；进程内内存热副本，见 §21 |
 | Session | **封装 Cookie**，非数据表。后续可选：用户上的 `sessionVersion` 字段用于全部吊销 |
 
 种子数据：用户名 `admin`，邮箱 `me@ethanhuang.com`。**不**将密码内置到镜像中。空哈希 → `/set-password` 或 Resend 重置。
@@ -895,6 +935,10 @@ PORT=3000
 PROMPT_ID=chat.v1
 GLOSSARY_ID=
 CATALOG_PACK=catalogs.v1
+# MVP-11 — Orizn Visa（operator-owned；见 ADR-044）
+ORIZN_API_KEY=orizn_visa_…
+ORIZN_VISA_BASE_URL=https://visa.orizn.app/api/v1
+ORIZN_CACHE_TTL_H=24
 ```
 
 **MVP 不使用：** `OPENAI_IMAGE_MODEL` 作为图像生成工具。对话仍可接受图像**输入**。**绝不：** `NEXT_PUBLIC_*` 暴露密钥。
@@ -934,3 +978,485 @@ CATALOG_PACK=catalogs.v1
 - 混合语言的搜索查询（例如在一个查询中同时使用 `"cafe tea house"` 和 `"咖啡馆"`）
 - CJK 启发式误判海外中文城市名（新加坡、大阪、曼谷）为大陆 — 应使用排除列表
 - Fixture 地理编码将所有未知城市解析为香港默认值 — 应扩大覆盖范围
+
+---
+
+## 18. §12 轻骨架 + 增量无 LLM 填充工具族（MVP-10，agent 侧已实现 2026-09-01）
+
+**真源：** `[performance.md](./performance.md)` §12（估算、探针实测 §12.9、确认决策 §12.5/12.5.1/12.11）；`[0.refactor-plan.md](./0.refactor-plan.md)` 批次 11（Feature 43–47 分期）。
+
+### 18.1 术语规约
+
+| 术语 | 定义 |
+| --- | --- |
+| itinerary | 行程骨架：每天 day_theme + stop 名称顺序 + 餐位 slot 位置；**无时间、无交通、无富信息** |
+| stop | itinerary 中一个具体地点：名称 + POI + 位置（坐标） |
+| transit | 两 stop 间交通建议：mode（公交/步行/打车）+ 预估时间/费用/路线描述；高低搭配 = 2 mode |
+
+### 18.2 工具族
+
+| 工具 | 职责 | LLM | 输出 |
+| --- | --- | --- | --- |
+| `discover_places`（保留） | 候选池（景点+餐厅）+ LLM 推断 must-see | L1 否；must-see 推断 1 次 | `{ candidates, inferred_must_see }` |
+| `make_itinerary`（新） | 生成骨架：顺序 + 餐位 slot，无时间 | 是，1 次，流式 | `ItinerarySkeleton` |
+| `plan_next_stop`（新） | 按骨架顺序算 current→next transit（串行）+ 取富信息 | 否 | `PlanNextStopOutput` |
+| `display_current_stop`（as-built） | 渲染 transit（高低搭配）+ 富信息（POI/评价/图片/deeplink） | 否 | `DisplayCurrentStopOutput` |
+
+**目标态（ADR-046 / MVP-16）：** 新增 `fetch_trip_details`；**删除** `display_current_stop`（写并入 `plan_next_stop`）；填充主路径改 `trip_id`+cursor。详见 §21。
+
+### 18.3 调用流程
+
+```text
+discover_places → make_itinerary（流式骨架先吐顺序）
+  → display_current_stop(起点) 计入 itinerary
+  → 循环: plan_next_stop(current) → display_current_stop(next) → 计入 itinerary
+  → 一天结束 → 下一天（骨架已定顺序，继续填充）
+  → 全程结束
+```
+
+### 18.4 make_itinerary 流式事件契约（§12.5.1 已确认）
+
+```text
+skeleton_start
+  → skeleton_day { day_index, day_theme, stops: [{ name, kind, meal_slot? }] }  × N 天
+  → skeleton_done
+```
+
+### 18.5 数据结构（草案）
+
+```typescript
+type ItinerarySkeleton = {
+  days: Array<{
+    day_index: number;
+    date?: string;
+    day_theme: string;            // "Belém 经典" / "Sintra 一日游"
+    stops: Array<{
+      name: string;               // 必须在候选池内
+      kind: "attraction" | "meal";
+      meal_slot?: "lunch" | "afternoon_tea" | "dinner";
+      must_include?: boolean;
+    }>;
+  }>;
+};
+
+type PlanNextStopInput = {
+  skeleton: ItinerarySkeleton;
+  current_stop: { name: string; location?: { lat: number; lng: number } };
+  next_stop: { name: string; kind: string; meal_slot?: string };
+  origin?: { name?: string; lat?: number; lng?: number };
+  /** 自然语言交通偏好，原样拼入 prompt；有偏好→单 mode，无→高低搭配 */
+  transit_preference?: string;
+  candidates: { places: PlaceCard[]; restaurants: PlaceCard[] };
+};
+
+type PlanNextStopOutput = {
+  next_stop: { name: string; location: { lat: number; lng: number } };
+  legs: ItineraryLeg[];
+  transit_outcome: "directions" | "heuristic" | "partial";
+};
+
+type DisplayCurrentStopOutput = {
+  stop: { name: string; card: PlaceCard; deeplinks: Record<string, string> };
+  legs_to_here: ItineraryLeg[];
+  from_origin?: { transport: string; duration_min: number };
+};
+```
+
+### 18.6 行程规则（make_itinerary prompt 内）
+
+- 有每日起点/终点 → 当天首/末 stop 即起终点；无 → 选经典知名且交通方便的景点作起点
+- stop 顺序顺路（A-B-C 同方向），按节奏和交通偏好预估 transit 预留（骨架不含时间，仅顺序优化）
+- 安排午餐、晚餐；根据末 stop 到晚餐间隔可选下午茶/咖啡（骨架标 meal_slot 位置）
+- must_include 硬排：必去点必须出现在某天 stops 内，漏排硬失败重试一次
+- day-trip 分配：day_theme 标注一日游区域，当天 stops 都在该区域
+
+### 18.7 工具删除/别名（已确认策略 2 硬删除）
+
+| 动作 | 工具 | 依赖迁移 |
+| --- | --- | --- |
+| 删除 | `arrange_day` | where2play `plan-arrange-llm.ts` / `plan-day-by-day.ts` → 新工具族（Feature **37** plan-46） |
+| 吸收 | `enrich_arrange_transit` → `plan_next_stop` | where2play `plan-enrich-transit.ts` → plan_next_stop（Feature **37** plan-46） |
+| 删除 | `navigate` | 无调用方（what2eat client 死代码），安全删 |
+| 别名 | `plan_itinerary`/`trip_plan`/`trips` → `make_itinerary` | 向后兼容，无实际调用方 |
+
+### 18.8 性能基线（探针实测 §12.9，Lisbon 4D）
+
+| 指标 | 当前架构 | 新架构（估算） |
+| --- | --- | --- |
+| 总墙钟 | ~1.8 min | **~0.5–0.7 min** |
+| 首 stop 可见 | 23.4s+（首日整日 LLM） | **~15–28s**（骨架流式首顺序） |
+| LLM 次数 | 4（每天 1 次） | **1**（骨架） |
+
+### 18.9 F42 校验迁移
+
+站间时序校验、同日餐厅去重迁入 `plan_next_stop`/`display_current_stop` 填充层（Feature 44）；day-trip 补搜词扩展迁入骨架层（Feature 43）。
+
+### 18.10 填充时钟与餐位窗口（MVP-13 F53/F54）
+
+骨架 echo **不含**时间。MCP 填充链必须把上一站 `slot.end` 作为 `current_stop.end_time` → `previous_stop.end_time` 前传。`displayCurrentStop` 用 `earliestFeasibleStart(prevEnd, recommendedLeg, fallback)`。跨日 stay 重置 `time_from=09:00`。
+
+HTTP `/v1` 无 `next_tool_call`：2play 自管循环时必须同样传 `previous_stop.end_time`。
+
+`meal_slot`：lunch 窗口起点 11:30、afternoon_tea 15:00、dinner 18:00；start = max(earliestFeasible, 窗口起点)。
+
+### 18.11 骨架确定性回退（MVP-13 F55/F56/F58）
+
+LLM 重试仍失败时：超节奏日从尾部裁 attraction；站名精确失败后 NFKC/去空白/大小写匹配当次候选并改写为规范名。最终失败时 envelope `data.detail` 带校验原文。
+
+### 18.12 区域 must_include 展开（MVP-13 F57，ADR-042）
+
+无法精确命中候选的 must_include token：geocode 后 nearby/`search_places` 并入候选。禁止源码城市 POI 表。
+
+### 18.13 Stay 角色（MVP-14 F59）
+
+- **day_origin_stay**：当日 `stops[0]` 且名称与 trip `origin.name` 相同 → 09:00 开钟、`origin_stop`、无 inbound legs。
+- **return_stay / midday_stay**：同日非首 stay → 正常 `legs_to_here` + 时钟累加；note 为 `return_stay` 或 `midday_stay`，非 `origin_stop`。
+- **跨日**：仅下一日 index 0 的 origin stay 重置 `time_from=09:00`（`nextFillStep` 不变）。
+- **骨架**：每 day 至多一个 `kind=stay` 且须为 `stops[0]`；与 origin 同名但 index>0 的 stay 校验失败。
+
+### 18.14 Leg 地理/时长闸（MVP-14 F60）
+
+- `resolvePoint` geocode：`${stop.name}, ${city}`（fill 链透传 `city`）。
+- 解析点距 anchor（origin 或上一站）> `DISCOVER_GEO_MAX_KM`（80km）→ 丢弃坐标，legs 空或 heuristic，`transit_outcome: partial`。
+- `duration_min` 硬顶：同城 ≤180min，超则不进入 `earliestFeasibleStart`。
+- **骨架**：拒绝与区域 token / 城市名等价的单字 attraction（如裸 `Belem`）。
+
+### 18.15 迟到午餐（MVP-14 F61）
+
+- `meal_slot=lunch` 且 feasible > 14:30 → 按 dinner 窗口（≥18:00）落位，note=`meal_promoted_to_dinner`。
+- 骨架 prompt + 校验：lunch 不得排在当日最后一个 attraction 之后；可确定性前移到 midday。
+
+### 18.16 骨架确定性回退扩展（MVP-15 F62）
+
+对齐 §18.11：在 `validateSkeleton` **之前**对 LLM JSON 做确定性修复，减少强制第二次 LLM。管线顺序：
+
+1. `remapStopNamesToPool`
+2. `trimAreaAliasStops`
+3. `reseatLateLunchStops`
+4. **`reseatStayToDayOrigin`（新）** — 每 day 仅保留一个 `kind=stay` 并挪到 `stops[0]`；多余 stay 删除
+5. **`dropCityNameStops`（新）** — 名称归一化等于 destination `city` 且非 stay 池的站删除
+6. `trimPaceOverages`
+7. **`reseatLateLunchStops` 再跑一次** — trim/drop 可能再次把 lunch 留在末 attraction 后
+8. `validateSkeleton`
+
+**Schema：** `day.date` 接受 `null`/空串并视为省略（LLM 常发 `"date": null`，否则 Zod 整单失败触发无意义重试）。
+
+**超时可读：** `withAbortTimeout` 触发 `isLlmAbortError` 时，若循环内已有 `lastError`（attempt≥1 校验失败后的重试超时），抛错消息须含 prior validation 摘要（例：`LLM timed out after 90000ms (after attempt 1 validation: …)`）。不默认提高 `LLM_SKELETON_TIMEOUT_MS`。
+
+不改变 F59–F61 填充层语义；不放宽 `validateSkeleton` 产品规则（stay/lunch/area 仍硬校验，靠修复而非放宽）。
+
+---
+
+## 19. Orizn 签证 adapter + `visa_requirement` 工具（MVP-11，2026-09-01 已实现）
+
+真源：[ADR-044](../../workspace-specs/adr/ADR-044-orizn-visa-rest-adapter.md) · Feature **48** · where2play Feature **38–39**。
+
+### 19.1 架构定位
+
+- **辅助数据源**（与 Open-Meteo 同类）：不进 `providers[]`、不参与 ADR-026 区域路由。
+- **传输：** REST 直连 Orizn `GET /api/v1/visa`；密钥 `ORIZN_API_KEY` 仅存在于 places-agent 进程。
+- **不采用：** stdio 子进程 `npx orizn-visa-mcp`；远程 `https://visa.orizn.app/mcp`（实测仅 `quick_visa_check`，无完整材料/流程）。
+
+### 19.2 模块布局（目标）
+
+```text
+src/adapters/orizn/
+  config.ts      # ORIZN_API_KEY, ORIZN_VISA_BASE_URL, ORIZN_CACHE_TTL_H
+  direct.ts      # fetch GET /visa?passport=&destination=&lang=; injectable FetchFn
+  fixture.ts     # CHN→JPN, CHN→SGP 等固定样本
+  live.ts        # PLACES_VENDOR_MODE=live 组装
+src/core/visa-requirement.ts   # visaRequirement(input) → VisaRequirementResult
+```
+
+HTTP：`POST /v1/visa_requirement`（[`dispatch.ts`](../src/http/dispatch.ts) + [`schemas.ts`](../src/http/schemas.ts)）。  
+MCP：[`create-server.ts`](../src/mcp/create-server.ts) 注册 `visa_requirement`（Zod inputSchema，与 HTTP 共享 core）。
+
+### 19.3 输入 / 输出契约
+
+**输入：**
+
+```ts
+{
+  passport: string,       // ISO 3166-1 alpha-3，如 CHN
+  destination: string,    // ISO 3166-1 alpha-3，如 JPN
+  locale?: "EN"|"CN"|"HK"|"TW"  // 缺省 EN
+}
+```
+
+**Orizn lang 映射：** EN→`en`；CN/HK/TW→`zh`（Orizn 无 zh-HK/zh-TW 变体）。
+
+**输出 `data`（节选）：**
+
+```ts
+{
+  passport, destination,
+  requirement: "visa_free"|"visa_required"|"e_visa"|"visa_on_arrival"|"eta"|"no_admission"|...,
+  visa_free_days: number | null,
+  description?: string,
+  documents?: string[],
+  process?: string[],
+  processing_time?: string,
+  validity?: string,
+  max_stay?: string,
+  extension?: { possible: boolean; details?: string },
+  last_verified?: string | null,
+  source_url?: string | null,
+  unavailable_fields?: string[]   // 免费档 upgrade 占位字段名
+}
+```
+
+### 19.4 错误与配额
+
+| 条件 | 行为 |
+| --- | --- |
+| 非法 alpha-3 | `errors.visa_invalid_country_code` |
+| 缺 `ORIZN_API_KEY`（live） | `errors.visa_unconfigured` |
+| Orizn 403/429 | `errors.visa_quota_exceeded`；不编造签证事实 |
+| 缓存命中 | 同 `(passport, destination, lang)` TTL 内不重复请求 |
+
+### 19.5 where2play 消费（后续切片）
+
+- **本 MVP-11 agent 切片：** 仅交付工具；where2play **不**在本切片开发查询 UI。
+- **where2play MVP-11（spec）：** 注册/资料页增加 `nationality`（ISO alpha-3，选填）；Prisma `User.nationality String?`。
+- **出行建议页（规划中）：** BFF 读 `User.nationality` + 目的地 → `POST /v1/visa_requirement`；展示签证状态条（Feature **39** 占位，实现待后续立项）。
+
+---
+
+## 20. 必去地统一获取（双模）+ travel_tips + 工具清理 + MCP 无会话化（MVP-12，ADR-045 Accepted 2026-09-01）
+
+真源：[ADR-045](../../workspace-specs/adr/ADR-045-iconic-places-unified-acquisition.md) · Feature **49 / 50 / 51 / 52** · `[agent-stories.md](./agent-stories.md)` Feature 49–52。
+
+### 20.1 架构定位
+
+必去地获取从 `discover_places` 内联提升为独立 core 方法 `findIconicPlaces`，双模：
+
+- **grounded**（pool 非空）：LLM 从池挑，池校验，可排程。
+- **ungrounded**（pool 空）：LLM 按目的地参数化生成，仅展示。
+
+`travel_tips` 复用 `findIconicPlaces`，可在 discover 之前独立调用。
+
+### 20.2 模块布局（目标）
+
+```text
+src/core/find-iconic-places.ts   # findIconicPlaces 双模；grounded 分支复用 inferMustSeeFromPool 逻辑
+src/core/must-include-merge.ts   # dedupeMustInclude 下沉（user ∪ iconic，归一化去重，limit 截断）
+src/core/travel-tips.ts          # travelTips：findIconicPlaces + open-meteo + tips-prose LLM
+src/core/discover-places.ts      # discoverPlaces 改造：并行 + 补搜 + must_see 标志
+```
+
+`discover-must-see-llm.ts` 的 `inferMustSeeFromPool` 被 `find-iconic-places.ts` 取代（grounded 分支复用其逻辑）。
+
+HTTP：`POST /v1/travel_tips`（`dispatch.ts` + `schemas.ts`）。
+MCP：`create-server.ts` 注册 `travel_tips`。`findIconicPlaces` 为 core 内部方法，不单独注册。
+
+### 20.3 findIconicPlaces 契约
+
+```ts
+export type FindIconicPlacesInput = {
+  destination: string;
+  pool?: PlaceCard[];
+  limit: number;
+  locale?: Locale;
+  _testChatCreate?: ItineraryChatCreate;
+};
+export type FindIconicPlacesResult = { names: string[]; grounded: boolean };
+```
+
+- grounded：prompt 不含目的地名（沿用 ADR-042 现有约定），LLM 从池挑，`normalizeMustIncludeToken` 校验。
+- ungrounded：prompt 含目的地名（不排程，无对账问题），LLM 参数化生成。
+- 失败返回 `[]`，不阻塞调用方。
+
+### 20.4 discover_places 改造流程
+
+```
+Phase A 并行: findIconicPlaces(destination, limit=3) || searchCandidatePools(类目)
+Phase B: 匹配 iconic ∪ user_must_include → matched / unmatched
+Phase C: unmatched 名补搜 name-search job → 进池
+Phase D: 命中卡片 must_see=true；返回 pool(带 must_see) + inferred_must_see
+```
+
+墙钟 ≈ 12-13s（并行 + 补搜），优于现状 ~13-15s。
+
+### 20.5 PlaceCard.must_see 字段
+
+```ts
+// core/types.ts
+must_see?: boolean;   // true=必去（LLM iconic ∪ user must_include 合并）
+```
+
+非破坏性，只在 discover 流程内赋值。`make_itinerary` / `arrange_day` 直接读，无需独立 `must_include` 对账。展示层可渲染"必去"徽章。
+
+### 20.6 travel_tips 契约
+
+**输入：**
+
+```ts
+{
+  destination: string;
+  bounds?: { start: string; end: string };   // 有则真实天气，无则气候平均
+  trip_type?: string;                          // 出行类型
+  pace?: string;                               // 出行节奏
+  skeleton?: ItinerarySkeleton;                // 有则提取 stops 名作 pool（grounded，方案 A）
+  constraints?: Record<string, unknown>;       // where2play 行程规划输入的其他限制
+  locale?: Locale;
+  providers?: string[];
+  pool?: PlaceCard[];                           // 显式池；与 skeleton 二选一
+}
+```
+
+**skeleton 消费（方案 A）：** 传 `skeleton` 时内部提取 `skeleton.stops[].name`（attraction 类）组装 pool 传 findIconicPlaces（grounded）。提取为纯数据转换，无 LLM。where2play 只传 skeleton，不碰 LLM。`skeleton` 与 `pool` 二选一，都传时 skeleton 优先。
+
+**输出：**
+
+```ts
+{
+  intro: string;                  // ≤80 字
+  iconic_places: string[];         // ≤3；附 grounded 标志（ungrounded 供展示层标注「未验证」）
+  transit: string;
+  weather: WeatherSummary;         // open-meteo 聚合；失败降级
+  clothing: string;
+  safety: string;
+}
+```
+
+**天气聚合（多日）：** severity 取全段最差值（fair < caution < adverse < severe）；drivers 全段并集去重；temperature 为 `[min(逐日最低), max(逐日最高)]` 区间。单日直接用当日预报。
+
+**20s 超时与并行降级：** geocode+weather 与 findIconicPlaces 并行，tips-prose 在两者完成后执行。外层 `AbortSignal.timeout(20_000)`；分步超时：geocode 3s、weather 3s、findIconicPlaces 12s、tips-prose 10s。weather/findIconicPlaces 超时降级（缺了仍返回其余），tips-prose 超时报 `errors.travel_tips_timeout`。
+
+**LLM 参数：** findIconicPlaces `max_tokens 300, temperature 0.3`；tips-prose `max_tokens 900, temperature 0.4, stream:false`。均 `AbortSignal` 硬中断。
+
+**缓存：** geocode 复用 `cachedGeocode`；weather 按 `{lat,lng,date}` 缓存 30 分钟；findIconicPlaces 按 `{destination, pool-hash, limit}` 缓存 1 小时。
+
+**不做二次验证：** findIconicPlaces 返回结果直接信任，不调供应商验证；ungrounded 返回 `grounded:false` 供展示层标注。
+
+LLM 调用 ≤ 2 次（findIconicPlaces + tips-prose）。所有用户可见文案为 i18n 键。墙钟关键路径 ≈ 16s，留 4s 余量。
+
+### 20.7 别名重指向与删除 gate
+
+- `plan_itinerary` / `trip_plan` / `trips` 别名 handler 重指向 `makeItinerary`。
+- `arrange_day` / `enrich_arrange_transit` / 旧 `planItinerary` 删除 **gate 于 where2play plan-46**（BFF `plan-day-by-day.ts` 切新管线后）。
+- agent 侧改造（findIconicPlaces、travel_tips、discover 改造、must_see、别名重指向）不依赖 plan-46，可先行。
+
+### 20.8 反模式（沿用）
+
+- 不得把"城市 → POI 列表"写进源码（ADR-042）。ungrounded 模式知识在 LLM 权重。
+- 不得用 iconic 名搜索替换类目搜索（会丢多样化候选池）。
+- travel_tips 不嵌入 make_itinerary 自动管线。
+
+### 20.9 MCP `/mcp` 无会话化（stateless）
+
+`handleMcp`（`src/mcp/http-transport.ts`）改为单例 stateless transport：
+
+```typescript
+let shared: { transport: StreamableHTTPServerTransport; server: McpServer } | null = null;
+function getSharedStateless() {
+  if (!shared) {
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const server = createPlacesMcpServer();
+    void server.connect(transport);
+    shared = { transport, server };
+  }
+  return shared;
+}
+
+export async function handleMcp(req, res, body) {
+  if (req.method === "GET") return res.writeHead(405).end();
+  if (req.method === "DELETE") return res.writeHead(405).end();
+  const { transport } = getSharedStateless();
+  await transport.handleRequest(req, res, body);
+}
+```
+
+- 响应无 `mcp-session-id` 头；不做会话校验；`mcp_session_invalid` 分支移除。
+- `mcpSessions` / `SessionManager` 在 `/mcp` 路径不再引用；`/sse` legacy 路径保持现状。
+- 安全性：MCP 端点鉴权由部署层承担，与会话无关；工具无鉴权差异。
+
+### 20.10 host_instructions 防编造兜底
+
+F47 `host_instructions` 追加硬约束：工具失败时禁止用参数知识编造行程/地点/交通；告知用户服务暂不可用并请重试；可降级调 `travel_tips` 给通用信息，但不得伪造具体行程。stateless 治本（消除会话失败），指令治标（其它失败防最差行为）。
+
+---
+
+## 21. Trip Store（PG 权威 + 内存热副本）+ 按需读取（MVP-16，ADR-046 Accepted 2026-09-02）
+
+**真源：** [ADR-046](../../workspace-specs/adr/ADR-046-trip-store-pg-memory-fetch.md) · `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 16（Feature **63–66**）。
+
+### 21.1 目标与非目标
+
+| 目标 | 说明 |
+| --- | --- |
+| G1 | 多工具改**同一份**行程（换餐、调序、受控改骨架，不必整次重跑 `make_itinerary`） |
+| G2 | 宿主（尤其 where2play）更好使用行程数据与上下文 |
+| 附带 | 减 MCP 大包 JSON；**非**为再抠 LLM 秒数 |
+
+**非目标：** 宿主直连 DB；新增 `start_trip`；对外暴露 `patch_skeleton`；默认按日并发 LLM 骨架；恢复 MCP transport session 当业务状态。
+
+### 21.2 存储与同步
+
+- **权威：** PostgreSQL（§10 / ADR-025），薄表 + JSONB 分区字段可接受；忌长期上帝单列无版本。
+- **热副本：** 进程内内存实体；**非**双主。
+- **写：** 改内存 → 落 PG → 返回新 `revision`（可带 patch）。
+- **读：** 内存命中；未命中或 revision 落后 → PG → 内存。
+- **冲突：** 乐观锁 `revision`。
+- **隔离：** `caller_key` + `expires_at`（TTL）；`trip_not_found` 时禁止宿主编造。
+
+### 21.3 逻辑模型
+
+```text
+Trip
+  id, revision, status, caller_key, locale, created_at, expires_at
+  constraints   # city, bounds, pace, budget, origin, must_include
+  candidates    # places[], restaurants[]（可 slim）
+  skeleton      # days[] stop-order
+  cursor        # day_index, stop_index
+  filled[]      # per-stop slot, legs, notes, card refs
+  artifacts[]   # kind=visa|weather|tips|… payload
+```
+
+### 21.4 `trip_id` 生命周期
+
+- **懒创建：** 任一需账本的业务工具在**无** `trip_id` 时创建（PG + 内存），响应返回 `trip_id`；宿主后续必须带上。
+- **不**新增 `start_trip` / `create_trip`。
+- 调用顺序可变（discover / visa / tips / make 谁先谁建）。
+
+### 21.5 工具面（目标态）
+
+| 工具 | 角色 |
+| --- | --- |
+| `discover_places` / `make_itinerary` / `visa_requirement` / `travel_tips` 等 | 可懒创建；写各自字段；返回 `trip_id` + `revision` + patch/最小块 |
+| `plan_next_stop` | **保留**写侧；吸收原 `display_current_stop` 的写/slot 职责（F65） |
+| `fetch_trip_details` | **新增**只读：`trip_id` + `fields[]` |
+| `display_current_stop` | **删除**（F65）；读改 fetch |
+| `patchSkeleton` | **仅** `src/core` 内部；由 fill 等路径调用；不注册 MCP/HTTP |
+
+写响应形状（目标）：`{ trip_id, revision, patch?, next_tool_call?, …最小展示块 }`。  
+读：`fetch_trip_details` 按 fields 切片（constraints / skeleton / day_n / filled / artifacts / …）。
+
+### 21.6 宿主镜像
+
+| 宿主 | 策略 |
+| --- | --- |
+| where2play | 同 schema 本地 hydrate；apply patch |
+| Cursor / ChatBox | 弱镜像（`trip_id` + 摘要）；细节 fetch |
+
+### 21.7 与 §18 as-built 的关系
+
+§18 描述 **MVP-10～15 现行链**（仍含 `display_current_stop` + 宿主回传 skeleton）。MVP-16 落地后：
+
+1. 填充主路径改为 `trip_id` + cursor（candidates 不再每步回传）。
+2. 链：`… → plan_next_stop → …`；展示用 `fetch_trip_details`。
+3. §18.2 / §18.3 在 F65 Done 后修订为无 display；此前双写兼容旧 JSON 链（P0）。
+
+### 21.8 分期
+
+见 refactor-plan MVP-16：P0 = F63+F64+F66 评估；P1 = F65+精简落地；P2 = 内部 patch + artifacts；P3 = 清理/观测。
+
+### 21.9 反模式
+
+- 下发 `DATABASE_URL` 给 MCP 宿主
+- 仅内存权威、无 PG
+- 真双主无 revision
+- 对外 `patch_skeleton` / 新增 `start_trip`
+- 默认按日并发骨架冒充加速
+
+---
