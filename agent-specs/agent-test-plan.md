@@ -1912,13 +1912,13 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 
 | ID | 类型 | 主题 | 文件 | 状态 |
 | --- | --- | --- | --- | --- |
-| TC-M16-63-01 | Unit | 无 trip_id 时懒创建；返回 trip_id + revision | `src/core/trip-store*.test.ts`（待建） | ToDo |
-| TC-M16-63-02 | Unit | 写后内存与 PG 一致；revision 递增 | 同上 | ToDo |
-| TC-M16-63-03 | Unit | 过期 revision 写冲突失败 | 同上 | ToDo |
-| TC-M16-63-04 | Unit | 错误 caller / 过期 trip → trip_not_found | 同上 | ToDo |
-| TC-M16-64-01 | Unit/Contract | `fetch_trip_details` 按 fields 切片 | `src/core` + MCP/HTTP contract | ToDo |
-| TC-M16-64-02 | Contract | 无效 trip_id 结构化错误；无编造 | 同上 | ToDo |
+| TC-M16-63-01 | Unit | 无 trip_id 时懒创建；返回 trip_id + revision | `src/core/trip-store.test.ts` | **Done** |
+| TC-M16-63-02 | Unit | 写后内存与 PG 一致；revision 递增 | 同上 | **Done** |
+| TC-M16-63-03 | Unit | 过期 revision 写冲突失败 | 同上 | **Done** |
+| TC-M16-63-04 | Unit | 错误 caller / 过期 trip → trip_not_found | 同上 | **Done** |
+| TC-M16-64-01 | Unit/Contract | `fetch_trip_details` 按 fields 切片 | `src/core/fetch-trip-details.test.ts` + `tests/fetch-trip-details-dispatch.test.ts` | **Done** |
+| TC-M16-64-02 | Contract | 无效 trip_id 结构化错误；无编造 | 同上 | **Done** |
 | TC-M16-65-01 | Unit | 无 display 时 plan_next_stop 链可完成一日 | `src/mcp/create-server*.test.ts` | ToDo |
 | TC-M16-65-02 | Contract | MCP/HTTP 不再注册 display_current_stop | 同上 + guide | ToDo |
-| TC-M16-66-01 | Spec | 对外工具精简评估表已写入（保留/删/合并） | refactor-plan / stories | ToDo |
+| TC-M16-66-01 | Spec | 对外工具精简评估表已写入（保留/删/合并） | refactor-plan / stories | **Done** |
 | TC-M16-LIVE-01 | E2E opt-in | 持 trip_id 完成 Lisbon 链到 trip_complete；可 fetch skeleton/某日 | `scripts/e2e-places-agent.py` | ToDo |

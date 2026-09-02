@@ -24,39 +24,58 @@
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
 | 1 | geocode | ✓ skipped(no hotel) |  |
-| 2 | discover_places | ✓ places=32, restaurants=32 | 3.53 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 9.65 |
-| 4 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.17 |
+| 2 | discover_places | ✓ places=32, restaurants=32 | 2.12 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 2.27 |
+| 4 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
 | 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 7 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
+| 7 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
 | 8 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 9 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
+| 9 | plan_next_stop | ✓ next=display_current_stop | 0.73 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 11 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
-| 12 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 13 | plan_next_stop | ✓ next=display_current_stop | 0.89 |
-| 14 | display_current_stop | ✓ next=display_current_stop | 0.01 |
-| 15 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 16 | plan_next_stop | ✓ next=display_current_stop | 1.02 |
+| 11 | plan_next_stop | ✓ next=display_current_stop | 0.66 |
+| 12 | display_current_stop | ✓ next=display_current_stop | 0.01 |
+| 13 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 14 | plan_next_stop | ✓ next=display_current_stop | 0.89 |
+| 15 | display_current_stop | ✓ next=plan_next_stop | 0.04 |
+| 16 | plan_next_stop | ✓ next=display_current_stop | 0.66 |
 | 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.67 |
+| 18 | plan_next_stop | ✓ next=display_current_stop | 0.72 |
 | 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 20 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
-| 21 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 22 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
-| 23 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 24 | plan_next_stop | ✓ next=display_current_stop | 0.72 |
-| 25 | display_current_stop | ✓ next=trip_complete | 0.01 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.74 |
+| 21 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjtl2z2000d4e0ua0xywipr` · `revision=21`
+
 ## 骨架
 
-- **Day 1** 老城与城堡区：布拉格城堡 → 圣维特主教座堂 → 黄金巷 → Havelská Koruna → 圣乔治大殿 → Lokál Dlouhááá
-- **Day 2** 老城与啤酒：Prague Museum – House at the Golden Ring → Story of Prague Museum → 布拉格铁艺博物馆 → Kantýna → 火药塔 → 布拉格美食之旅
+- **Day 1** 老城与啤酒散步：Story of Prague Museum → 查理大桥 → Havelská Koruna → 布拉格天文钟 → 火药塔
+- **Day 2** 城堡区经典：布拉格城堡 → 圣维特主教座堂 → ROESEL - beer & food → 黄金巷 → 罗瑞塔堂
 
 ## 逐站填充结果
+
+### Story of Prague Museum  · attraction
+- 时段：09:00 – 10:30
+
+### 查理大桥  · attraction
+- 时段：10:33 – 12:03
+- 到达：walk 约 3 分钟
+
+### Havelská Koruna  · meal
+- 时段：12:15 – 13:15
+- 到达：walk 约 12 分钟
+- 备注：station_timing_adjusted
+
+### 布拉格天文钟  · attraction
+- 时段：13:18 – 14:48
+- 到达：walk 约 3 分钟
+
+### 火药塔  · attraction
+- 时段：14:55 – 16:25
+- 到达：walk 约 7 分钟
+- 备注：station_timing_adjusted
 
 ### 布拉格城堡  · attraction
 - 时段：09:00 – 10:30
@@ -65,49 +84,17 @@
 - 时段：10:31 – 12:01
 - 到达：walk 约 1 分钟
 
+### ROESEL - beer & food  · meal
+- 时段：12:15 – 13:15
+- 到达：walk 约 14 分钟
+- 备注：station_timing_adjusted
+
 ### 黄金巷  · attraction
-- 时段：12:05 – 13:35
-- 到达：walk 约 4 分钟
-
-### Havelská Koruna  · meal
-- 时段：14:02 – 15:02
-- 到达：walk 约 27 分钟
+- 时段：13:34 – 15:04
+- 到达：walk 约 19 分钟
 - 备注：station_timing_adjusted
 
-### 圣乔治大殿  · attraction
-- 时段：15:31 – 17:01
-- 到达：walk 约 29 分钟
-- 备注：station_timing_adjusted
-
-### Lokál Dlouhááá  · meal
-- 时段：18:00 – 19:00
-- 到达：walk 约 30 分钟
-- 备注：station_timing_adjusted
-
-### Prague Museum – House at the Golden Ring  · attraction
-- 时段：09:00 – 10:30
-
-### Story of Prague Museum  · attraction
-- 时段：10:41 – 12:11
-- 到达：walk 约 11 分钟
-- 备注：station_timing_adjusted
-
-### 布拉格铁艺博物馆  · attraction
-- 时段：12:22 – 13:52
-- 到达：walk 约 11 分钟
-- 备注：station_timing_adjusted
-
-### Kantýna  · meal
-- 时段：14:02 – 15:02
-- 到达：walk 约 10 分钟
-- 备注：station_timing_adjusted
-
-### 火药塔  · attraction
-- 时段：15:10 – 16:40
-- 到达：walk 约 8 分钟
-- 备注：station_timing_adjusted
-
-### 布拉格美食之旅  · meal
-- 时段：18:00 – 19:00
-- 到达：walk 约 7 分钟
+### 罗瑞塔堂  · attraction
+- 时段：15:23 – 16:53
+- 到达：walk 约 19 分钟
 - 备注：station_timing_adjusted

@@ -23,8 +23,8 @@
 
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
-| 1 | geocode | ✓  | 0.18 |
-| 2 | discover_places | ✓ places=33, restaurants=17 | 5.07 |
+| 1 | geocode | ✓  | 0.24 |
+| 2 | discover_places | ✓ places=34, restaurants=17 | 4.14 |
 | 3 | make_itinerary | ✗  |  |
 
 ## 结果：失败
@@ -32,3 +32,5 @@
 ```
 make_itinerary not ok: {'key': 'errors.make_itinerary_failed', 'locales': {'CN': '无法生成行程骨架。'}} make_itinerary: LLM timed out after 90000ms
 ```
+
+**Trip Store:** `trip_id=cmtjtcoei00044e0ubgmchfnq` · `revision=2`

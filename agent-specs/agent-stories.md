@@ -224,10 +224,10 @@
 | 53–58 | agent | E2E 填充/骨架整改 | （见第二部分） | end_time / meal / pace / 站名 / 区域展开 / 失败 detail | 见下文 | **MVP-13** | 是 | Done |
 | 59–61 | agent | 填充可用性 | （见第二部分） | stay 角色 / leg 闸 / 迟到午餐 | 见下文 | **MVP-14** | 是 | Done |
 | 62 | agent | 骨架确定性修复 | `places-agent-skeleton-deterministic-repair` | reseatStay + dropCity + 超时 prior validation | 见下文 | **MVP-15** | 是 | **Done** |
-| 63 | agent | Trip Store | `places-agent-trip-store` | PG+内存；懒创建；revision（ADR-046） | 见下文 | **MVP-16** | 是 | ToDo |
-| 64 | agent | fetch_trip_details | `places-agent-fetch-trip-details` | 按 fields 只读切片 | 见下文 | **MVP-16** | 是 | ToDo |
+| 63 | agent | Trip Store | `places-agent-trip-store` | PG+内存；懒创建；revision（ADR-046） | 见下文 | **MVP-16** | 是 | **Done（P0）** |
+| 64 | agent | fetch_trip_details | `places-agent-fetch-trip-details` | 按 fields 只读切片 | 见下文 | **MVP-16** | 是 | **Done（P0）** |
 | 65 | agent | 删除 display_current_stop | `places-agent-drop-display-current-stop` | 写并入 plan_next_stop；读走 fetch | 见下文 | **MVP-16** | 是 | ToDo |
-| 66 | agent | 对外工具精简 | `places-agent-tool-surface-slim` | 评估并落地删/合并（含 arrange gate） | 见下文 | **MVP-16** | 是 | ToDo |
+| 66 | agent | 对外工具精简 | `places-agent-tool-surface-slim` | 评估并落地删/合并（含 arrange gate） | 见下文 | **MVP-16** | 是 | **评估 Done（硬删 ToDo）** |
 
 
 **本表变更摘要（2026-09-02）：**

@@ -35,3 +35,23 @@ model CallerApiKey {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
+
+/** ADR-046 / MVP-16 — trip ledger (PG authority + memory hot replica). */
+model Trip {
+  id          String   @id @default(cuid())
+  revision    Int      @default(1)
+  status      String   @default("active")
+  callerKey   String
+  locale      String?
+  expiresAt   DateTime
+  constraints Json?
+  candidates  Json?
+  skeleton    Json?
+  cursor      Json?
+  filled      Json?
+  artifacts   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([callerKey, expiresAt])
+}

@@ -23,74 +23,50 @@
 
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
-| 1 | geocode | ✓  | 0.17 |
-| 2 | discover_places | ✓ places=34, restaurants=23 | 4.13 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 7.25 |
-| 4 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.39 |
+| 1 | geocode | ✓  | 0.21 |
+| 2 | discover_places | ✓ places=36, restaurants=23 | 7.03 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 69.66 |
+| 4 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 2.22 |
 | 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 7 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
+| 7 | plan_next_stop | ✓ next=display_current_stop | 0.9 |
 | 8 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 9 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
+| 9 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 11 | plan_next_stop | ✓ next=display_current_stop | 0.74 |
-| 12 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 13 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
-| 14 | display_current_stop | ✓ next=display_current_stop | 0.01 |
+| 11 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
+| 12 | display_current_stop | ✓ next=display_current_stop | 0.01 |
+| 13 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 14 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
 | 15 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 16 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
+| 16 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
 | 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.82 |
+| 18 | plan_next_stop | ✓ next=display_current_stop | 0.74 |
 | 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 20 | plan_next_stop | ✓ next=display_current_stop | 0.84 |
-| 21 | display_current_stop | ✓ next=display_current_stop | 0.01 |
-| 22 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 23 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
-| 24 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 25 | plan_next_stop | ✓ next=display_current_stop | 1.2 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.68 |
+| 21 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 22 | plan_next_stop | ✓ next=display_current_stop | 0.89 |
+| 23 | display_current_stop | ✓ next=display_current_stop | 0.01 |
+| 24 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 25 | plan_next_stop | ✓ next=display_current_stop | 0.93 |
 | 26 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 27 | plan_next_stop | ✓ next=display_current_stop | 0.87 |
-| 28 | display_current_stop | ✓ next=plan_next_stop | 0.07 |
-| 29 | plan_next_stop | ✓ next=display_current_stop | 1.57 |
-| 30 | display_current_stop | ✓ next=trip_complete | 0.02 |
+| 27 | plan_next_stop | ✓ next=display_current_stop | 0.89 |
+| 28 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 29 | plan_next_stop | ✓ next=display_current_stop | 0.85 |
+| 30 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 31 | plan_next_stop | ✓ next=display_current_stop | 0.78 |
+| 32 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjtp4kj000m4e0udv83dlmq` · `revision=32`
+
 ## 骨架
 
-- **Day 1** 东山寺院与庭院：Hiiragiya Ryokan → 清水寺 → Kiyomizu-dera Hondo (Main Hall) → Okabeya → 二年坂 → 建仁寺
-- **Day 2** 岚山：Hiiragiya Ryokan → 岚山 → 岚山 竹林小径 → 岚山猴子公园
-- **Day 3** 北山与洛北寺院：Hiiragiya Ryokan → Kinkaku-ji Temple → 龙安寺 → 飲茶 柏三葉 西陣店 → 慈照寺
+- **Day 1** 西山寺院与竹林：Hiiragiya Ryokan → 岚山 → 岚山 竹林小径 → 天龙寺 → 岚山猴子公园
+- **Day 2** 东山至伏见：Hiiragiya Ryokan → Kiyomizu-dera Hondo (Main Hall) → 二年坂 → 三年坂 → Gion Nishikawa → Mount Inari
+- **Day 3** 金阁寺与北山庭院：Hiiragiya Ryokan → Kinkaku-ji Temple → 龙安寺 → 鸟岩楼 → 京都御苑
 
 ## 逐站填充结果
-
-### Hiiragiya Ryokan  · stay
-- 时段：09:00 – 09:00
-- 备注：origin_stop
-
-### 清水寺  · attraction
-- 时段：09:24 – 10:54
-- 到达：transit 约 24 分钟
-- 起点直达：transit 约 24 分钟
-- 备注：station_timing_adjusted
-
-### Kiyomizu-dera Hondo (Main Hall)  · attraction
-- 时段：10:59 – 12:29
-- 到达：walk 约 5 分钟
-
-### Okabeya  · meal
-- 时段：12:35 – 13:35
-- 到达：walk 约 6 分钟
-- 备注：station_timing_adjusted
-
-### 二年坂  · attraction
-- 时段：13:40 – 15:10
-- 到达：walk 约 5 分钟
-
-### 建仁寺  · attraction
-- 时段：15:22 – 16:52
-- 到达：walk 约 12 分钟
-- 备注：station_timing_adjusted
 
 ### Hiiragiya Ryokan  · stay
 - 时段：09:00 – 09:00
@@ -107,9 +83,41 @@
 - 到达：walk 约 29 分钟
 - 备注：station_timing_adjusted
 
+### 天龙寺  · attraction
+- 时段：13:40 – 15:10
+- 到达：walk 约 4 分钟
+
 ### 岚山猴子公园  · attraction
-- 时段：13:54 – 15:24
-- 到达：walk 约 18 分钟
+- 时段：15:24 – 16:54
+- 到达：walk 约 14 分钟
+- 备注：station_timing_adjusted
+
+### Hiiragiya Ryokan  · stay
+- 时段：09:00 – 09:00
+- 备注：origin_stop
+
+### Kiyomizu-dera Hondo (Main Hall)  · attraction
+- 时段：09:24 – 10:54
+- 到达：transit 约 24 分钟
+- 起点直达：transit 约 24 分钟
+- 备注：station_timing_adjusted
+
+### 二年坂  · attraction
+- 时段：11:05 – 12:35
+- 到达：walk 约 11 分钟
+- 备注：station_timing_adjusted
+
+### 三年坂  · attraction
+- 时段：12:36 – 14:06
+- 到达：walk 约 1 分钟
+
+### Gion Nishikawa  · meal
+- 时段：14:10 – 15:10
+- 到达：walk 约 4 分钟
+
+### Mount Inari  · attraction
+- 时段：15:42 – 17:12
+- 到达：transit 约 32 分钟
 - 备注：station_timing_adjusted
 
 ### Hiiragiya Ryokan  · stay
@@ -127,12 +135,12 @@
 - 到达：walk 约 26 分钟
 - 备注：station_timing_adjusted
 
-### 飲茶 柏三葉 西陣店  · meal
-- 时段：13:31 – 14:31
-- 到达：transit 约 26 分钟
+### 鸟岩楼  · meal
+- 时段：13:47 – 14:47
+- 到达：walk 约 42 分钟
 - 备注：station_timing_adjusted
 
-### 慈照寺  · attraction
-- 时段：15:09 – 16:39
-- 到达：transit 约 38 分钟
+### 京都御苑  · attraction
+- 时段：15:17 – 16:47
+- 到达：walk 约 30 分钟
 - 备注：station_timing_adjusted

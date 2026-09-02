@@ -18,6 +18,7 @@ describe("healthEnvelope", () => {
       "make_itinerary",
       "plan_next_stop",
       "display_current_stop",
+      "fetch_trip_details",
       "visa_requirement",
       "travel_tips",
       "chat",
@@ -28,6 +29,11 @@ describe("healthEnvelope", () => {
 describe("statusForOutcome", () => {
   it("should_map_place_not_found_to_404", () => {
     expect(statusForOutcome("errors.place_not_found")).toBe(404);
+  });
+
+  it("should_map_trip_not_found_to_404_and_conflict_to_409", () => {
+    expect(statusForOutcome("errors.trip_not_found")).toBe(404);
+    expect(statusForOutcome("errors.trip_revision_conflict")).toBe(409);
   });
 
   it("should_map_plan_input_errors_to_400", () => {

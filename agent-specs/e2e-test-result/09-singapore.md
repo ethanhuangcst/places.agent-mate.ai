@@ -24,70 +24,86 @@
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
 | 1 | geocode | ✓ skipped(no hotel) |  |
-| 2 | discover_places | ✓ places=33, restaurants=32 | 3.74 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 12.83 |
-| 4 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.24 |
+| 2 | discover_places | ✓ places=33, restaurants=32 | 4.86 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 15.03 |
+| 4 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 0.89 |
 | 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 7 | plan_next_stop | ✓ next=display_current_stop | 0.9 |
-| 8 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 9 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
+| 7 | plan_next_stop | ✓ next=display_current_stop | 0.86 |
+| 8 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 9 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 11 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
+| 11 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
 | 12 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 13 | plan_next_stop | ✓ next=display_current_stop | 1.0 |
-| 14 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 15 | plan_next_stop | ✓ next=display_current_stop | 0.95 |
+| 13 | plan_next_stop | ✓ next=display_current_stop | 0.91 |
+| 14 | display_current_stop | ✓ next=plan_next_stop | 0.04 |
+| 15 | plan_next_stop | ✓ next=display_current_stop | 0.94 |
 | 16 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
-| 19 | display_current_stop | ✓ next=trip_complete | 0.01 |
+| 18 | plan_next_stop | ✓ next=display_current_stop | 0.99 |
+| 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
+| 21 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 22 | plan_next_stop | ✓ next=display_current_stop | 0.65 |
+| 23 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjtjqe3000b4e0uk9dx6074` · `revision=23`
+
 ## 骨架
 
-- **Day 1** 市中心与滨海湾：新加坡国家美术馆 → 政府大厦 → Shisen Hanten by Chen Kentaro → Merlion Park → 云雾林 → Spectra - A Light & Water Show → 黑珍珠 The Black Pearl | Cantonese Cuisine Restaurant in Singapore
-- **Day 2** 圣淘沙：圣淘沙 → 圣淘沙斜坡滑车
+- **Day 1** 滨海湾亲子经典：Merlion Park → 亚洲文明博物馆 → 黑珍珠 The Black Pearl | Cantonese Cuisine Restaurant in Singapore → 螺旋桥 → 云雾林 → SkyPark Observation Deck → HOLYCRAB
+- **Day 2** 圣淘沙亲子一日：Fort Siloso → 圣淘沙斜坡滑车 → Singapore Skyline View → Spectra - A Light & Water Show
 
 ## 逐站填充结果
 
-### 新加坡国家美术馆  · attraction
+### Merlion Park  · attraction
 - 时段：09:00 – 10:30
 
-### 政府大厦  · attraction
-- 时段：10:33 – 12:03
-- 到达：walk 约 3 分钟
-
-### Shisen Hanten by Chen Kentaro  · meal
-- 时段：12:39 – 13:39
-- 到达：walk 约 36 分钟
-- 备注：station_timing_adjusted
-
-### Merlion Park  · attraction
-- 时段：14:24 – 15:54
-- 到达：walk 约 45 分钟
-- 备注：station_timing_adjusted
-
-### 云雾林  · attraction
-- 时段：16:24 – 17:54
-- 到达：walk 约 30 分钟
-- 备注：station_timing_adjusted
-
-### Spectra - A Light & Water Show  · attraction
-- 时段：18:09 – 19:39
-- 到达：walk 约 15 分钟
+### 亚洲文明博物馆  · attraction
+- 时段：10:38 – 12:08
+- 到达：walk 约 8 分钟
 - 备注：station_timing_adjusted
 
 ### 黑珍珠 The Black Pearl | Cantonese Cuisine Restaurant in Singapore  · meal
-- 时段：20:11 – 21:11
-- 到达：walk 约 32 分钟
+- 时段：12:26 – 13:26
+- 到达：walk 约 18 分钟
 - 备注：station_timing_adjusted
 
-### 圣淘沙  · attraction
+### 螺旋桥  · attraction
+- 时段：13:50 – 15:20
+- 到达：walk 约 24 分钟
+- 备注：station_timing_adjusted
+
+### 云雾林  · attraction
+- 时段：15:33 – 17:03
+- 到达：walk 约 13 分钟
+- 备注：station_timing_adjusted
+
+### SkyPark Observation Deck  · attraction
+- 时段：17:13 – 18:43
+- 到达：walk 约 10 分钟
+- 备注：station_timing_adjusted
+
+### HOLYCRAB  · meal
+- 时段：19:09 – 20:09
+- 到达：walk 约 26 分钟
+- 备注：station_timing_adjusted
+
+### Fort Siloso  · attraction
 - 时段：09:00 – 10:30
 
 ### 圣淘沙斜坡滑车  · attraction
-- 时段：11:25 – 12:55
-- 到达：walk 约 55 分钟
+- 时段：10:51 – 12:21
+- 到达：walk 约 21 分钟
 - 备注：station_timing_adjusted
+
+### Singapore Skyline View  · attraction
+- 时段：13:07 – 14:37
+- 到达：transit 约 46 分钟
+- 备注：station_timing_adjusted
+
+### Spectra - A Light & Water Show  · attraction
+- 时段：14:38 – 16:08
+- 到达：walk 约 1 分钟

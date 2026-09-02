@@ -48,6 +48,7 @@ describe("guide literals", () => {
       "make_itinerary",
       "plan_next_stop",
       "display_current_stop",
+      "fetch_trip_details",
       "Tripadvisor.enrich",
     ]);
     const httpOnly = GUIDE_CAPABILITIES.filter((cap) => cap.channel === "http");

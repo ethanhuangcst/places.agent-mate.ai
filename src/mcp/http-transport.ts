@@ -29,13 +29,16 @@ function authorizationOf(req: IncomingMessage): string | null {
   return Array.isArray(header) ? (header[0] ?? null) : header;
 }
 
-export async function requireCaller(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function requireCaller(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<{ ok: true; keyId: string } | { ok: false }> {
   const auth = await authenticateCaller(authorizationOf(req));
-  if (auth.ok) return true;
+  if (auth.ok) return { ok: true, keyId: auth.keyId };
   res.statusCode = 401;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(errorEnvelope("errors.caller_unauthorized")));
-  return false;
+  return { ok: false };
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<{ ok: true; data: unknown } | { ok: false }> {
@@ -87,15 +90,16 @@ export function mcpInvalidSessionBody(reason: "missing_session" | "expired_or_un
 // only), and MCP tool results are returned synchronously in the
 // `tools/call` response, so per-request construction has no correctness cost.
 
-async function createStatelessTransport(): Promise<StreamableHTTPServerTransport> {
+async function createStatelessTransport(callerKey: string): Promise<StreamableHTTPServerTransport> {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = createPlacesMcpServer();
+  const server = createPlacesMcpServer({ callerKey });
   await server.connect(transport);
   return transport;
 }
 
 export async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!(await requireCaller(req, res))) return;
+  const auth = await requireCaller(req, res);
+  if (!auth.ok) return;
 
   // Stateless: no SSE uplink, no session to delete.
   if (req.method === "GET" || req.method === "DELETE") {
@@ -120,16 +124,17 @@ export async function handleMcp(req: IncomingMessage, res: ServerResponse): Prom
   }
   const body = parsed.data;
 
-  const transport = await createStatelessTransport();
+  const transport = await createStatelessTransport(auth.keyId);
   await transport.handleRequest(req, res, body);
 }
 
 // --- Legacy SSE transport (stateful, unchanged) -----------------------------
 
 export async function handleSse(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!(await requireCaller(req, res))) return;
+  const auth = await requireCaller(req, res);
+  if (!auth.ok) return;
   const transport = new SSEServerTransport("/messages", res);
-  const server = createPlacesMcpServer();
+  const server = createPlacesMcpServer({ callerKey: auth.keyId });
   sseSessions.add(transport.sessionId, transport);
   transport.onclose = () => {
     sseSessions.delete(transport.sessionId);
@@ -142,7 +147,8 @@ export async function handleSseMessage(
   res: ServerResponse,
   sessionId: string | undefined,
 ): Promise<void> {
-  if (!(await requireCaller(req, res))) return;
+  const auth = await requireCaller(req, res);
+  if (!auth.ok) return;
   const transport = sessionId
     ? (sseSessions.get(sessionId) as SSEServerTransport | undefined)
     : undefined;

@@ -24,61 +24,63 @@
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
 | 1 | geocode | ✓ skipped(no hotel) |  |
-| 2 | discover_places | ✓ places=27, restaurants=40 | 6.34 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 10.21 |
+| 2 | discover_places | ✓ places=27, restaurants=39 | 2.13 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 4.43 |
 | 4 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.1 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 1.2 |
 | 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 7 | plan_next_stop | ✓ next=display_current_stop | 0.63 |
+| 7 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
 | 8 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
 | 9 | plan_next_stop | ✓ next=display_current_stop | 0.67 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 11 | plan_next_stop | ✓ next=display_current_stop | 0.68 |
+| 11 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
 | 12 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 13 | plan_next_stop | ✓ next=display_current_stop | 0.68 |
+| 13 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
 | 14 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 15 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 16 | plan_next_stop | ✓ next=display_current_stop | 0.84 |
+| 16 | plan_next_stop | ✓ next=display_current_stop | 0.85 |
 | 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
+| 18 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
 | 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 20 | plan_next_stop | ✓ next=display_current_stop | 0.61 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
 | 21 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 22 | plan_next_stop | ✓ next=display_current_stop | 0.65 |
-| 23 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 24 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
+| 22 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
+| 23 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 24 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
 | 25 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 26 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 27 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
+| 27 | plan_next_stop | ✓ next=display_current_stop | 0.96 |
 | 28 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 29 | plan_next_stop | ✓ next=display_current_stop | 0.68 |
+| 29 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
 | 30 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 31 | plan_next_stop | ✓ next=display_current_stop | 0.78 |
-| 32 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 33 | plan_next_stop | ✓ next=display_current_stop | 0.63 |
-| 34 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 35 | plan_next_stop | ✓ next=display_current_stop | 0.65 |
+| 31 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
+| 32 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 33 | plan_next_stop | ✓ next=display_current_stop | 0.66 |
+| 34 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 35 | plan_next_stop | ✓ next=display_current_stop | 0.73 |
 | 36 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 37 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
 | 38 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
 | 39 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
 | 40 | plan_next_stop | ✓ next=display_current_stop | 0.68 |
 | 41 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 42 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
+| 42 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
 | 43 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 44 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
-| 45 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 46 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
-| 47 | display_current_stop | ✓ next=trip_complete | 0.02 |
+| 44 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
+| 45 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 46 | plan_next_stop | ✓ next=display_current_stop | 0.66 |
+| 47 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjtmzni000i4e0uq8wwfgep` · `revision=47`
+
 ## 骨架
 
-- **Day 1** 老城露天市场与本约瑟夫片区：Jemaa el-Fnaa → Le Jardin Secret → Café des Épices → Madrasa Ben Youssef → 马拉喀什博物馆 → Chez Omar
-- **Day 2** 达尔巴查与麦地那北侧：Dar El Bacha Museum → Banksy Universe Marrakech → Le Mart → Art De Cuivre Travel → Almoravid Koubba → Ksar Essaoussan
-- **Day 3** 南部古迹与卡斯巴：巴西亞王宮 → 巴迪皇宫 → Mazel | Street Food Restaurant Marrakech → Bab Agnaou → 萨阿迪王朝陵墓 → Kasbah Andalussiya
-- **Day 4** 花园与新城：Musée Berbère Jardin Majorelle → Yves Saint Laurent Museum → 19GRAMS Cafe → 梅纳拉花园 → Musée Macma → Beldi Fusion Kitchen Guéliz
+- **Day 1** 老城露天广场与本约瑟夫片区：Jemaa el-Fnaa → Le Jardin Secret → Café des Épices → Madrasa Ben Youssef → 马拉喀什博物馆 → Le Jardin Restaurant Marrakech Medina
+- **Day 2** 南部皇宫与卡斯巴片区：巴西亞王宮 → 巴迪皇宫 → BlackChich - African Berber Fusion → Bab Agnaou → 萨阿迪王朝陵墓 → Kasbah Andalussiya
+- **Day 3** 马约尔花园与新城博物馆片区：Musée Berbère Jardin Majorelle → Yves Saint Laurent Museum → 19GRAMS Cafe → Musée Macma → Banksy Universe Marrakech → Beldi Fusion Kitchen Guéliz
+- **Day 4** 库图比亚与花园慢游：Koutoubia Minaret → Park Lalla Hasana → Mandala Society - Koutoubia - Marrakech → Park Arsat Moulay Abdesalam → 梅纳拉花园 → Rooftop Garden
 
 ## 逐站填充结果
 
@@ -104,38 +106,9 @@
 - 时段：14:51 – 16:21
 - 到达：walk 约 1 分钟
 
-### Chez Omar  · meal
+### Le Jardin Restaurant Marrakech Medina  · meal
 - 时段：18:00 – 19:00
-- 到达：walk 约 10 分钟
-- 备注：station_timing_adjusted
-
-### Dar El Bacha Museum  · attraction
-- 时段：09:00 – 10:30
-
-### Banksy Universe Marrakech  · attraction
-- 时段：10:47 – 12:17
-- 到达：walk 约 17 分钟
-- 备注：station_timing_adjusted
-
-### Le Mart  · meal
-- 时段：12:31 – 13:31
-- 到达：walk 约 14 分钟
-- 备注：station_timing_adjusted
-
-### Art De Cuivre Travel  · attraction
-- 时段：13:39 – 15:09
-- 到达：walk 约 8 分钟
-- 备注：station_timing_adjusted
-
-### Almoravid Koubba  · attraction
-- 时段：15:20 – 16:50
-- 到达：walk 约 11 分钟
-- 备注：station_timing_adjusted
-
-### Ksar Essaoussan  · meal
-- 时段：18:00 – 19:00
-- 到达：walk 约 11 分钟
-- 备注：station_timing_adjusted
+- 到达：walk 约 5 分钟
 
 ### 巴西亞王宮  · attraction
 - 时段：09:00 – 10:30
@@ -145,17 +118,18 @@
 - 到达：walk 约 8 分钟
 - 备注：station_timing_adjusted
 
-### Mazel | Street Food Restaurant Marrakech  · meal
-- 时段：12:10 – 13:10
-- 到达：walk 约 2 分钟
+### BlackChich - African Berber Fusion  · meal
+- 时段：12:17 – 13:17
+- 到达：walk 约 9 分钟
+- 备注：station_timing_adjusted
 
 ### Bab Agnaou  · attraction
-- 时段：13:20 – 14:50
-- 到达：walk 约 10 分钟
+- 时段：13:33 – 15:03
+- 到达：walk 约 16 分钟
 - 备注：station_timing_adjusted
 
 ### 萨阿迪王朝陵墓  · attraction
-- 时段：14:54 – 16:24
+- 时段：15:07 – 16:37
 - 到达：walk 约 4 分钟
 
 ### Kasbah Andalussiya  · meal
@@ -174,16 +148,44 @@
 - 到达：walk 约 18 分钟
 - 备注：station_timing_adjusted
 
-### 梅纳拉花园  · attraction
-- 时段：14:11 – 15:41
-- 到达：walk 约 52 分钟
+### Musée Macma  · attraction
+- 时段：13:29 – 14:59
+- 到达：walk 约 10 分钟
 - 备注：station_timing_adjusted
 
-### Musée Macma  · attraction
-- 时段：16:30 – 18:00
-- 到达：walk 约 49 分钟
+### Banksy Universe Marrakech  · attraction
+- 时段：15:40 – 17:10
+- 到达：walk 约 41 分钟
 - 备注：station_timing_adjusted
 
 ### Beldi Fusion Kitchen Guéliz  · meal
-- 时段：18:02 – 19:02
-- 到达：walk 约 2 分钟
+- 时段：18:00 – 19:00
+- 到达：walk 约 39 分钟
+- 备注：station_timing_adjusted
+
+### Koutoubia Minaret  · attraction
+- 时段：09:00 – 10:30
+
+### Park Lalla Hasana  · attraction
+- 时段：10:34 – 12:04
+- 到达：walk 约 4 分钟
+
+### Mandala Society - Koutoubia - Marrakech  · meal
+- 时段：12:15 – 13:15
+- 到达：walk 约 11 分钟
+- 备注：station_timing_adjusted
+
+### Park Arsat Moulay Abdesalam  · attraction
+- 时段：13:24 – 14:54
+- 到达：walk 约 9 分钟
+- 备注：station_timing_adjusted
+
+### 梅纳拉花园  · attraction
+- 时段：15:49 – 17:19
+- 到达：walk 约 55 分钟
+- 备注：station_timing_adjusted
+
+### Rooftop Garden  · meal
+- 时段：18:09 – 19:09
+- 到达：walk 约 50 分钟
+- 备注：station_timing_adjusted

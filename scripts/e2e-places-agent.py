@@ -151,7 +151,7 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
                            "days": sc["days"], "pace": sc["pace"], "spend": sc["spend"],
                            "hotel": sc["hotel"], "must_include": sc["must_include"],
                            "interests": sc["interests"], "steps": [], "days_md": [],
-                           "ok": False, "error": None}
+                           "ok": False, "error": None, "trip_id": None, "revision": None}
     start = "2026-10-10"
     bounds = bounds_for(sc["days"], start)
     locale = "CN"
@@ -192,8 +192,11 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
                 "restaurants": list(cand.get("restaurants") or [])}
         rec["steps"].append({"tool": "discover_places", "ok": True, "elapsed_s": r["elapsed_s"],
                               "n_places": len(pool["places"]), "n_restaurants": len(pool["restaurants"]),
-                              "inferred_must_see": data.get("inferred_must_see") or []})
+                              "inferred_must_see": data.get("inferred_must_see") or [],
+                              "trip_id": data.get("trip_id"), "revision": data.get("revision")})
         rec["pool"] = pool
+        rec["trip_id"] = data.get("trip_id")
+        rec["revision"] = data.get("revision")
     except Exception as e:
         rec["error"] = f"discover_places failed: {e}"
         rec["steps"].append({"tool": "discover_places", "ok": False, "error": str(e)})
@@ -208,6 +211,10 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
         mk["origin"] = origin
     if sc["interests"]:
         mk["natural_language"] = sc["interests"]
+    if rec.get("trip_id"):
+        mk["trip_id"] = rec["trip_id"]
+    if rec.get("revision"):
+        mk["revision"] = rec["revision"]
     try:
         r = mcp_call("make_itinerary", mk, key, timeout=300)
         env = r["envelope"]
@@ -217,8 +224,11 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
             return rec
         data = env.get("data") or {}
         rec["skeleton"] = data.get("skeleton")
+        rec["trip_id"] = data.get("trip_id") or rec.get("trip_id")
+        rec["revision"] = data.get("revision") or rec.get("revision")
         rec["steps"].append({"tool": "make_itinerary", "ok": True, "elapsed_s": r["elapsed_s"],
-                              "next_action": data.get("next_action")})
+                              "next_action": data.get("next_action"),
+                              "trip_id": rec["trip_id"], "revision": rec["revision"]})
         ntc = data.get("next_tool_call")
     except Exception as e:
         rec["error"] = f"make_itinerary failed: {e}"
@@ -230,7 +240,11 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
     cur = ntc
     while cur is not None and chain_calls < 200:
         name = cur.get("name")
-        args = cur.get("arguments") or {}
+        args = dict(cur.get("arguments") or {})
+        if rec.get("trip_id"):
+            args["trip_id"] = rec["trip_id"]
+        if rec.get("revision"):
+            args["revision"] = rec["revision"]
         chain_calls += 1
         try:
             r = mcp_call(name, args, key, timeout=300)
@@ -240,9 +254,15 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
                 rec["steps"].append({"tool": name, "ok": False, "envelope": env})
                 return rec
             d = env.get("data") or {}
+            if d.get("trip_id"):
+                rec["trip_id"] = d["trip_id"]
+            if d.get("revision"):
+                rec["revision"] = d["revision"]
             rec["steps"].append({"tool": name, "ok": True, "elapsed_s": r["elapsed_s"],
                                   "next_action": d.get("next_action"),
-                                  "stop": d.get("stop")})
+                                  "stop": d.get("stop"),
+                                  "trip_id": rec.get("trip_id"),
+                                  "revision": rec.get("revision")})
             if name == "display_current_stop":
                 rec["days_md"].append(render_stop(d))
             cur = d.get("next_tool_call")
@@ -340,6 +360,9 @@ def write_scenario_md(rec: dict[str, Any]) -> Path:
         lines.append(f"## 结果：失败\n\n```\n{sc['error']}\n```")
     else:
         lines.append("## 结果：成功（trip_complete）")
+    if sc.get("trip_id"):
+        lines.append("")
+        lines.append(f"**Trip Store:** `trip_id={sc['trip_id']}` · `revision={sc.get('revision')}`")
     lines.append("")
     skel = sc.get("skeleton") or {}
     skel_days = skel.get("days") or []

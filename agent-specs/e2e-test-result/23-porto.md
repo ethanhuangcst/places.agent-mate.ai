@@ -24,76 +24,79 @@
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
 | 1 | geocode | ✓ skipped(no hotel) |  |
-| 2 | discover_places | ✓ places=32, restaurants=32 | 5.11 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 11.48 |
-| 4 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.16 |
-| 6 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 7 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
+| 2 | discover_places | ✓ places=32, restaurants=32 | 2.74 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 2.93 |
+| 4 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
+| 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 7 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
 | 8 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 9 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
+| 9 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 11 | plan_next_stop | ✓ next=display_current_stop | 0.72 |
+| 11 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
 | 12 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 13 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 14 | plan_next_stop | ✓ next=display_current_stop | 0.89 |
+| 14 | plan_next_stop | ✓ next=display_current_stop | 0.92 |
 | 15 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 16 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
+| 16 | plan_next_stop | ✓ next=display_current_stop | 0.68 |
 | 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
+| 18 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
 | 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 20 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
 | 21 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjtsy18000p4e0u5g7fxxnj` · `revision=21`
+
 ## 骨架
 
-- **Day 1** 里贝拉河边与老城：Ribeira do Porto → 路易一世大桥 → Taberna dos Fernandes → 波尔图主教座堂 → Muralha Primitiva do Porto
-- **Day 2** 花园酒庄与博物馆一带：Palácio das Sereias → 波尔图植物园 → InDiferente → 塞拉维斯 → Porto Bridge Climb
+- **Day 1** 里贝拉河边与酒庄氛围：波尔图主教座堂 → 路易一世大桥 → Taberna Dos Mercadores → Ribeira do Porto → 证券交易所宫
+- **Day 2** 市中心经典与花园博物馆：Chapel of Souls → Praça da Liberdade → Brasão Aliados → Clérigos Church → 塞拉维斯
 
 ## 逐站填充结果
 
-### Ribeira do Porto  · attraction
+### 波尔图主教座堂  · attraction
 - 时段：09:00 – 10:30
 
 ### 路易一世大桥  · attraction
-- 时段：10:35 – 12:05
-- 到达：walk 约 5 分钟
+- 时段：10:36 – 12:06
+- 到达：walk 约 6 分钟
+- 备注：station_timing_adjusted
 
-### Taberna dos Fernandes  · meal
+### Taberna Dos Mercadores  · meal
 - 时段：12:13 – 13:13
+- 到达：walk 约 7 分钟
+- 备注：station_timing_adjusted
+
+### Ribeira do Porto  · attraction
+- 时段：13:23 – 14:53
+- 到达：walk 约 10 分钟
+- 备注：station_timing_adjusted
+
+### 证券交易所宫  · attraction
+- 时段：15:01 – 16:31
 - 到达：walk 约 8 分钟
 - 备注：station_timing_adjusted
 
-### 波尔图主教座堂  · attraction
-- 时段：13:25 – 14:55
-- 到达：walk 约 12 分钟
-- 备注：station_timing_adjusted
-
-### Muralha Primitiva do Porto  · attraction
-- 时段：14:56 – 16:26
-- 到达：walk 约 1 分钟
-
-### Palácio das Sereias  · attraction
+### Chapel of Souls  · attraction
 - 时段：09:00 – 10:30
 
-### 波尔图植物园  · attraction
-- 时段：11:09 – 12:39
-- 到达：walk 约 39 分钟
+### Praça da Liberdade  · attraction
+- 时段：10:40 – 12:10
+- 到达：walk 约 10 分钟
 - 备注：station_timing_adjusted
 
-### InDiferente  · meal
-- 时段：13:24 – 14:24
-- 到达：walk 约 45 分钟
+### Brasão Aliados  · meal
+- 时段：12:15 – 13:15
+- 到达：walk 约 5 分钟
+
+### Clérigos Church  · attraction
+- 时段：13:22 – 14:52
+- 到达：walk 约 7 分钟
 - 备注：station_timing_adjusted
 
 ### 塞拉维斯  · attraction
-- 时段：14:53 – 16:23
-- 到达：walk 约 29 分钟
-- 备注：station_timing_adjusted
-
-### Porto Bridge Climb  · attraction
-- 时段：17:00 – 18:30
-- 到达：walk 约 37 分钟
+- 时段：15:33 – 17:03
+- 到达：transit 约 41 分钟
 - 备注：station_timing_adjusted

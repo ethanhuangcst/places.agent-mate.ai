@@ -24,11 +24,13 @@
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
 | 1 | geocode | ✓ skipped(no hotel) |  |
-| 2 | discover_places | ✓ places=36, restaurants=21 | 1.31 |
+| 2 | discover_places | ✓ places=38, restaurants=21 | 5.77 |
 | 3 | make_itinerary | ✗  |  |
 
 ## 结果：失败
 
 ```
-make_itinerary not ok: {'key': 'errors.make_itinerary_failed', 'locales': {'CN': '无法生成行程骨架。'}} make_itinerary: LLM timed out after 90000ms
+make_itinerary not ok: {'key': 'errors.make_itinerary_failed', 'locales': {'CN': '无法生成行程骨架。'}} make_itinerary: skeleton validation failed — empty LLM response
 ```
+
+**Trip Store:** `trip_id=cmtjtexzo00054e0u0vx16vb3` · `revision=2`

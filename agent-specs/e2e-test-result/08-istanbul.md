@@ -24,133 +24,148 @@
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
 | 1 | geocode | ✓ skipped(no hotel) |  |
-| 2 | discover_places | ✓ places=46, restaurants=37 | 4.47 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 34.22 |
-| 4 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.28 |
+| 2 | discover_places | ✓ places=45, restaurants=37 | 2.74 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 3.81 |
+| 4 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
 | 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
 | 7 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
 | 8 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 9 | plan_next_stop | ✓ next=display_current_stop | 0.74 |
+| 9 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 11 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
+| 11 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
 | 12 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 13 | plan_next_stop | ✓ next=display_current_stop | 0.66 |
+| 13 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
 | 14 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 15 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
+| 15 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
 | 16 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
+| 18 | plan_next_stop | ✓ next=display_current_stop | 0.85 |
 | 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 20 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
 | 21 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 22 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
+| 22 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
 | 23 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 24 | plan_next_stop | ✓ next=display_current_stop | 0.72 |
-| 25 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 26 | plan_next_stop | ✓ next=display_current_stop | 0.87 |
-| 27 | display_current_stop | ✓ next=display_current_stop | 0.02 |
-| 28 | display_current_stop | ✓ next=plan_next_stop | 0.0 |
-| 29 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
-| 30 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 31 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
-| 32 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 33 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
+| 24 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
+| 25 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 26 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
+| 27 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 28 | plan_next_stop | ✓ next=display_current_stop | 0.86 |
+| 29 | display_current_stop | ✓ next=display_current_stop | 0.01 |
+| 30 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 31 | plan_next_stop | ✓ next=display_current_stop | 0.95 |
+| 32 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 33 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
 | 34 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
 | 35 | plan_next_stop | ✓ next=display_current_stop | 0.66 |
-| 36 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 37 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
-| 38 | display_current_stop | ✓ next=trip_complete | 0.01 |
+| 36 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 37 | plan_next_stop | ✓ next=display_current_stop | 0.73 |
+| 38 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 39 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
+| 40 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 41 | plan_next_stop | ✓ next=display_current_stop | 0.84 |
+| 42 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjtj8og000a4e0ugnucmsh3` · `revision=42`
+
 ## 骨架
 
-- **Day 1** 苏丹艾哈迈德历史核心区：Obelisk of Theodosius → Serpent Column → Turkish & Islamic Arts Museum → The Ottomans Kitchen Cafe Restaurant → 圣索菲亚大教堂 → 地下水宫殿 → Ortaklar Kebap Restaurant
-- **Day 2** 托普卡帕宫与老城集市：托普卡帕宫 → Topkapı Palace Harem Units → 居尔哈尼公园 → Hafız Mustafa 1864 Beyazıt → 伊斯坦布尔考古博物馆 → 大巴扎
-- **Day 3** 加拉塔与博斯普鲁斯文化区：伊斯坦堡现代艺术博物馆 → 卡莫多阶梯 → 加拉达石塔 → Galata Kitchen → 加拉塔大桥 → İskele Sokak Lezzetleri
+- **Day 1** 苏丹艾哈迈德清真寺与古迹核心区：圣索菲亚大教堂 → 地下水宫殿 → Deraliye → Obelisk of Theodosius → Serpent Column → Turkish & Islamic Arts Museum → Nuz Restaurant | Sultanahmet Garden Restaurant
+- **Day 2** 托普卡帕宫、居尔哈尼公园与埃米诺努市集：托普卡帕宫 → 伊斯坦布尔考古博物馆 → Last Ottoman Cafe & Restaurant → 居尔哈尼公园 → 伊斯兰科学技术史博物馆 → Eminonu Square → GALATA MİRAPORT RESTAURANT
+- **Day 3** 加拉塔与博斯普鲁斯海峡宫殿线：加拉达石塔 → 伊斯坦堡现代艺术博物馆 → Galata Kitchen → 多尔玛巴赫切宫 → National Painting Museum → Yildiz Palace → Hayvore
 
 ## 逐站填充结果
 
-### Obelisk of Theodosius  · attraction
+### 圣索菲亚大教堂  · attraction
 - 时段：09:00 – 10:30
 
-### Serpent Column  · attraction
-- 时段：10:31 – 12:01
-- 到达：walk 约 1 分钟
+### 地下水宫殿  · attraction
+- 时段：10:34 – 12:04
+- 到达：walk 约 4 分钟
 
-### Turkish & Islamic Arts Museum  · attraction
-- 时段：12:04 – 13:34
-- 到达：walk 约 3 分钟
+### Deraliye  · meal
+- 时段：12:09 – 13:09
+- 到达：walk 约 5 分钟
 
-### The Ottomans Kitchen Cafe Restaurant  · meal
-- 时段：13:43 – 14:43
-- 到达：walk 约 9 分钟
-- 备注：station_timing_adjusted
-
-### 圣索菲亚大教堂  · attraction
-- 时段：14:51 – 16:21
+### Obelisk of Theodosius  · attraction
+- 时段：13:17 – 14:47
 - 到达：walk 约 8 分钟
 - 备注：station_timing_adjusted
 
-### 地下水宫殿  · attraction
-- 时段：16:25 – 17:55
-- 到达：walk 约 4 分钟
+### Serpent Column  · attraction
+- 时段：14:48 – 16:18
+- 到达：walk 约 1 分钟
 
-### Ortaklar Kebap Restaurant  · meal
-- 时段：18:05 – 19:05
-- 到达：walk 约 10 分钟
+### Turkish & Islamic Arts Museum  · attraction
+- 时段：16:21 – 17:51
+- 到达：walk 约 3 分钟
+
+### Nuz Restaurant | Sultanahmet Garden Restaurant  · meal
+- 时段：18:00 – 19:00
+- 到达：walk 约 7 分钟
 - 备注：station_timing_adjusted
 
 ### 托普卡帕宫  · attraction
 - 时段：09:00 – 10:30
 
-### Topkapı Palace Harem Units  · attraction
-- 时段：10:31 – 12:01
-- 到达：walk 约 1 分钟
+### 伊斯坦布尔考古博物馆  · attraction
+- 时段：10:35 – 12:05
+- 到达：walk 约 5 分钟
+
+### Last Ottoman Cafe & Restaurant  · meal
+- 时段：12:22 – 13:22
+- 到达：walk 约 17 分钟
+- 备注：station_timing_adjusted
 
 ### 居尔哈尼公园  · attraction
-- 时段：12:19 – 13:49
-- 到达：walk 约 18 分钟
+- 时段：13:30 – 15:00
+- 到达：walk 约 8 分钟
 - 备注：station_timing_adjusted
 
-### Hafız Mustafa 1864 Beyazıt  · meal
-- 时段：14:12 – 15:12
-- 到达：walk 约 23 分钟
+### 伊斯兰科学技术史博物馆  · attraction
+- 时段：15:04 – 16:34
+- 到达：walk 约 4 分钟
+
+### Eminonu Square  · attraction
+- 时段：16:49 – 18:19
+- 到达：walk 约 15 分钟
 - 备注：station_timing_adjusted
 
-### 伊斯坦布尔考古博物馆  · attraction
-- 时段：15:31 – 17:01
-- 到达：walk 约 19 分钟
-- 备注：station_timing_adjusted
-
-### 大巴扎  · meal
-- 时段：18:00 – 19:00
-- 到达：walk 约 26 分钟
-- 备注：station_timing_adjusted
-
-### 伊斯坦堡现代艺术博物馆  · attraction
-- 时段：09:00 – 10:30
-
-### 卡莫多阶梯  · attraction
-- 时段：10:53 – 12:23
-- 到达：walk 约 23 分钟
+### GALATA MİRAPORT RESTAURANT  · meal
+- 时段：18:28 – 19:28
+- 到达：walk 约 9 分钟
 - 备注：station_timing_adjusted
 
 ### 加拉达石塔  · attraction
-- 时段：12:27 – 13:57
-- 到达：walk 约 4 分钟
+- 时段：09:00 – 10:30
 
-### Galata Kitchen  · meal
-- 时段：14:00 – 15:00
-- 到达：walk 约 3 分钟
-
-### 加拉塔大桥  · attraction
-- 时段：15:13 – 16:43
-- 到达：walk 约 13 分钟
+### 伊斯坦堡现代艺术博物馆  · attraction
+- 时段：10:51 – 12:21
+- 到达：walk 约 21 分钟
 - 备注：station_timing_adjusted
 
-### İskele Sokak Lezzetleri  · meal
-- 时段：18:00 – 19:00
-- 到达：walk 约 6 分钟
+### Galata Kitchen  · meal
+- 时段：12:42 – 13:42
+- 到达：walk 约 21 分钟
+- 备注：station_timing_adjusted
+
+### 多尔玛巴赫切宫  · attraction
+- 时段：14:21 – 15:51
+- 到达：walk 约 39 分钟
+- 备注：station_timing_adjusted
+
+### National Painting Museum  · attraction
+- 时段：15:54 – 17:24
+- 到达：walk 约 3 分钟
+
+### Yildiz Palace  · attraction
+- 时段：17:53 – 19:23
+- 到达：walk 约 29 分钟
+- 备注：station_timing_adjusted
+
+### Hayvore  · meal
+- 时段：19:59 – 20:59
+- 到达：transit 约 36 分钟
 - 备注：station_timing_adjusted

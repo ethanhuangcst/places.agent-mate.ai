@@ -509,7 +509,7 @@ export function createSkeletonChatCreate(): SkeletonChatCreate | null {
   return openai.chat.completions.create.bind(openai.chat.completions) as unknown as SkeletonChatCreate;
 }
 
-const DEFAULT_SKELETON_TIMEOUT_MS = 90_000;
+const DEFAULT_SKELETON_TIMEOUT_MS = 150_000;
 
 export function llmSkeletonTimeoutMs(): number {
   const raw = Number(process.env.LLM_SKELETON_TIMEOUT_MS ?? DEFAULT_SKELETON_TIMEOUT_MS);

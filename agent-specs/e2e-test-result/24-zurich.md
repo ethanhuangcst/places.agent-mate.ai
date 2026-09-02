@@ -23,54 +23,56 @@
 
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
-| 1 | geocode | ✓  | 0.19 |
-| 2 | discover_places | ✓ places=20, restaurants=31 | 3.39 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 31.32 |
-| 4 | display_current_stop | ✓ next=plan_next_stop | 0.06 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.61 |
+| 1 | geocode | ✓  | 0.21 |
+| 2 | discover_places | ✓ places=20, restaurants=31 | 3.33 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 3.28 |
+| 4 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 1.18 |
 | 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 7 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
+| 7 | plan_next_stop | ✓ next=display_current_stop | 0.95 |
 | 8 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 9 | plan_next_stop | ✓ next=display_current_stop | 0.69 |
+| 9 | plan_next_stop | ✓ next=display_current_stop | 0.95 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 11 | plan_next_stop | ✓ next=display_current_stop | 1.0 |
+| 11 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
 | 12 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 13 | plan_next_stop | ✓ next=display_current_stop | 1.12 |
-| 14 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 15 | plan_next_stop | ✓ next=display_current_stop | 0.96 |
-| 16 | display_current_stop | ✓ next=display_current_stop | 0.01 |
-| 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
+| 13 | plan_next_stop | ✓ next=display_current_stop | 0.72 |
+| 14 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 15 | plan_next_stop | ✓ next=display_current_stop | 1.08 |
+| 16 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 17 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
+| 18 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 20 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
 | 21 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 22 | plan_next_stop | ✓ next=display_current_stop | 0.75 |
+| 22 | plan_next_stop | ✓ next=display_current_stop | 0.87 |
 | 23 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 24 | plan_next_stop | ✓ next=display_current_stop | 0.93 |
+| 24 | plan_next_stop | ✓ next=display_current_stop | 0.73 |
 | 25 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 26 | plan_next_stop | ✓ next=display_current_stop | 0.78 |
-| 27 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 28 | plan_next_stop | ✓ next=display_current_stop | 0.98 |
-| 29 | display_current_stop | ✓ next=display_current_stop | 0.02 |
-| 30 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 31 | plan_next_stop | ✓ next=display_current_stop | 1.03 |
+| 26 | plan_next_stop | ✓ next=display_current_stop | 0.87 |
+| 27 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 28 | plan_next_stop | ✓ next=display_current_stop | 0.73 |
+| 29 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 30 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
+| 31 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 32 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 33 | plan_next_stop | ✓ next=display_current_stop | 0.96 |
+| 33 | plan_next_stop | ✓ next=display_current_stop | 0.91 |
 | 34 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 35 | plan_next_stop | ✓ next=display_current_stop | 0.98 |
+| 35 | plan_next_stop | ✓ next=display_current_stop | 0.81 |
 | 36 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 37 | plan_next_stop | ✓ next=display_current_stop | 1.18 |
+| 37 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
 | 38 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 39 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
+| 39 | plan_next_stop | ✓ next=display_current_stop | 0.72 |
 | 40 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjtt7ym000q4e0u02fo6po3` · `revision=40`
+
 ## 骨架
 
-- **Day 1** 苏黎世老城经典：Baur au Lac → Fraumünster Church → 苏黎世大教堂 → Helmhaus → IGNIV Zürich by Andreas Caminada → 林登霍夫山 → Bauernschänke
-- **Day 2** 湖畔别墅与艺术：Baur au Lac → Museum Rietberg → Pavillon Le Corbusier → Heimatschutzzentrum in der Villa Patumbah → Weisses Rössli → 苏黎世美术馆 → Carlton
-- **Day 3** 苏黎世北线与莱茵瀑布：Baur au Lac → 瑞士国立博物馆 → Zoo Zürich → Didi's Frieden → 莱茵瀑布 → Restaurant La Fonte
+- **Day 1** 老城区与经典地标：Baur au Lac → Fraumünster Church → 苏黎世大教堂 → IGNIV Zürich by Andreas Caminada → Ulrich Zwingli Monument → Helmhaus → Lindenhof View point → Carlton
+- **Day 2** 湖畔博物馆与艺术：Baur au Lac → Museum Rietberg → Pavillon Le Corbusier → Rosaly's Restaurant & Bar → Heimatschutzzentrum in der Villa Patumbah → 苏黎世美术馆 → Bauernschänke
+- **Day 3** 莱茵瀑布一日往返：Baur au Lac → 莱茵瀑布 → Restaurant La Fonte → Zoo Zürich → 皇家熊猫
 
 ## 逐站填充结果
 
@@ -88,22 +90,26 @@
 - 时段：10:40 – 12:10
 - 到达：walk 约 4 分钟
 
-### Helmhaus  · attraction
-- 时段：12:11 – 13:41
-- 到达：walk 约 1 分钟
-
 ### IGNIV Zürich by Andreas Caminada  · meal
-- 时段：13:45 – 14:45
+- 时段：12:14 – 13:14
 - 到达：walk 约 4 分钟
 
-### 林登霍夫山  · attraction
-- 时段：14:55 – 16:25
-- 到达：walk 约 10 分钟
+### Ulrich Zwingli Monument  · attraction
+- 时段：13:19 – 14:49
+- 到达：walk 约 5 分钟
+
+### Helmhaus  · attraction
+- 时段：14:50 – 16:20
+- 到达：walk 约 1 分钟
+
+### Lindenhof View point  · attraction
+- 时段：16:29 – 17:59
+- 到达：walk 约 9 分钟
 - 备注：station_timing_adjusted
 
-### Bauernschänke  · meal
-- 时段：18:00 – 19:00
-- 到达：walk 约 10 分钟
+### Carlton  · meal
+- 时段：18:06 – 19:06
+- 到达：walk 约 7 分钟
 - 备注：station_timing_adjusted
 
 ### Baur au Lac  · stay
@@ -121,52 +127,47 @@
 - 到达：walk 约 43 分钟
 - 备注：station_timing_adjusted
 
-### Heimatschutzzentrum in der Villa Patumbah  · attraction
-- 时段：13:21 – 14:51
-- 到达：walk 约 14 分钟
+### Rosaly's Restaurant & Bar  · meal
+- 时段：13:27 – 14:27
+- 到达：walk 约 20 分钟
 - 备注：station_timing_adjusted
 
-### Weisses Rössli  · meal
-- 时段：18:00 – 19:00
-- 到达：transit 约 28 分钟
-- 备注：station_timing_adjusted, meal_promoted_to_dinner
+### Heimatschutzzentrum in der Villa Patumbah  · attraction
+- 时段：14:52 – 16:22
+- 到达：walk 约 25 分钟
+- 备注：station_timing_adjusted
 
 ### 苏黎世美术馆  · attraction
-- 时段：19:32 – 21:02
-- 到达：walk 约 32 分钟
+- 时段：16:48 – 18:18
+- 到达：walk 约 26 分钟
 - 备注：station_timing_adjusted
 
-### Carlton  · meal
-- 时段：21:18 – 22:18
-- 到达：walk 约 16 分钟
+### Bauernschänke  · meal
+- 时段：18:24 – 19:24
+- 到达：walk 约 6 分钟
 - 备注：station_timing_adjusted
 
 ### Baur au Lac  · stay
 - 时段：09:00 – 09:00
 - 备注：origin_stop
 
-### 瑞士国立博物馆  · attraction
-- 时段：09:20 – 10:50
-- 到达：walk 约 20 分钟
-- 起点直达：walk 约 20 分钟
-- 备注：station_timing_adjusted
-
-### Zoo Zürich  · attraction
-- 时段：11:16 – 12:46
-- 到达：transit 约 26 分钟
-- 备注：station_timing_adjusted
-
-### Didi's Frieden  · meal
-- 时段：13:28 – 14:28
-- 到达：walk 约 42 分钟
-- 备注：station_timing_adjusted
-
 ### 莱茵瀑布  · attraction
-- 时段：15:30 – 17:00
-- 到达：transit 约 62 分钟
+- 时段：10:15 – 11:45
+- 到达：transit 约 75 分钟
+- 起点直达：transit 约 75 分钟
 - 备注：station_timing_adjusted
 
 ### Restaurant La Fonte  · meal
-- 时段：18:03 – 19:03
+- 时段：12:48 – 13:48
 - 到达：transit 约 63 分钟
+- 备注：station_timing_adjusted
+
+### Zoo Zürich  · attraction
+- 时段：14:10 – 15:40
+- 到达：transit 约 22 分钟
+- 备注：station_timing_adjusted
+
+### 皇家熊猫  · meal
+- 时段：18:00 – 19:00
+- 到达：walk 约 42 分钟
 - 备注：station_timing_adjusted

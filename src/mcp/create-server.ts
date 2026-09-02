@@ -34,6 +34,23 @@ import {
   peekMissingMustInclude,
 } from "../core/must-include-coverage";
 import { mergeMustInclude } from "../core/must-include-merge";
+import {
+  dualWriteTrip,
+  dualWriteTripIfPresent,
+  slimCandidatesForStore,
+  TripStoreError,
+} from "../core/trip-dual-write";
+import {
+  fetchTripDetails,
+  FETCH_TRIP_HOST_INSTRUCTIONS_ON_MISS,
+} from "../core/fetch-trip-details";
+
+function tripStoreErrorResult(err: unknown, locale: Locale): Envelope | null {
+  if (!(err instanceof TripStoreError)) return null;
+  return errorEnvelope(err.key, locale, [], {
+    data: { host_instructions: FETCH_TRIP_HOST_INSTRUCTIONS_ON_MISS },
+  });
+}
 
 function discoverHostInstructions(numDays: number): string {
   return (
@@ -181,6 +198,7 @@ function skeletonFillHandoff(
   skeleton: { days?: Array<{ day_index?: number; day_theme?: string; stops?: Array<{ name: string; kind?: string; meal_slot?: string }> }> },
   locale: string,
   city?: string,
+  tripMeta?: { trip_id?: string; revision?: number },
 ): {
   next_action: "display_current_stop";
   prefer_tool: "display_current_stop";
@@ -192,6 +210,8 @@ function skeletonFillHandoff(
       skeleton: SkeletonEcho;
       cursor: FillCursor;
       locale: string;
+      trip_id?: string;
+      revision?: number;
     };
   };
   host_instructions: string;
@@ -223,6 +243,7 @@ function skeletonFillHandoff(
             cursor: { day_index: dayIndex, stop_index: stopIndex },
             locale,
             ...(city ? { city } : {}),
+            ...(tripMeta?.trip_id ? { trip_id: tripMeta.trip_id, revision: tripMeta.revision } : {}),
           },
         }
       : undefined,
@@ -246,6 +267,8 @@ const sharedShape = {
   providers: z.array(providerIdSchema).optional(),
   locale: localeSchema.optional(),
   locales: z.array(localeSchema).optional(),
+  trip_id: z.string().min(1).optional(),
+  revision: z.number().int().positive().optional(),
 };
 
 /** Minimal skeleton echo that rides along the fill chain so the agent can
@@ -455,7 +478,13 @@ async function runPlanItinerary(args: Record<string, unknown>) {
   });
 }
 
-export function createPlacesMcpServer(): McpServer {
+export type CreatePlacesMcpOptions = {
+  /** Bearer key id from authenticateCaller — isolates Trip rows (ADR-046). */
+  callerKey?: string;
+};
+
+export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpServer {
+  const callerKey = opts.callerKey ?? "anonymous";
   const server = new McpServer({
     name: AGENT_ID,
     version: "0.1.0",
@@ -591,6 +620,40 @@ export function createPlacesMcpServer(): McpServer {
         });
         peekMissingMustInclude(key, mergedMustInclude);
       }
+      let tripMeta: Record<string, unknown> = {};
+      try {
+        const trip = await dualWriteTrip({
+          callerKey,
+          tripId: args.trip_id,
+          expectedRevision: args.revision,
+          locale: args.locale ?? "EN",
+          patch: {
+            constraints: {
+              city: intake.city,
+              bounds: intake.bounds,
+              origin: args.origin,
+              numDays: intake.numDays,
+              pace: intake.pace,
+              spend_level: intake.spend_level,
+              must_include: mergedMustInclude.length ? mergedMustInclude : args.must_include,
+            },
+            candidates: slimCandidatesForStore(
+              slimArrangeCandidates(result.candidates, {
+                omitPhotos: true,
+                compactEcho: true,
+              }) as {
+                places?: Array<Record<string, unknown>>;
+                restaurants?: Array<Record<string, unknown>>;
+              },
+            ),
+          },
+        });
+        tripMeta = trip;
+      } catch (err) {
+        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+        if (fail) return jsonResult(fail);
+        throw err;
+      }
       return jsonResult({
         agent: AGENT_ID,
         ok: true,
@@ -604,6 +667,7 @@ export function createPlacesMcpServer(): McpServer {
           pace: intake.pace,
           spend_level: intake.spend_level,
           host_instructions: discoverHostInstructions(intake.numDays),
+          ...tripMeta,
         },
       });
     },
@@ -935,12 +999,52 @@ export function createPlacesMcpServer(): McpServer {
           natural_language: args.natural_language,
           locale: args.locale ?? "EN",
         }, { create: createSkeletonChatCreate() ?? undefined });
+        let tripMeta: Record<string, unknown> = {};
+        try {
+          const trip = await dualWriteTrip({
+            callerKey,
+            tripId: args.trip_id,
+            expectedRevision: args.revision,
+            locale: args.locale ?? "EN",
+            patch: {
+              constraints: {
+                city: args.city,
+                numDays: args.numDays,
+                origin: args.origin,
+                pace: args.pace,
+                budget: args.budget,
+                must_include: args.must_include,
+              },
+              candidates: slimCandidatesForStore({
+                places: namedCardsFromHost(args.candidates?.places) as Array<Record<string, unknown>>,
+                restaurants: namedCardsFromHost(args.candidates?.restaurants) as Array<
+                  Record<string, unknown>
+                >,
+              }),
+              skeleton: result.skeleton,
+            },
+          });
+          tripMeta = trip;
+        } catch (err) {
+          const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+          if (fail) return jsonResult(fail);
+          throw err;
+        }
+        const handoff = skeletonFillHandoff(result.skeleton, args.locale ?? "EN", args.city, {
+          ...(typeof tripMeta.trip_id === "string" && tripMeta.trip_id
+            ? {
+                trip_id: tripMeta.trip_id,
+                revision: typeof tripMeta.revision === "number" ? tripMeta.revision : undefined,
+              }
+            : {}),
+        });
         return jsonResult({
           agent: AGENT_ID,
           ok: true,
           data: {
             skeleton: result.skeleton,
-            ...skeletonFillHandoff(result.skeleton, args.locale ?? "EN", args.city),
+            ...handoff,
+            ...tripMeta,
           },
         });
       } catch (err) {
@@ -1033,9 +1137,24 @@ export function createPlacesMcpServer(): McpServer {
                   cursor,
                   locale: args.locale ?? "EN",
                   ...(args.city ? { city: args.city } : {}),
+                  ...(args.trip_id ? { trip_id: args.trip_id, revision: args.revision } : {}),
                 },
               }
             : undefined;
+        const trip = await dualWriteTripIfPresent({
+          callerKey,
+          tripId: args.trip_id,
+          expectedRevision: args.revision,
+          locale: args.locale ?? "EN",
+          patch: {
+            filled: {
+              current_stop: args.current_stop,
+              next_stop: args.next_stop,
+              legs: result.legs,
+            },
+            ...(cursor ? { cursor } : {}),
+          },
+        });
         return jsonResult({
           agent: AGENT_ID,
           ok: true,
@@ -1044,9 +1163,12 @@ export function createPlacesMcpServer(): McpServer {
             next_action: "display_current_stop",
             ...(nextToolCall ? { next_tool_call: nextToolCall } : {}),
             host_instructions: MCP_FILL_CONTINUE_HOST_INSTRUCTIONS,
+            ...(trip ?? {}),
           },
         });
       } catch (err) {
+        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+        if (fail) return jsonResult(fail);
         return jsonResult(
           errorEnvelope("errors.provider_failed", args.locale ?? "EN", [], {
             data: { detail: err instanceof Error ? err.message : String(err) },
@@ -1121,6 +1243,16 @@ export function createPlacesMcpServer(): McpServer {
         if (skeleton && cursor) {
           const step = nextFillStep(skeleton, cursor, locale, result.slot.end, args.city);
           const tripComplete = step.next_action === "trip_complete";
+          const trip = await dualWriteTripIfPresent({
+            callerKey,
+            tripId: args.trip_id,
+            expectedRevision: args.revision,
+            locale,
+            patch: {
+              filled: { stop: args.stop, slot: result.slot },
+              cursor,
+            },
+          });
           return jsonResult({
             agent: AGENT_ID,
             ok: true,
@@ -1131,10 +1263,18 @@ export function createPlacesMcpServer(): McpServer {
               host_instructions: tripComplete
                 ? MCP_TRIP_COMPLETE_HOST_INSTRUCTIONS
                 : MCP_FILL_CONTINUE_HOST_INSTRUCTIONS,
+              ...(trip ?? {}),
             },
           });
         }
         // Backward compat: no skeleton/cursor → prose-only (host may stall).
+        const trip = await dualWriteTripIfPresent({
+          callerKey,
+          tripId: args.trip_id,
+          expectedRevision: args.revision,
+          locale,
+          patch: { filled: { stop: args.stop, slot: result.slot } },
+        });
         return jsonResult({
           agent: AGENT_ID,
           ok: true,
@@ -1142,9 +1282,52 @@ export function createPlacesMcpServer(): McpServer {
             ...result,
             next_action: "present_stop_then_continue",
             host_instructions: MCP_FILL_CONTINUE_HOST_INSTRUCTIONS,
+            ...(trip ?? {}),
           },
         });
       } catch (err) {
+        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+        if (fail) return jsonResult(fail);
+        return jsonResult(
+          errorEnvelope("errors.provider_failed", args.locale ?? "EN", [], {
+            data: { detail: err instanceof Error ? err.message : String(err) },
+          }),
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "fetch_trip_details",
+    {
+      description:
+        "places-agent (MVP-16): Read slices of a stored trip by trip_id + fields[]. " +
+        "Use after make_itinerary / fill tools return trip_id. fields may include " +
+        "constraints, candidates, skeleton, cursor, filled, artifacts, day (with day_index). " +
+        "Do not invent itinerary content when trip_not_found.",
+      inputSchema: {
+        trip_id: z.string().min(1),
+        fields: z.array(z.string().min(1)).min(1).default(["skeleton"]),
+        day_index: z.number().int().positive().optional(),
+        ...sharedShape,
+      },
+    },
+    async (args) => {
+      try {
+        const result = await fetchTripDetails({
+          callerKey,
+          trip_id: args.trip_id,
+          fields: args.fields,
+          day_index: args.day_index,
+        });
+        return jsonResult({
+          agent: AGENT_ID,
+          ok: true,
+          data: result,
+        });
+      } catch (err) {
+        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+        if (fail) return jsonResult(fail);
         return jsonResult(
           errorEnvelope("errors.provider_failed", args.locale ?? "EN", [], {
             data: { detail: err instanceof Error ? err.message : String(err) },

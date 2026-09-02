@@ -13,6 +13,9 @@ const shared = {
   providers: z.array(providerIdSchema).optional(),
   locale: localeSchema.optional(),
   locales: z.array(localeSchema).optional(),
+  /** ADR-046 — optional trip ledger id (lazy-created when omitted on write tools). */
+  trip_id: z.string().min(1).optional(),
+  revision: z.number().int().positive().optional(),
 };
 
 export const searchRestaurantsBody = z.object({
@@ -319,3 +322,12 @@ export const travelTipsBody = z.object({
 
 export type VisaRequirementBody = z.infer<typeof visaRequirementBody>;
 export type TravelTipsBody = z.infer<typeof travelTipsBody>;
+
+export const fetchTripDetailsBody = z.object({
+  ...shared,
+  trip_id: z.string().min(1),
+  fields: z.array(z.string().min(1)).min(1).default(["skeleton"]),
+  day_index: z.number().int().positive().optional(),
+});
+
+export type FetchTripDetailsBody = z.infer<typeof fetchTripDetailsBody>;

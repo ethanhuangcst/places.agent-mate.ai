@@ -455,15 +455,15 @@ export function createOpenAI(): OpenAI | null {
   });
 }
 
-const DEFAULT_LLM_TIMEOUT_MS = 90_000;
+const DEFAULT_LLM_TIMEOUT_MS = 150_000;
 
-/** Env: LLM_ARRANGE_TIMEOUT_MS (default 90000). Quanzil structured arrange often needs >45s. */
+/** Env: LLM_ARRANGE_TIMEOUT_MS (default 150000). Quanzil structured arrange often needs >45s. */
 export function llmArrangeTimeoutMs(): number {
   const raw = Number(process.env.LLM_ARRANGE_TIMEOUT_MS ?? DEFAULT_LLM_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_LLM_TIMEOUT_MS;
 }
 
-/** Env: LLM_ITINERARY_TIMEOUT_MS (default 90000). */
+/** Env: LLM_ITINERARY_TIMEOUT_MS (default 150000). */
 export function llmItineraryTimeoutMs(): number {
   const raw = Number(process.env.LLM_ITINERARY_TIMEOUT_MS ?? DEFAULT_LLM_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_LLM_TIMEOUT_MS;

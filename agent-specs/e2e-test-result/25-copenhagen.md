@@ -24,53 +24,51 @@
 | # | 工具 | 结果 | 耗时(s) |
 | --- | --- | --- | --- |
 | 1 | geocode | ✓ skipped(no hotel) |  |
-| 2 | discover_places | ✓ places=30, restaurants=33 | 4.62 |
-| 3 | make_itinerary | ✓ next=display_current_stop | 25.53 |
+| 2 | discover_places | ✓ places=27, restaurants=34 | 2.63 |
+| 3 | make_itinerary | ✓ next=display_current_stop | 3.24 |
 | 4 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 5 | plan_next_stop | ✓ next=display_current_stop | 1.08 |
-| 6 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 7 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
+| 5 | plan_next_stop | ✓ next=display_current_stop | 0.94 |
+| 6 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 7 | plan_next_stop | ✓ next=display_current_stop | 0.74 |
 | 8 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 9 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
+| 9 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
 | 10 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
 | 11 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
 | 12 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 13 | plan_next_stop | ✓ next=display_current_stop | 0.83 |
-| 14 | display_current_stop | ✓ next=display_current_stop | 0.02 |
-| 15 | display_current_stop | ✓ next=plan_next_stop | 0.04 |
-| 16 | plan_next_stop | ✓ next=display_current_stop | 0.82 |
+| 13 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
+| 14 | display_current_stop | ✓ next=display_current_stop | 0.01 |
+| 15 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
+| 16 | plan_next_stop | ✓ next=display_current_stop | 0.93 |
 | 17 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 18 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
-| 19 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
-| 20 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
+| 18 | plan_next_stop | ✓ next=display_current_stop | 0.74 |
+| 19 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 20 | plan_next_stop | ✓ next=display_current_stop | 0.8 |
 | 21 | display_current_stop | ✓ next=plan_next_stop | 0.02 |
 | 22 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
-| 23 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
+| 23 | display_current_stop | ✓ next=plan_next_stop | 0.04 |
 | 24 | plan_next_stop | ✓ next=display_current_stop | 0.7 |
 | 25 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 26 | plan_next_stop | ✓ next=display_current_stop | 0.68 |
+| 26 | plan_next_stop | ✓ next=display_current_stop | 0.65 |
 | 27 | display_current_stop | ✓ next=display_current_stop | 0.01 |
 | 28 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 29 | plan_next_stop | ✓ next=display_current_stop | 0.88 |
+| 29 | plan_next_stop | ✓ next=display_current_stop | 0.87 |
 | 30 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 31 | plan_next_stop | ✓ next=display_current_stop | 0.73 |
+| 31 | plan_next_stop | ✓ next=display_current_stop | 0.79 |
 | 32 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 33 | plan_next_stop | ✓ next=display_current_stop | 0.67 |
+| 33 | plan_next_stop | ✓ next=display_current_stop | 0.77 |
 | 34 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 35 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
-| 36 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 37 | plan_next_stop | ✓ next=display_current_stop | 0.76 |
-| 38 | display_current_stop | ✓ next=plan_next_stop | 0.01 |
-| 39 | plan_next_stop | ✓ next=display_current_stop | 0.86 |
-| 40 | display_current_stop | ✓ next=trip_complete | 0.01 |
+| 35 | plan_next_stop | ✓ next=display_current_stop | 0.71 |
+| 36 | display_current_stop | ✓ next=trip_complete | 0.01 |
 
 ## 结果：成功（trip_complete）
 
+**Trip Store:** `trip_id=cmtjttnwn000r4e0u3v1w2806` · `revision=36`
+
 ## 骨架
 
-- **Day 1** 市中心历史与设计：趣伏里公园 → 新嘉士伯美术馆 → Smagsløget sandwiches → 丹麦国家博物馆 → 克里斯蒂安堡宫 → Restaurant Puk
-- **Day 2** 花园、艺术与新港：哥本哈根大学植物园 → 罗森堡城堡 → 丹麦国立美术馆 → TorvehallerneKBH → Hirschsprung Collection → Nyhavn → Hyttefadet
-- **Day 3** 皇家宫殿与海滨：阿馬林堡宮 → 腓特列教堂 → Christian VIII's Palace (Levetzau's Palace) → Ibens Smørrebrød → Christian IX's Palace (Schack's Palace) → Langelinie → Broens Street Food
+- **Day 1** 市中心经典与设计博物馆：趣伏里公园 → 新嘉士伯美术馆 → Boulevardcph Coffee and Street Food → 丹麦国家博物馆 → 克里斯蒂安堡宫 → Restaurant 1733
+- **Day 2** 王宫区与新港漫步：罗森堡城堡 → 哥本哈根大学植物园 → Schønnemann → 阿馬林堡宮 → Amalienborg Museum → Nyhavn → Hyttefadet
+- **Day 3** 腓特烈斯贝与嘉士伯片区：腓特烈斯贝宫 → 哥本哈根动物园 → Mad & Kaffe → Home of Carlsberg → Smagsløget sandwiches
 
 ## 逐站填充结果
 
@@ -82,85 +80,75 @@
 - 到达：walk 约 10 分钟
 - 备注：station_timing_adjusted
 
-### Smagsløget sandwiches  · meal
-- 时段：12:27 – 13:27
-- 到达：walk 约 17 分钟
+### Boulevardcph Coffee and Street Food  · meal
+- 时段：12:19 – 13:19
+- 到达：walk 约 9 分钟
 - 备注：station_timing_adjusted
 
 ### 丹麦国家博物馆  · attraction
-- 时段：13:47 – 15:17
-- 到达：walk 约 20 分钟
+- 时段：13:31 – 15:01
+- 到达：walk 约 12 分钟
 - 备注：station_timing_adjusted
 
 ### 克里斯蒂安堡宫  · attraction
-- 时段：15:24 – 16:54
+- 时段：15:08 – 16:38
 - 到达：walk 约 7 分钟
 - 备注：station_timing_adjusted
 
-### Restaurant Puk  · meal
+### Restaurant 1733  · meal
 - 时段：18:00 – 19:00
-- 到达：walk 约 8 分钟
+- 到达：walk 约 7 分钟
 - 备注：station_timing_adjusted
 
-### 哥本哈根大学植物园  · attraction
+### 罗森堡城堡  · attraction
 - 时段：09:00 – 10:30
 
-### 罗森堡城堡  · attraction
+### 哥本哈根大学植物园  · attraction
 - 时段：10:36 – 12:06
 - 到达：walk 约 6 分钟
 - 备注：station_timing_adjusted
 
-### 丹麦国立美术馆  · attraction
-- 时段：12:12 – 13:42
+### Schønnemann  · meal
+- 时段：12:12 – 13:12
 - 到达：walk 约 6 分钟
 - 备注：station_timing_adjusted
 
-### TorvehallerneKBH  · meal
-- 时段：13:55 – 14:55
-- 到达：walk 约 13 分钟
+### 阿馬林堡宮  · attraction
+- 时段：13:31 – 15:01
+- 到达：walk 约 19 分钟
 - 备注：station_timing_adjusted
 
-### Hirschsprung Collection  · attraction
-- 时段：15:10 – 16:40
-- 到达：walk 约 15 分钟
-- 备注：station_timing_adjusted
-
-### Nyhavn  · attraction
-- 时段：17:05 – 18:35
-- 到达：walk 约 25 分钟
-- 备注：station_timing_adjusted
-
-### Hyttefadet  · meal
-- 时段：18:36 – 19:36
+### Amalienborg Museum  · attraction
+- 时段：15:02 – 16:32
 - 到达：walk 约 1 分钟
 
-### 阿馬林堡宮  · attraction
-- 时段：09:00 – 10:30
-
-### 腓特列教堂  · attraction
-- 时段：10:34 – 12:04
-- 到达：walk 约 4 分钟
-
-### Christian VIII's Palace (Levetzau's Palace)  · attraction
-- 时段：12:08 – 13:38
-- 到达：walk 约 4 分钟
-
-### Ibens Smørrebrød  · meal
-- 时段：13:46 – 14:46
-- 到达：walk 约 8 分钟
-- 备注：station_timing_adjusted
-
-### Christian IX's Palace (Schack's Palace)  · attraction
-- 时段：14:55 – 16:25
+### Nyhavn  · attraction
+- 时段：16:41 – 18:11
 - 到达：walk 约 9 分钟
 - 备注：station_timing_adjusted
 
-### Langelinie  · attraction
-- 时段：16:38 – 18:08
-- 到达：walk 约 13 分钟
+### Hyttefadet  · meal
+- 时段：18:12 – 19:12
+- 到达：walk 约 1 分钟
+
+### 腓特烈斯贝宫  · attraction
+- 时段：09:00 – 10:30
+
+### 哥本哈根动物园  · attraction
+- 时段：10:33 – 12:03
+- 到达：walk 约 3 分钟
+
+### Mad & Kaffe  · meal
+- 时段：12:45 – 13:45
+- 到达：walk 约 42 分钟
 - 备注：station_timing_adjusted
 
-### Broens Street Food  · meal
-- 时段：18:35 – 19:35
-- 到达：walk 约 27 分钟
+### Home of Carlsberg  · attraction
+- 时段：14:05 – 15:35
+- 到达：transit 约 20 分钟
+- 备注：station_timing_adjusted
+
+### Smagsløget sandwiches  · meal
+- 时段：18:00 – 19:00
+- 到达：walk 约 34 分钟
 - 备注：station_timing_adjusted

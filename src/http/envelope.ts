@@ -58,6 +58,7 @@ export function healthEnvelope(): Envelope<{ tools: string[] }> {
         "make_itinerary",
         "plan_next_stop",
         "display_current_stop",
+        "fetch_trip_details",
         "visa_requirement",
         "travel_tips",
         "chat",
@@ -87,7 +88,12 @@ export function toolToEnvelope<T>(result: ToolResult<T>): Envelope<T> {
 }
 
 export function statusForOutcome(outcomeKey: string | undefined): number {
-  if (outcomeKey === "errors.place_not_found") return 404;
+  if (outcomeKey === "errors.place_not_found" || outcomeKey === "errors.trip_not_found") {
+    return 404;
+  }
+  if (outcomeKey === "errors.trip_revision_conflict") {
+    return 409;
+  }
   if (outcomeKey === "errors.bounds_invalid" || outcomeKey === "errors.no_places_to_plan") {
     return 400;
   }
