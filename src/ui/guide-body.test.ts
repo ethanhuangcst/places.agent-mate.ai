@@ -42,10 +42,12 @@ describe("guide literals", () => {
       "search_places",
       "get_place_details",
       "geocode",
-      "navigate",
       "plan_itinerary",
       "discover_places",
       "arrange_day",
+      "make_itinerary",
+      "plan_next_stop",
+      "display_current_stop",
       "Tripadvisor.enrich",
     ]);
     const httpOnly = GUIDE_CAPABILITIES.filter((cap) => cap.channel === "http");

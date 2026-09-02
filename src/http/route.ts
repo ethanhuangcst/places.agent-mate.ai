@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { authenticateCaller } from "@/src/auth/caller";
 import { arrangeDay, discoverPlaces } from "@/src/core/itinerary-planner";
+import { makeItinerary, createSkeletonChatCreate } from "@/src/core/make-itinerary";
 import { parseLocale, type Locale } from "@/src/core/locales";
 import type { PlaceCard } from "@/src/core/types";
 import { dispatchTool, type ToolName } from "@/src/http/dispatch";
 import { errorEnvelope } from "@/src/http/envelope";
-import { arrangeDayBody, discoverPlacesBody } from "@/src/http/schemas";
+import { arrangeDayBody, discoverPlacesBody, makeItineraryBody } from "@/src/http/schemas";
 
 function wantsNdjson(request: Request): boolean {
   const accept = request.headers.get("accept") ?? "";
@@ -43,7 +44,11 @@ function ndjsonResponse(
   });
 }
 
-async function postToolNdjson(tool: "discover_places" | "arrange_day", request: Request, body: unknown) {
+async function postToolNdjson(
+  tool: "discover_places" | "arrange_day" | "make_itinerary",
+  request: Request,
+  body: unknown,
+) {
   const raw = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   const locale = parseLocale(typeof raw.locale === "string" ? raw.locale : undefined);
   const extra = Array.isArray(raw.locales)
@@ -74,6 +79,34 @@ async function postToolNdjson(tool: "discover_places" | "arrange_day", request: 
           numDays: parsed.data.numDays,
         },
         { onEvent: write },
+      );
+    });
+  }
+
+  if (tool === "make_itinerary") {
+    const parsed = makeItineraryBody.safeParse(body ?? {});
+    if (!parsed.success) {
+      return NextResponse.json(errorEnvelope("errors.invalid_input", locale, extra), {
+        status: 400,
+      });
+    }
+    return ndjsonResponse(async (write) => {
+      await makeItinerary(
+        {
+          city: parsed.data.city,
+          numDays: parsed.data.numDays,
+          candidates: {
+            places: parsed.data.candidates.places as PlaceCard[],
+            restaurants: parsed.data.candidates.restaurants as PlaceCard[],
+          },
+          origin: parsed.data.origin,
+          pace: parsed.data.pace,
+          budget: parsed.data.budget,
+          must_include: parsed.data.must_include,
+          natural_language: parsed.data.natural_language,
+          locale,
+        },
+        { onEvent: write, create: createSkeletonChatCreate() ?? undefined },
       );
     });
   }
@@ -113,7 +146,7 @@ export async function postTool(tool: ToolName, request: Request) {
   const body = await request.json().catch(() => ({}));
   if (
     wantsNdjson(request) &&
-    (tool === "discover_places" || tool === "arrange_day")
+    (tool === "discover_places" || tool === "arrange_day" || tool === "make_itinerary")
   ) {
     return postToolNdjson(tool, request, body);
   }

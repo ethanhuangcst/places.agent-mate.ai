@@ -100,10 +100,14 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       "plan_itinerary",
       "get_place_details",
       "geocode",
-      "navigate",
       "discover_places",
       "arrange_day",
       "enrich_arrange_transit",
+      "make_itinerary",
+      "plan_next_stop",
+      "display_current_stop",
+      "visa_requirement",
+      "travel_tips",
       "chat",
     ]);
   });
@@ -232,7 +236,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
     expect(cards.every((c) => c.category !== "restaurant")).toBe(true);
   });
 
-  it("TC-H08: should_geocode_shanghai_and_navigate_without_secrets", async () => {
+  it("TC-H08: should_geocode_shanghai_without_secrets", async () => {
     const geo = await postV1<{ lat: number; lng: number; crs: string; address?: string }>(
       "geocode",
       { query: "上海爱琴海购物公园", providers: ["AMAP"], locale: "CN" },
@@ -243,21 +247,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
     expect(geoEnv.ok).toBe(true);
     expect(geoEnv.data?.lat).toBeGreaterThan(30);
     expect(geoEnv.data?.lng).toBeGreaterThan(121);
-
-    const nav = await postV1<Record<string, string>>(
-      "navigate",
-      {
-        lat: geoEnv.data!.lat,
-        lng: geoEnv.data!.lng,
-        provider: "AMAP",
-        locale: "CN",
-      },
-      auth,
-    );
-    expect(nav.status).toBe(200);
-    const navEnv = parseEnvelope(nav.body);
-    expect(navEnv.ok).toBe(true);
-    const blob = JSON.stringify(navEnv.data);
+    const blob = JSON.stringify(geoEnv.data);
     expect(blob).not.toMatch(/AIza|amap.*key|api_key=/i);
   });
 

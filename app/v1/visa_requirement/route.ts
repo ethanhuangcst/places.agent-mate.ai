@@ -1,5 +1,5 @@
 import { postTool } from "@/src/http/route";
 
 export async function POST(request: Request) {
-  return postTool("navigate", request);
+  return postTool("visa_requirement", request);
 }

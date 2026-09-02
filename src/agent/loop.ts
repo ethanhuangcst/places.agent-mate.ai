@@ -5,7 +5,6 @@ import { assembleSystemPrompt } from "./prompt-assembler";
 import {
   geocode,
   getPlaceDetails,
-  navigate,
   searchPlaces,
   searchRestaurants,
 } from "../core/tools";
@@ -138,8 +137,6 @@ async function executeTool(name: string, args: Record<string, unknown>) {
       return getPlaceDetails(normalized as Parameters<typeof getPlaceDetails>[0]);
     case "geocode":
       return geocode(normalized as Parameters<typeof geocode>[0]);
-    case "navigate":
-      return navigate(normalized as Parameters<typeof navigate>[0]);
     case "plan_itinerary":
       return planItinerary(normalized as Parameters<typeof planItinerary>[0]);
     default:
@@ -248,22 +245,6 @@ const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           lat: { type: "number" },
           lng: { type: "number" },
           providers: { type: "array", items: { type: "string" } },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "navigate",
-      description: "Return secret-free map deeplinks for a place.",
-      parameters: {
-        type: "object",
-        properties: {
-          native_id: { type: "string" },
-          provider: { type: "string" },
-          lat: { type: "number" },
-          lng: { type: "number" },
         },
       },
     },

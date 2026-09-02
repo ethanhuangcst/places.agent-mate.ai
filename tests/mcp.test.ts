@@ -114,13 +114,20 @@ describe("MCP tools", () => {
         "search_restaurants",
         "search_places",
         "plan_itinerary",
+        "trip_plan",
+        "trips",
         "get_place_details",
         "geocode",
-        "navigate",
+        "visa_requirement",
         "discover_places",
         "arrange_day",
+        "make_itinerary",
+        "plan_next_stop",
+        "display_current_stop",
+        "travel_tips",
       ]),
     );
+    expect(names).not.toContain("navigate");
     await client.close();
     await server.close();
   });
@@ -166,6 +173,29 @@ describe("MCP tools", () => {
     expect(envelope.ok).toBe(true);
     expect(envelope.data.length).toBeGreaterThan(0);
     expect(envelope.data[0]?.category).not.toBe("restaurant");
+    await client.close();
+    await server.close();
+  });
+
+  it("TC-M11-48-09: should_call_visa_requirement_with_same_shape_as_http", async () => {
+    const { client, server } = await connectedClient();
+    const result = await client.callTool({
+      name: "visa_requirement",
+      arguments: { passport: "CHN", destination: "SGP", locale: "EN" },
+    });
+    const text = (result.content as { type: string; text?: string }[])
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    const envelope = JSON.parse(text) as {
+      agent: string;
+      ok: boolean;
+      data: { requirement: string; visa_free_days: number | null };
+    };
+    expect(envelope.agent).toBe(AGENT_ID);
+    expect(envelope.ok).toBe(true);
+    expect(envelope.data.requirement).toBe("visa_free");
+    expect(envelope.data.visa_free_days).toBe(30);
     await client.close();
     await server.close();
   });

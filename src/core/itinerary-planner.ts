@@ -30,7 +30,7 @@ import {
   dedupeRestaurantsByStem,
   ensureMustSeeDiversity,
 } from "./discover-dedupe";
-import { normalizeMustIncludeToken, mustIncludeTokenCovered } from "./trip-intake";
+import { normalizeMustIncludeToken, mustIncludeTokenCovered, skeletonCoversMustInclude, MCP_NO_INVENT_RULE } from "./trip-intake";
 import {
   applyMustIncludeDayEvidence,
   blockCoversMustIncludeToken,
@@ -43,9 +43,10 @@ import {
   type MustIncludeCoverageSnapshot,
 } from "./must-include-coverage";
 import { enrichArrangeDayWithTransit } from "./enrich-arrange-transit";
-import { inferMustSeeFromPool } from "./discover-must-see-llm";
+import { findIconicPlaces } from "./find-iconic-places";
+import { filterCardsNearAnchor, pickSupplementaryMustIncludeHit } from "./geo-bounds";
 import { getAdapter } from "../adapters";
-import { type ProviderId } from "./providers";
+import { type ProviderId, isProviderId } from "./providers";
 import { resolveProviderStrategy } from "../adapters/provider-resolver";
 import { geocode, searchPlaces, searchRestaurants } from "./tools";
 
@@ -169,9 +170,73 @@ export function validateItinerary(
         });
       }
     }
+
+    // F42 TC-M9-U42-02: same-day restaurant dedup — no two meal blocks (lunch/dinner) with same name.
+    const mealNames = new Map<string, string>();
+    for (const block of day.blocks) {
+      const t = (block.type ?? "").toLowerCase();
+      if (t === "lunch" || t === "dinner") {
+        const key = block.name.trim();
+        const prev = mealNames.get(key);
+        if (prev) {
+          errors.push({
+            field: `days[${day.day_index}].blocks[${block.name}]`,
+            message: `Same restaurant "${block.name}" used for both ${prev} and ${block.type} — choose a different restaurant for the second meal`,
+          });
+        } else {
+          mealNames.set(key, block.type);
+        }
+      }
+    }
   }
 
   return errors;
+}
+
+/**
+ * F42 TC-M9-U42-01: station timing consistency (post-enrich).
+ * Checks that block[i].start_time >= block[i-1].end_time + recommended_leg.duration_min - tolerance.
+ * Skips the first block (its legs_to_here is the origin→first transit, not inter-stop).
+ */
+export function validateStationTiming(
+  blocks: Array<{
+    name: string;
+    type: string;
+    start_time: string;
+    duration_min: number;
+    legs_to_here?: Array<{ duration_min?: number; recommended?: boolean }>;
+  }>,
+  toleranceMin: number,
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  for (let i = 1; i < blocks.length; i++) {
+    const prev = blocks[i - 1]!;
+    const curr = blocks[i]!;
+    const prevEnd = parseHhMmToMinutes(prev.start_time);
+    const currStart = parseHhMmToMinutes(curr.start_time);
+    if (prevEnd == null || currStart == null) continue;
+
+    const prevEndTotal = prevEnd + prev.duration_min;
+    const legs = curr.legs_to_here ?? [];
+    const recommended = legs.find((l) => l.recommended) ?? legs[0];
+    const transitMin = recommended?.duration_min;
+    if (transitMin == null) continue;
+
+    const expectedStart = prevEndTotal + transitMin;
+    if (currStart < expectedStart - toleranceMin) {
+      errors.push({
+        field: `blocks[${i}].start_time`,
+        message: `Block "${curr.name}" starts at ${curr.start_time} but previous block ends at ${formatMin(prevEndTotal)} and transit takes ${transitMin}min — expected start ≥ ${formatMin(expectedStart - toleranceMin)} (tolerance ${toleranceMin}min)`,
+      });
+    }
+  }
+  return errors;
+}
+
+function formatMin(min: number): string {
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 function parseHhMmToMinutes(t: string): number | null {
@@ -341,6 +406,10 @@ export function buildUserMessage(input: {
       "day fullness (relaxed): fewer stops but last block end ≥17:00; ending before 16:00 is invalid",
     );
   }
+  // F42 TC-M9-U42-04: lunch window soft prompt — always remind the LLM to plan a lunch block.
+  constraints.push(
+    "lunch window: include a lunch block around 12:00–13:30 (use a restaurant candidate); do not skip lunch",
+  );
   parts.push(`\nConstraints: ${constraints.join(", ")}`);
 
   // Candidates (cap = CANDIDATE_CAP — ADR-040 Story B)
@@ -821,6 +890,8 @@ export type DiscoverPlacesInput = {
   locale: Locale;
   numDays?: number;
   providers?: string[];
+  /** User must_include tokens — supplementary-searched into the pool when uncovered. */
+  must_include?: string[];
 };
 
 export type DiscoverPlacesResult = {
@@ -878,6 +949,7 @@ export function slimArrangeCandidate(card: PlaceCard): PlaceCard {
         Object.entries(s.deeplinks ?? {}).map(([k, v]) => [k, sanitizePublicUrl(v)]),
       ),
     })),
+    must_see: card.must_see,
   };
 }
 
@@ -908,20 +980,23 @@ export function normalizePlaceSources(
       deeplinksRaw && typeof deeplinksRaw === "object" && !Array.isArray(deeplinksRaw)
         ? (deeplinksRaw as Record<string, string>)
         : {};
-    const provider =
+    const providerRaw =
       typeof s.provider === "string"
         ? s.provider
         : typeof card?.provider === "string"
           ? card.provider
           : "GOOGLE_MAPS";
+    const provider: ProviderId = isProviderId(providerRaw) ? providerRaw : "GOOGLE_MAPS";
     const native_id = typeof s.native_id === "string" ? s.native_id : "";
     out.push({ provider, native_id, deeplinks });
   }
 
   if (out.length === 0 && card?.location?.lat != null && card?.location?.lng != null) {
     const q = `${card.location.lat}%2C${card.location.lng}`;
+    const rawProvider = card.provider ?? "GOOGLE_MAPS";
+    const fallbackProvider: ProviderId = isProviderId(rawProvider) ? rawProvider : "GOOGLE_MAPS";
     out.push({
-      provider: card.provider ?? "GOOGLE_MAPS",
+      provider: fallbackProvider,
       native_id: "",
       deeplinks: {
         google_web: `https://www.google.com/maps/search/?api=1&query=${q}`,
@@ -931,13 +1006,41 @@ export function normalizePlaceSources(
   return out;
 }
 
-export function slimArrangeCandidates(candidates: {
-  places: PlaceCard[];
-  restaurants: PlaceCard[];
-}): { places: PlaceCard[]; restaurants: PlaceCard[] } {
+export function slimArrangeCandidates(
+  candidates: {
+    places: PlaceCard[];
+    restaurants: PlaceCard[];
+  },
+  opts?: { omitPhotos?: boolean; compactEcho?: boolean },
+): { places: PlaceCard[]; restaurants: PlaceCard[] } {
+  const map = (card: PlaceCard): PlaceCard => {
+    const slim = slimArrangeCandidate(card);
+    const withoutPhotos = opts?.omitPhotos
+      ? (() => {
+          const { photos: _photos, ...rest } = slim;
+          return rest;
+        })()
+      : slim;
+    if (!opts?.compactEcho) return withoutPhotos;
+    const src = withoutPhotos.sources?.[0];
+    const google_web = src?.deeplinks?.google_web;
+    return {
+      provider: withoutPhotos.provider,
+      name: withoutPhotos.name,
+      location: withoutPhotos.location,
+      must_see: withoutPhotos.must_see,
+      sources: [
+        {
+          provider: src?.provider ?? withoutPhotos.provider,
+          native_id: src?.native_id ?? "",
+          deeplinks: google_web ? { google_web } : {},
+        },
+      ],
+    };
+  };
   return {
-    places: candidates.places.map(slimArrangeCandidate),
-    restaurants: candidates.restaurants.map(slimArrangeCandidate),
+    places: candidates.places.map(map),
+    restaurants: candidates.restaurants.map(map),
   };
 }
 
@@ -972,15 +1075,126 @@ export async function discoverPlaces(
 ): Promise<DiscoverPlacesResult> {
   const numDays = Math.max(1, input.numDays ?? 1);
   const locale = parseLocale(input.locale);
-  const { places: rawPlaces, restaurants: rawRestaurants } = await searchCandidatePools({
-    city: input.city,
-    locale,
-    providers: input.providers,
-    origin: input.origin,
-  });
 
-  const places = rawPlaces.slice(0, CANDIDATE_CAP * Math.min(numDays, 3));
-  const restaurants = rawRestaurants.slice(0, CANDIDATE_CAP * Math.min(numDays, 3));
+  const near =
+    input.origin?.lat != null && input.origin?.lng != null
+      ? { lat: input.origin.lat, lng: input.origin.lng }
+      : undefined;
+
+  // ADR-045 §3: run iconic-places inference (ungrounded) IN PARALLEL with the
+  // candidate search. The ungrounded LLM call does not add to the critical path.
+  const [poolResult, iconic] = await Promise.all([
+    searchCandidatePools({
+      city: input.city,
+      locale,
+      providers: input.providers,
+      origin: input.origin,
+    }),
+    findIconicPlaces({ city: input.city, locale, limit: 3 }),
+  ]);
+
+  let places = poolResult.places.slice(0, CANDIDATE_CAP * Math.min(numDays, 3));
+  let restaurants = poolResult.restaurants.slice(0, CANDIDATE_CAP * Math.min(numDays, 3));
+
+  // Match iconic names to the pool (normalized); mark matched cards must_see.
+  const iconicNorm = new Map<string, string>();
+  for (const n of iconic.names) iconicNorm.set(normalizeMustIncludeToken(n), n);
+  const matchedNorm = new Set<string>();
+  for (const card of places) {
+    const n = normalizeMustIncludeToken(card.name);
+    if (iconicNorm.has(n)) {
+      card.must_see = true;
+      matchedNorm.add(n);
+    }
+  }
+
+  // Supplementary search: for iconic names not already in the pool, search by
+  // name so they enter the pool (grounding the ungrounded LLM output). ≤3 calls.
+  const unmatched = iconic.names.filter(
+    (n) => !matchedNorm.has(normalizeMustIncludeToken(n)),
+  );
+  if (unmatched.length > 0) {
+    const extraResults = await Promise.all(
+      unmatched.map((name) =>
+        searchPlaces({
+          address: input.city,
+          query: name,
+          locale,
+          providers: input.providers,
+          near,
+          rankPreference: "RELEVANCE",
+        }),
+      ),
+    );
+    const existingNames = new Set(places.map((p) => normalizeMustIncludeToken(p.name)));
+    for (const res of extraResults) {
+      const found = filterAttractionPlaces(
+        mergePlaceCardsByName([res.data ?? []]),
+      )[0];
+      if (!found) continue;
+      const fn = normalizeMustIncludeToken(found.name);
+      if (!fn || existingNames.has(fn)) continue;
+      found.must_see = true;
+      existingNames.add(fn);
+      places.push(found);
+    }
+  }
+
+  // User must_include (areas / day-trips): mark covered cards; search uncovered tokens.
+  const userMust = (input.must_include ?? []).map((t) => t.trim()).filter(Boolean);
+  if (userMust.length > 0) {
+    for (const card of places) {
+      if (userMust.some((t) => skeletonCoversMustInclude(t, [card.name]))) {
+        card.must_see = true;
+      }
+    }
+    const uncoveredUser = userMust.filter(
+      (t) => !skeletonCoversMustInclude(t, places.map((p) => p.name)),
+    );
+    if (uncoveredUser.length > 0) {
+      const extraUser = await Promise.all(
+        uncoveredUser.map((name) =>
+          searchPlaces({
+            address: input.city,
+            query: name,
+            locale,
+            providers: input.providers,
+            near,
+            rankPreference: "RELEVANCE",
+          }),
+        ),
+      );
+      const existingNames = new Set(places.map((p) => normalizeMustIncludeToken(p.name)));
+      extraUser.forEach((res, i) => {
+        const token = uncoveredUser[i] ?? "";
+        const found = pickSupplementaryMustIncludeHit(
+          filterAttractionPlaces(mergePlaceCardsByName([res.data ?? []])),
+          token,
+          { city: input.city, existingNorm: existingNames },
+        );
+        if (!found) return;
+        found.must_see = true;
+        existingNames.add(normalizeMustIncludeToken(found.name));
+        places.push(found);
+      });
+    }
+  }
+
+  const anchor =
+    input.origin?.lat != null && input.origin?.lng != null
+      ? { lat: input.origin.lat, lng: input.origin.lng }
+      : (
+          await geocode({
+            query: input.origin?.name?.trim() || input.city,
+            locale,
+            providers: input.providers,
+          })
+        ).data;
+  if (anchor?.lat != null && anchor?.lng != null) {
+    const point = { lat: anchor.lat, lng: anchor.lng };
+    places = filterCardsNearAnchor(places, point);
+    restaurants = filterCardsNearAnchor(restaurants, point);
+  }
 
   for (const card of places) {
     opts?.onEvent?.({ type: "candidate", kind: "place", card: slimCard(card) });
@@ -993,9 +1207,13 @@ export async function discoverPlaces(
     counts: { places: places.length, restaurants: restaurants.length },
   });
 
-  // ADR-042 Update: infer must-see from the pool (destination-agnostic, no city names in source).
-  // Failure returns [] and does not block discover.
-  const inferred_must_see = await inferMustSeeFromPool({ places });
+  // ADR-045 §3: inferred_must_see = iconic names that are now grounded in the
+  // pool (matched or found via supplementary search). Unmatched-and-not-found
+  // names are dropped (cannot be scheduled).
+  const poolNameSet = new Set(places.map((p) => normalizeMustIncludeToken(p.name)));
+  const inferred_must_see = iconic.names.filter((n) =>
+    poolNameSet.has(normalizeMustIncludeToken(n)),
+  );
 
   return { candidates: { places, restaurants }, inferred_must_see };
 }
@@ -1047,7 +1265,8 @@ export const ARRANGE_DAY_FAILURE_HOST_INSTRUCTIONS =
   "Empty candidates are auto-discovered from city on the server — do not invent POIs or " +
   "call search_places to fabricate a pool. Prefer passing the discover_places pool when available. " +
   "If retrying with a host pool, keep sources as an ARRAY of {provider, native_id, deeplinks}. " +
-  "Do not invent truncation stories; do not restart Day 1.";
+  "Do not invent truncation stories; do not restart Day 1. " +
+  MCP_NO_INVENT_RULE;
 
 /**
  * ADR-043 D8: when places or restaurants are empty after exclude, discover from city.
@@ -1286,6 +1505,20 @@ async function resolvePointForTransit(
   return point;
 }
 
+/**
+ * F42 TC-M9-U42-03: expand a day-trip focus token into multiple search queries
+ * using GENERIC attraction category words (ADR-042 compliant — no city-specific POI hardcoding).
+ */
+export function buildDayTripSearchQueries(focusToken: string, cityHint: string): string[] {
+  const token = focusToken.trim();
+  const city = cityHint.trim();
+  const base = city ? `${token} ${city}` : token;
+  // Generic category suffixes — destination-agnostic, not city-specific POI names.
+  const genericSuffixes = ["景点", "attractions", "places to visit", "must see"];
+  const expanded = genericSuffixes.map((s) => `${token} ${s}`.trim());
+  return [base, ...expanded];
+}
+
 /** ADR-043 D7/D9: pick one missing must_include, geocode+search, merge into candidates.
  * D9 P0: prefer the assigned token for this dayIndex; seed assignment; sticky. */
 async function prepareMustIncludeFocus(input: {
@@ -1354,7 +1587,7 @@ async function prepareMustIncludeFocus(input: {
   }
 
   const cityHint = input.city?.trim() ?? "";
-  const query = cityHint ? `${focusToken} ${cityHint}` : focusToken;
+  const queries = buildDayTripSearchQueries(focusToken, cityHint);
 
   let focusAnchor: GeoAnchor | null = null;
   if (input._testGeocodeMustInclude) {
@@ -1378,19 +1611,30 @@ async function prepareMustIncludeFocus(input: {
 
   let focusPool: PlaceCard[] = [];
   if (input._testSearchMustInclude) {
-    focusPool = await input._testSearchMustInclude(query);
+    focusPool = await input._testSearchMustInclude(queries[0]!);
   } else {
-    try {
-      const searched = await searchPlaces({
-        query,
-        providers: input.providers?.length
-          ? input.providers
-          : ["GOOGLE_MAPS"],
-        locale: input.locale,
-      });
-      focusPool = (searched.data ?? []).slice(0, 12);
-    } catch {
-      focusPool = [];
+    // F42: search all expanded queries and merge unique results (cap 12 total).
+    const seen = new Set<string>();
+    for (const q of queries) {
+      try {
+        const searched = await searchPlaces({
+          query: q,
+          providers: input.providers?.length
+            ? input.providers
+            : ["GOOGLE_MAPS"],
+          locale: input.locale,
+        });
+        for (const p of searched.data ?? []) {
+          if (!seen.has(p.name)) {
+            seen.add(p.name);
+            focusPool.push(p);
+          }
+          if (focusPool.length >= 12) break;
+        }
+        if (focusPool.length >= 12) break;
+      } catch {
+        /* continue with next query */
+      }
     }
   }
 
@@ -1656,6 +1900,15 @@ export async function arrangeDay(
     transit_preferred: input.preferences?.transit_preferred,
     resolveDuration,
   });
+
+  // F42 TC-M9-U42-01: post-enrich station timing consistency check.
+  // If blocks have legs_to_here, validate that start times account for transit duration.
+  const timingErrors = validateStationTiming(enriched.blocks, 5);
+  if (timingErrors.length > 0) {
+    throw new Error(
+      `arrange_day failed: station timing inconsistency — ${timingErrors.map((e) => e.message).join("; ")}`,
+    );
+  }
 
   for (const block of enriched.blocks) {
     opts?.onEvent?.({ type: "place", dayIndex: input.dayIndex, block });

@@ -35,6 +35,8 @@ export type PlaceCard = {
     review_count?: number;
     url?: string;
   };
+  /** ADR-045 §4: marks pool cards identified as must-see / iconic. Signal travels with the card. */
+  must_see?: boolean;
 };
 
 export type SearchInput = {

@@ -1,9 +1,14 @@
 /**
- * TC-M8-S38-01 — MCP Streamable session missing/expired → clear error; initialize recovers.
+ * TC-M12-52 — MCP `/mcp` stateless (ADR-045 §7).
+ * No session id issued/validated; every request independent; GET/DELETE → 405.
  */
 import { createServer } from "node:http";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { handleMcp, closeMcpSessions, mcpInvalidSessionBody } from "../src/mcp/http-transport";
+import {
+  handleMcp,
+  closeMcpSessions,
+  mcpInvalidSessionBody,
+} from "../src/mcp/http-transport";
 import { generateCallerSecret } from "../src/core/crypto";
 import { prisma } from "../src/db/client";
 
@@ -14,11 +19,18 @@ const INIT_BODY = {
   params: {
     protocolVersion: "2024-11-05",
     capabilities: {},
-    clientInfo: { name: "tc-m8-s38", version: "0.0.0" },
+    clientInfo: { name: "tc-m12-s52", version: "0.0.0" },
   },
 };
 
-describe("TC-M8-S38-01 MCP SSE/Streamable session", () => {
+const TOOLS_LIST_BODY = {
+  jsonrpc: "2.0",
+  id: 2,
+  method: "tools/list",
+  params: {},
+};
+
+describe("TC-M12-52 MCP /mcp stateless", () => {
   let base = "";
   let secret = "";
   let server: ReturnType<typeof createServer>;
@@ -28,7 +40,7 @@ describe("TC-M8-S38-01 MCP SSE/Streamable session", () => {
     secret = generated.secret;
     await prisma.callerApiKey.create({
       data: {
-        name: "mcp-session-e2e",
+        name: "mcp-stateless-e2e",
         keyHash: generated.keyHash,
         prefix: generated.prefix,
         status: "ACTIVE",
@@ -53,54 +65,7 @@ describe("TC-M8-S38-01 MCP SSE/Streamable session", () => {
     closeMcpSessions();
   });
 
-  it("should_return_clear_error_when_session_missing", async () => {
-    const res = await fetch(`${base}/sse`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secret}`,
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/list",
-        params: {},
-      }),
-    });
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as {
-      error?: { message?: string; data?: { outcomeKey?: string; reason?: string } };
-    };
-    expect(json.error?.data?.outcomeKey).toBe("errors.mcp_session_invalid");
-    expect(json.error?.data?.reason).toBe("missing_session");
-    expect(json.error?.message).toMatch(/initialize/i);
-    expect(JSON.stringify(json)).not.toMatch(/stack|Bearer |sk-/i);
-  });
-
-  it("should_return_clear_error_when_session_expired_then_recover_via_initialize", async () => {
-    const stale = await fetch(`${base}/sse`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secret}`,
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        "mcp-session-id": "00000000-0000-0000-0000-000000000000",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 3,
-        method: "tools/list",
-        params: {},
-      }),
-    });
-    expect(stale.status).toBe(400);
-    const staleJson = (await stale.json()) as {
-      error?: { data?: { reason?: string }; message?: string };
-    };
-    expect(staleJson.error?.data?.reason).toBe("expired_or_unknown_session");
-    expect(staleJson.error?.message).toMatch(/Re-initialize|expired/i);
-
+  it("should_not_issue_or_validate_session_id_on_initialize", async () => {
     const init = await fetch(`${base}/sse`, {
       method: "POST",
       headers: {
@@ -112,31 +77,60 @@ describe("TC-M8-S38-01 MCP SSE/Streamable session", () => {
     });
     expect(init.status).toBeGreaterThanOrEqual(200);
     expect(init.status).toBeLessThan(300);
-    const sessionId = init.headers.get("mcp-session-id");
-    expect(sessionId).toBeTruthy();
+    // Stateless: no mcp-session-id header issued.
+    expect(init.headers.get("mcp-session-id")).toBeNull();
+  });
 
-    const listed = await fetch(`${base}/sse`, {
+  it("should_accept_tools_call_without_session_id", async () => {
+    const res = await fetch(`${base}/sse`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${secret}`,
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
-        "mcp-session-id": sessionId!,
       },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 4,
-        method: "tools/list",
-        params: {},
-      }),
+      body: JSON.stringify(TOOLS_LIST_BODY),
     });
-    expect(listed.status).toBeGreaterThanOrEqual(200);
-    expect(listed.status).toBeLessThan(300);
-    const listText = await listed.text();
-    expect(listText).toMatch(/search_restaurants|discover_places|arrange_day/);
+    expect(res.status).toBeGreaterThanOrEqual(200);
+    expect(res.status).toBeLessThan(300);
+    expect(res.headers.get("mcp-session-id")).toBeNull();
+    const text = await res.text();
+    expect(text).toMatch(/search_restaurants|discover_places|make_itinerary/);
   });
 
-  it("should_document_invalid_session_body_shape", () => {
+  it("should_ignore_stale_session_id_and_not_reject", async () => {
+    const res = await fetch(`${base}/sse`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "mcp-session-id": "00000000-0000-0000-0000-000000000000",
+      },
+      body: JSON.stringify(TOOLS_LIST_BODY),
+    });
+    // Stateless: stale id is ignored, request still succeeds (no 400/404).
+    expect(res.status).toBeGreaterThanOrEqual(200);
+    expect(res.status).toBeLessThan(300);
+    expect(res.headers.get("mcp-session-id")).toBeNull();
+  });
+
+  it("should_return_405_for_get_and_delete", async () => {
+    const getRes = await fetch(`${base}/mcp`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${secret}` },
+    });
+    expect(getRes.status).toBe(405);
+
+    const delRes = await fetch(`${base}/mcp`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${secret}` },
+    });
+    expect(delRes.status).toBe(405);
+  });
+
+  it("should_document_invalid_session_body_shape_for_sse_legacy", () => {
+    // mcpInvalidSessionBody is retained for the legacy /sse + /messages path.
     const body = mcpInvalidSessionBody("missing_session");
     expect(body.error.data.outcomeKey).toBe("errors.mcp_session_invalid");
     expect(body.error.message).not.toMatch(/stack/i);

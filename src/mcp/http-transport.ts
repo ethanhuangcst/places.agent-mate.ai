@@ -1,19 +1,26 @@
 /**
- * MCP Streamable HTTP + SSE session wiring (Feature 38).
+ * MCP Streamable HTTP + SSE session wiring.
+ *
+ * ADR-045 §7 — `/mcp` (Streamable HTTP) is STATELESS: no session id is issued
+ * or validated, every request is independent. This eliminates the
+ * `mcp_session_invalid` failure class (server restarts / TTL expiry / clients
+ * that don't re-initialize). No tool depends on the MCP transport session:
+ * `must-include-coverage` and `arrange-present-gate` are keyed by
+ * `city|origin|locale`, not by session id.
+ *
+ * `/sse` (legacy SSE transport) remains stateful and untouched.
+ *
  * Kept free of Next.js so process-level tests can mount a tiny http.Server.
  */
 
-import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createPlacesMcpServer } from "./create-server";
 import { SessionManager } from "./session-manager";
 import { authenticateCaller } from "../auth/caller";
 import { errorEnvelope } from "../http/envelope";
 
-export const mcpSessions = new SessionManager();
 export const sseSessions = new SessionManager();
 
 function authorizationOf(req: IncomingMessage): string | null {
@@ -45,7 +52,11 @@ async function readJsonBody(req: IncomingMessage): Promise<{ ok: true; data: unk
   }
 }
 
-/** Clear JSON-RPC error for missing/expired Streamable sessions (no stacks/secrets). */
+/**
+ * Clear JSON-RPC error for missing/expired SSE sessions (no stacks/secrets).
+ * Kept for the legacy `/sse` + `/messages` path; the stateless `/mcp` path no
+ * longer emits it.
+ */
 export function mcpInvalidSessionBody(reason: "missing_session" | "expired_or_unknown_session") {
   return {
     jsonrpc: "2.0" as const,
@@ -61,26 +72,36 @@ export function mcpInvalidSessionBody(reason: "missing_session" | "expired_or_un
   };
 }
 
+// --- Stateless Streamable HTTP transport (ADR-045 §7) ----------------------
+//
+// ADR-045 §7: `/mcp` is stateless. `sessionIdGenerator: undefined` means the
+// SDK issues no `mcp-session-id` header and performs no session validation.
+// Each request is independent; no per-session state is retained across
+// requests, so server restarts / TTL expiry / clients that don't
+// re-initialize cannot break subsequent calls.
+//
+// A fresh transport + server is created per request. This is the most robust
+// stateless pattern: no shared state can leak between requests (the shared
+// transport variant was found to error after a prior `initialize` on the
+// same instance). `createPlacesMcpServer()` is cheap (tool registration
+// only), and MCP tool results are returned synchronously in the
+// `tools/call` response, so per-request construction has no correctness cost.
+
+async function createStatelessTransport(): Promise<StreamableHTTPServerTransport> {
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  const server = createPlacesMcpServer();
+  await server.connect(transport);
+  return transport;
+}
+
 export async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!(await requireCaller(req, res))) return;
-  const sessionIdHeader = req.headers["mcp-session-id"];
-  const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
 
+  // Stateless: no SSE uplink, no session to delete.
   if (req.method === "GET" || req.method === "DELETE") {
-    const existing = sessionId
-      ? (mcpSessions.get(sessionId) as StreamableHTTPServerTransport | undefined)
-      : undefined;
-    if (!existing) {
-      res.statusCode = 400;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify(
-          mcpInvalidSessionBody(sessionId ? "expired_or_unknown_session" : "missing_session"),
-        ),
-      );
-      return;
-    }
-    await existing.handleRequest(req, res);
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.end("Method not allowed");
     return;
   }
 
@@ -99,38 +120,11 @@ export async function handleMcp(req: IncomingMessage, res: ServerResponse): Prom
   }
   const body = parsed.data;
 
-  let transport = sessionId
-    ? (mcpSessions.get(sessionId) as StreamableHTTPServerTransport | undefined)
-    : undefined;
-
-  // Stale session id + initialize → start a fresh session (ignore stale id)
-  if (!transport && isInitializeRequest(body)) {
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (id) => {
-        mcpSessions.add(id, transport as StreamableHTTPServerTransport);
-      },
-    });
-    transport.onclose = () => {
-      const id = transport?.sessionId;
-      if (id) mcpSessions.delete(id);
-    };
-    const server = createPlacesMcpServer();
-    await server.connect(transport);
-  }
-
-  if (!transport) {
-    res.statusCode = 400;
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify(
-        mcpInvalidSessionBody(sessionId ? "expired_or_unknown_session" : "missing_session"),
-      ),
-    );
-    return;
-  }
+  const transport = await createStatelessTransport();
   await transport.handleRequest(req, res, body);
 }
+
+// --- Legacy SSE transport (stateful, unchanged) -----------------------------
 
 export async function handleSse(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!(await requireCaller(req, res))) return;
@@ -165,6 +159,5 @@ export async function handleSseMessage(
 }
 
 export function closeMcpSessions(): void {
-  mcpSessions.close();
   sseSessions.close();
 }

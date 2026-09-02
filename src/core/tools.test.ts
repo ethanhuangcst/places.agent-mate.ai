@@ -3,7 +3,6 @@ import {
   searchRestaurants,
   searchPlaces,
   getPlaceDetails,
-  navigate,
   geocode,
   shouldTryGoogleAfterEmptyAmap,
 } from "./tools";
@@ -239,18 +238,6 @@ describe("getPlaceDetails", () => {
   });
 });
 
-describe("navigate", () => {
-  it("should_return_secret_free_deeplinks", async () => {
-    const result = await navigate({
-      native_id: "fixture_yat_lok",
-      provider: "GOOGLE_MAPS",
-    });
-    const blob = JSON.stringify(result.data);
-    expect(blob).not.toMatch(/AIza|amap.*key|api_key=/i);
-    expect(result.data.google_web).toContain("google.com/maps");
-  });
-});
-
 describe("geocode", () => {
   it("should_return_coordinates_for_address", async () => {
     const result = await geocode({
@@ -274,18 +261,6 @@ describe("geocode", () => {
     const result = await geocode({ providers: ["GOOGLE_MAPS"] });
     expect(result.data).toBeNull();
     expect(result.skipped.some((s) => s.reason_key === "errors.provider_failed")).toBe(true);
-  });
-});
-
-describe("navigate by coordinates", () => {
-  it("should_build_deeplinks_from_lat_lng", async () => {
-    const result = await navigate({
-      lat: 22.28,
-      lng: 114.16,
-      name: "Central",
-      provider: "GOOGLE_MAPS",
-    });
-    expect(result.data.google_web).toContain("google.com/maps");
   });
 });
 

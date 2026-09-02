@@ -349,6 +349,34 @@ describe("caller auth and HTTP dispatch", () => {
     expect(result.envelope.outcome?.key).toBe("errors.arrange_day_failed");
   });
 
+  it("TC-M11-48-08: should_return_visa_requirement_fixture_envelope", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    const result = await dispatchTool("visa_requirement", `Bearer ${generated.secret}`, {
+      passport: "CHN",
+      destination: "JPN",
+      locale: "CN",
+    });
+    expect(result.status).toBe(200);
+    expect(result.envelope.ok).toBe(true);
+    expect(result.envelope.agent).toBe(AGENT_ID);
+    const data = result.envelope.data as {
+      requirement: string;
+      passport: string;
+      destination: string;
+    };
+    expect(data.passport).toBe("CHN");
+    expect(data.destination).toBe("JPN");
+    expect(data.requirement).toBe("visa_required");
+  });
+
   it("should_accept_omitted_candidates_and_fail_without_city_for_auto_discover", async () => {
     const generated = generateCallerSecret();
     await prisma.callerApiKey.create({

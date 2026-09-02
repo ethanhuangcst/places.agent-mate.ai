@@ -12,10 +12,14 @@ describe("healthEnvelope", () => {
       "plan_itinerary",
       "get_place_details",
       "geocode",
-      "navigate",
       "discover_places",
       "arrange_day",
       "enrich_arrange_transit",
+      "make_itinerary",
+      "plan_next_stop",
+      "display_current_stop",
+      "visa_requirement",
+      "travel_tips",
       "chat",
     ]);
   });

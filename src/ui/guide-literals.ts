@@ -21,7 +21,9 @@ export const GUIDE_HTTP_ENDPOINTS = [
   "POST /v1/arrange_day",
   "POST /v1/get_place_details",
   "POST /v1/geocode",
-  "POST /v1/navigate",
+  "POST /v1/make_itinerary",
+  "POST /v1/plan_next_stop",
+  "POST /v1/display_current_stop",
   "POST /v1/chat",
 ] as const;
 
@@ -33,7 +35,9 @@ export const GUIDE_MCP_TOOLS = [
   "arrange_day",
   "get_place_details",
   "geocode",
-  "navigate",
+  "make_itinerary",
+  "plan_next_stop",
+  "display_current_stop",
 ] as const;
 
 export type GuideCapabilityChannel = "both" | "http";
@@ -78,13 +82,6 @@ export const GUIDE_CAPABILITIES: readonly GuideCapability[] = [
     channel: "both",
   },
   {
-    id: "navigate",
-    label: "navigate",
-    labelLiteral: true,
-    bodyKey: "admin.guide.cap_navigate_body",
-    channel: "both",
-  },
-  {
     id: "itinerary",
     label: "plan_itinerary",
     labelLiteral: true,
@@ -103,6 +100,27 @@ export const GUIDE_CAPABILITIES: readonly GuideCapability[] = [
     label: "arrange_day",
     labelLiteral: true,
     bodyKey: "admin.guide.cap_arrange_day_body",
+    channel: "both",
+  },
+  {
+    id: "make_itinerary",
+    label: "make_itinerary",
+    labelLiteral: true,
+    bodyKey: "admin.guide.cap_make_itinerary_body",
+    channel: "both",
+  },
+  {
+    id: "plan_next_stop",
+    label: "plan_next_stop",
+    labelLiteral: true,
+    bodyKey: "admin.guide.cap_plan_next_stop_body",
+    channel: "both",
+  },
+  {
+    id: "display_current_stop",
+    label: "display_current_stop",
+    labelLiteral: true,
+    bodyKey: "admin.guide.cap_display_current_stop_body",
     channel: "both",
   },
   {

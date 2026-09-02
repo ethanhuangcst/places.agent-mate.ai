@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeProviderId } from "../core/providers";
+import { ItinerarySkeletonSchema } from "../core/make-itinerary";
 
 export const localeSchema = z.enum(["EN", "CN", "HK", "TW"]);
 
@@ -41,18 +42,9 @@ export const getPlaceDetailsBody = z.object({
 
 export const geocodeBody = z.object({
   query: z.string().optional(),
-  lat: z.number().optional(),
-  lng: z.number().optional(),
-  ...shared,
-});
-
-export const navigateBody = z.object({
-  native_id: z.string().optional(),
-  name: z.string().optional(),
-  lat: z.number().optional(),
-  lng: z.number().optional(),
-  provider: z.string().optional(),
-  ...shared,
+    lat: z.number().optional(),
+    lng: z.number().optional(),
+    ...shared,
 });
 
 const placeCardSchema = z.object({
@@ -127,6 +119,7 @@ export const discoverPlacesBody = z.object({
   }),
   origin: originSchema,
   numDays: z.number().int().min(1).max(14).optional(),
+  must_include: z.array(z.string()).optional(),
   ...shared,
 });
 
@@ -233,9 +226,96 @@ export type ChatBody = z.infer<typeof chatBody>;
 export type SearchRestaurantsBody = z.infer<typeof searchRestaurantsBody>;
 export type SearchPlacesBody = z.infer<typeof searchPlacesBody>;
 export type GetPlaceDetailsBody = z.infer<typeof getPlaceDetailsBody>;
+export const makeItineraryBody = z.object({
+  city: z.string().min(1),
+  numDays: z.number().int().min(1).max(14),
+  candidates: z
+    .object({
+      places: z.array(z.object({ name: z.string() }).passthrough()).optional().default([]),
+      restaurants: z.array(z.object({ name: z.string() }).passthrough()).optional().default([]),
+    })
+    .optional()
+    .default({ places: [], restaurants: [] }),
+  origin: originSchema,
+  pace: z.enum(["tight", "medium", "relaxed"]).optional(),
+  budget: z.enum(["budget", "premium"]).optional(),
+  must_include: z.array(z.string()).optional(),
+  natural_language: z.string().optional(),
+  ...shared,
+});
+
+const planNextStopPointSchema = z.object({
+  name: z.string().min(1),
+  kind: z.enum(["stay", "attraction", "meal"]).optional(),
+  meal_slot: z.enum(["lunch", "afternoon_tea", "dinner"]).optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  end_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+});
+
+export const planNextStopBody = z.object({
+  current_stop: planNextStopPointSchema,
+  next_stop: planNextStopPointSchema,
+  candidates: z
+    .object({
+      places: z.array(z.object({ name: z.string() }).passthrough()),
+      restaurants: z.array(z.object({ name: z.string() }).passthrough()),
+    })
+    .optional()
+    .default({ places: [], restaurants: [] }),
+  transit_preference: z.string().optional(),
+  city: z.string().optional(),
+  ...shared,
+});
+
+export const displayCurrentStopBody = z.object({
+  stop: planNextStopPointSchema,
+  candidates: z
+    .object({
+      places: z.array(z.object({ name: z.string() }).passthrough()),
+      restaurants: z.array(z.object({ name: z.string() }).passthrough()),
+    })
+    .optional()
+    .default({ places: [], restaurants: [] }),
+  previous_stop: z
+    .object({
+      name: z.string().optional(),
+      end_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+      kind: z.enum(["stay", "attraction", "meal"]).optional(),
+    })
+    .optional(),
+  legs_to_here: z.array(z.any()).optional(),
+  default_duration_min: z.number().int().min(10).max(480).optional(),
+  time_from: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  stay_role: z.enum(["day_origin", "return", "midday"]).optional(),
+  ...shared,
+});
+
 export type GeocodeBody = z.infer<typeof geocodeBody>;
-export type NavigateBody = z.infer<typeof navigateBody>;
 export type PlanItineraryBody = z.infer<typeof planItineraryBody>;
 export type DiscoverPlacesBody = z.infer<typeof discoverPlacesBody>;
 export type ArrangeDayBody = z.infer<typeof arrangeDayBody>;
 export type EnrichArrangeTransitBody = z.infer<typeof enrichArrangeTransitBody>;
+export type MakeItineraryBody = z.infer<typeof makeItineraryBody>;
+export type PlanNextStopBody = z.infer<typeof planNextStopBody>;
+export type DisplayCurrentStopBody = z.infer<typeof displayCurrentStopBody>;
+
+export const visaRequirementBody = z.object({
+  passport: z.string().min(1),
+  destination: z.string().min(1),
+  ...shared,
+});
+
+export const travelTipsBody = z.object({
+  destination: z.string().min(1),
+  bounds: z.object({ start: z.string(), end: z.string() }).optional(),
+  trip_type: z.string().optional(),
+  pace: z.enum(["tight", "medium", "relaxed"]).optional(),
+  skeleton: ItinerarySkeletonSchema.optional(),
+  constraints: z.string().optional(),
+  pool: z.array(z.string()).optional(),
+  ...shared,
+});
+
+export type VisaRequirementBody = z.infer<typeof visaRequirementBody>;
+export type TravelTipsBody = z.infer<typeof travelTipsBody>;

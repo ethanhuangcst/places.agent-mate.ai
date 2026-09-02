@@ -277,47 +277,4 @@ export async function geocode(input: {
   return { data: values[0] ?? null, skipped, locale, locales: pair };
 }
 
-export async function navigate(input: {
-  native_id?: string;
-  name?: string;
-  lat?: number;
-  lng?: number;
-  provider?: string;
-  providers?: string[];
-  locale?: Locale;
-  locales?: Locale[];
-}): Promise<ToolResult<Record<string, string>>> {
-  const { locale, pair } = localesFrom(input);
-  const { values, skipped } = await fanOut(
-    input.providers ?? (input.provider ? [input.provider] : undefined),
-    "navigate",
-    async (id) => {
-      const adapter = getAdapter(id);
-      if (!adapter) throw new Error("missing");
-      if (input.native_id) {
-        const card = await adapter.getDetails(input.native_id);
-        if (!card) throw new Error("not_found");
-        return adapter.deeplinks(card);
-      }
-      const loc = {
-        lat: input.lat ?? 0,
-        lng: input.lng ?? 0,
-        crs: "WGS84" as const,
-      };
-      return adapter.deeplinks({
-        provider: id,
-        name: input.name ?? "",
-        location: loc,
-        sources: [],
-      });
-    },
-  );
-  const links = Object.assign({}, ...values);
-  const serialized = JSON.stringify(links);
-  if (/key=|api[_-]?key/i.test(serialized)) {
-    throw new Error("secret_in_deeplink");
-  }
-  return { data: links, skipped, locale, locales: pair };
-}
-
 export { mergeCards };

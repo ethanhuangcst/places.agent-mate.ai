@@ -5,6 +5,8 @@ import {
   buildIntakeHostInstructions,
   buildFixedTripForm,
   mustIncludeTokenCovered,
+  skeletonCoversMustInclude,
+  stripAreaSuffix,
   parseSpendLevel,
   MCP_TRIP_CHAT_RULES,
 } from "./trip-intake";
@@ -72,6 +74,9 @@ describe("buildIntakeHostInstructions", () => {
     expect(text).toMatch(/as-is|原文|Do not rewrite/i);
     expect(MCP_TRIP_CHAT_RULES).toMatch(/scale 1–3|spend_level=2/);
     expect(MCP_TRIP_CHAT_RULES).toMatch(/empty candidates|auto-discover/i);
+    expect(MCP_TRIP_CHAT_RULES).toMatch(/execute the returned next_tool_call chain/);
+    expect(MCP_TRIP_CHAT_RULES).toMatch(/display_current_stop/);
+    expect(MCP_TRIP_CHAT_RULES).toMatch(/travel_tips/);
   });
 });
 
@@ -96,6 +101,21 @@ describe("mustIncludeTokenCovered", () => {
     expect(mustIncludeTokenCovered("Cascais", ["卡斯凯什海岸"])).toBe(false);
     expect(mustIncludeTokenCovered("卡斯凯什", ["Cascais bay day"])).toBe(false);
     expect(mustIncludeTokenCovered("Cascais", ["Cascais coast"])).toBe(true);
+  });
+
+  it("should_not_cover_town_token_with_unrelated_palace_name", () => {
+    expect(mustIncludeTokenCovered("辛特拉", ["佩纳宫"])).toBe(false);
+    expect(skeletonCoversMustInclude("辛特拉", ["佩纳宫"])).toBe(false);
+  });
+});
+
+describe("skeletonCoversMustInclude", () => {
+  it("should_cover_area_suffix_via_place_core_or_theme", () => {
+    expect(stripAreaSuffix("贝伦区")).toBe("贝伦");
+    expect(skeletonCoversMustInclude("贝伦区", ["贝伦塔"])).toBe(true);
+    expect(skeletonCoversMustInclude("辛特拉", ["辛特拉宫"])).toBe(true);
+    expect(skeletonCoversMustInclude("辛特拉", ["辛特拉一日"])).toBe(true);
+    expect(skeletonCoversMustInclude("卡斯凯什", ["贝伦塔"])).toBe(false);
   });
 });
 

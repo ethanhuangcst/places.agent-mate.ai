@@ -2,13 +2,16 @@ import { describe, it, expect } from "vitest";
 import {
   LlmItinerarySchema,
   validateItinerary,
+  validateStationTiming,
   buildUserMessage,
   withAbortTimeout,
   callItineraryLlmWithValidationRetry,
   slimArrangeCandidate,
+  slimArrangeCandidates,
   slimArrangeDayResultForMcp,
   normalizePlaceSources,
   arrangeDay,
+  buildDayTripSearchQueries,
   type LlmItineraryOutput,
 } from "./itinerary-planner";
 import { type PlaceCard } from "./types";
@@ -299,6 +302,44 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
     });
     expect(sources).toHaveLength(1);
     expect(sources[0]?.deeplinks?.google_web).toContain("38.7");
+  });
+
+  it("should_compact_mcp_echo_to_name_location_and_one_deeplink", () => {
+    const fat: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "贝伦塔",
+      address: "Lisboa",
+      category: "tower",
+      rating: 4.6,
+      photos: ["https://example.com/a.jpg"],
+      location: { lat: 38.69, lng: -9.21, crs: "WGS84" },
+      sources: [
+        {
+          provider: "GOOGLE_MAPS",
+          native_id: "ChIJ1",
+          deeplinks: {
+            google_web: "https://www.google.com/maps/search/?api=1&query=1",
+            google_app: "https://maps.google.com/?q=1",
+            amap_web: "https://uri.amap.com/marker?position=-9.21,38.69",
+          },
+        },
+      ],
+      must_see: true,
+    };
+    const slim = slimArrangeCandidates(
+      { places: [fat], restaurants: [] },
+      { omitPhotos: true, compactEcho: true },
+    );
+    expect(slim.places[0]).toMatchObject({
+      name: "贝伦塔",
+      must_see: true,
+      location: fat.location,
+    });
+    expect(slim.places[0]?.photos).toBeUndefined();
+    expect(slim.places[0]?.address).toBeUndefined();
+    expect(slim.places[0]?.sources?.[0]?.deeplinks).toEqual({
+      google_web: "https://www.google.com/maps/search/?api=1&query=1",
+    });
   });
 
   it("should_include_must_include_in_user_message", () => {
@@ -696,7 +737,7 @@ describe("arrangeDay empty candidates auto-discover (ADR-043 D8)", () => {
     if ("execution" in result && result.execution === "host") {
       throw new Error("expected agent result");
     }
-    expect(result.blocks.map((b) => b.name)).toEqual([
+    expect((result as { blocks: { name: string }[] }).blocks.map((b) => b.name)).toEqual([
       "Miradouro da Senhora do Monte",
       "Antù Alfama",
       "AlmaLusa Alfama",
@@ -973,7 +1014,7 @@ describe("arrangeDay must_include hard coverage (ADR-043 D7 + D9 精简)", () =>
     }
     expect(result.must_include_focus).toBe("辛特拉");
     expect(result.must_include_coverage?.covered ?? []).toContain("辛特拉");
-    expect(result.blocks.map((b) => b.name)).toContain("Pena Palace");
+    expect((result as { blocks: { name: string }[] }).blocks.map((b) => b.name)).toContain("Pena Palace");
   });
 
   it("should_stay_focused_on_uncovered_must_include_when_host_omits_it", async () => {
@@ -1247,6 +1288,119 @@ describe("arrangeDay must_include hard coverage (ADR-043 D7 + D9 精简)", () =>
     }
     expect(result.must_include_focus).toBeNull();
     expect(result.must_include_coverage?.missing ?? []).toEqual([]);
-    expect(result.blocks.map((b) => b.name)).toEqual(["Castle", "Lunch", "Dinner"]);
+    expect((result as { blocks: { name: string }[] }).blocks.map((b) => b.name)).toEqual(["Castle", "Lunch", "Dinner"]);
+  });
+});
+
+// ============================================================================
+// F42 — arrange output validation (TC-M9-U42-01~04)
+// ============================================================================
+
+describe("F42: validateStationTiming (TC-M9-U42-01)", () => {
+  it("should_pass_when_block_start_accounts_for_transit_duration", () => {
+    const blocks = [
+      { name: "A", type: "attraction", start_time: "10:00", duration_min: 90, legs_to_here: [{ mode: "walk", duration_min: 20, recommended: true }] },
+      { name: "B", type: "attraction", start_time: "11:55", duration_min: 60, legs_to_here: [{ mode: "walk", duration_min: 15, recommended: true }] },
+    ];
+    const errors = validateStationTiming(blocks, 5);
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should_fail_when_gap_is_less_than_transit_minus_tolerance", () => {
+    const blocks = [
+      { name: "辛特拉", type: "attraction", start_time: "10:00", duration_min: 240, legs_to_here: [{ mode: "transit", duration_min: 100, recommended: true }] },
+      { name: "Lunch", type: "lunch", start_time: "14:15", duration_min: 60, legs_to_here: [{ mode: "transit", duration_min: 100, recommended: true }] },
+    ];
+    const errors = validateStationTiming(blocks, 5);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].field).toContain("blocks");
+  });
+
+  it("should_pass_within_5min_tolerance", () => {
+    const blocks = [
+      { name: "A", type: "attraction", start_time: "10:00", duration_min: 60, legs_to_here: [{ mode: "walk", duration_min: 30, recommended: true }] },
+      { name: "B", type: "attraction", start_time: "11:25", duration_min: 60, legs_to_here: [] },
+    ];
+    // A ends 11:00, transit 30min → expect 11:30, actual 11:25 → 5min diff = OK
+    const errors = validateStationTiming(blocks, 5);
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should_skip_first_block_legs_to_here", () => {
+    const blocks = [
+      { name: "A", type: "attraction", start_time: "10:00", duration_min: 60, legs_to_here: [{ mode: "walk", duration_min: 999, recommended: true }] },
+    ];
+    const errors = validateStationTiming(blocks, 5);
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe("F42: same-day restaurant dedup via validateItinerary (TC-M9-U42-02)", () => {
+  it("should_fail_when_lunch_and_dinner_have_same_name", () => {
+    const dup: LlmItineraryOutput = {
+      days: [{
+        day_index: 1,
+        blocks: [
+          { name: "景点A", type: "attraction", start_time: "10:00", duration_min: 90, reason: "ok" },
+          { name: "同一餐厅", type: "lunch", start_time: "12:00", duration_min: 60, reason: "ok" },
+          { name: "景点B", type: "attraction", start_time: "14:00", duration_min: 60, reason: "ok" },
+          { name: "同一餐厅", type: "dinner", start_time: "18:00", duration_min: 90, reason: "ok" },
+        ],
+      }],
+    };
+    const cands = new Set(["景点A", "景点B", "同一餐厅"]);
+    const errors = validateItinerary(dup, cands, 6);
+    expect(errors.some((e) => e.message.includes("same restaurant") || e.message.includes("同一餐厅"))).toBe(true);
+  });
+
+  it("should_pass_when_lunch_and_dinner_have_different_names", () => {
+    const ok: LlmItineraryOutput = {
+      days: [{
+        day_index: 1,
+        blocks: [
+          { name: "景点A", type: "attraction", start_time: "10:00", duration_min: 90, reason: "ok" },
+          { name: "午餐A", type: "lunch", start_time: "12:00", duration_min: 60, reason: "ok" },
+          { name: "景点B", type: "attraction", start_time: "14:00", duration_min: 60, reason: "ok" },
+          { name: "晚餐B", type: "dinner", start_time: "18:00", duration_min: 90, reason: "ok" },
+        ],
+      }],
+    };
+    const cands = new Set(["景点A", "景点B", "午餐A", "晚餐B"]);
+    const errors = validateItinerary(ok, cands, 6);
+    expect(errors.filter((e) => e.message.includes("restaurant"))).toHaveLength(0);
+  });
+});
+
+describe("F42: buildDayTripSearchQueries (TC-M9-U42-03)", () => {
+  it("should_expand_focus_token_with_generic_attraction_terms", () => {
+    const queries = buildDayTripSearchQueries("辛特拉", "里斯本");
+    // Should include the base query AND expanded generic category queries
+    expect(queries.length).toBeGreaterThan(1);
+    expect(queries.some((q) => q.includes("辛特拉"))).toBe(true);
+    // Must NOT contain city-specific hardcoded POI names (ADR-042)
+    expect(queries.some((q) => /佩纳宫|摩尔人城堡|雷加莱拉/.test(q))).toBe(false);
+  });
+
+  it("should_use_generic_category_words_not_city_specific", () => {
+    const queries = buildDayTripSearchQueries("卡斯凯什", "里斯本");
+    // Generic terms like 景点/attractions/places are OK
+    const joined = queries.join(" ");
+    expect(/景点|attraction|place|sight/i.test(joined)).toBe(true);
+    // No city-specific POI hardcoding
+    expect(/地狱之口|Praia do Guincho/.test(joined)).toBe(false);
+  });
+});
+
+describe("F42: lunch window soft prompt (TC-M9-U42-04)", () => {
+  it("should_include_lunch_window_hint_when_no_meal_block_in_constraints", () => {
+    const msg = buildUserMessage({
+      city: "Lisbon",
+      numDays: 1,
+      dayIndex: 1,
+      candidates: { places: [], restaurants: [] },
+      pace: "medium",
+      locale: "EN",
+    });
+    expect(msg.toLowerCase()).toContain("lunch");
   });
 });

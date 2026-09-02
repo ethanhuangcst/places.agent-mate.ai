@@ -52,10 +52,14 @@ export function healthEnvelope(): Envelope<{ tools: string[] }> {
         "plan_itinerary",
         "get_place_details",
         "geocode",
-        "navigate",
         "discover_places",
         "arrange_day",
         "enrich_arrange_transit",
+        "make_itinerary",
+        "plan_next_stop",
+        "display_current_stop",
+        "visa_requirement",
+        "travel_tips",
         "chat",
       ],
     },
@@ -92,6 +96,15 @@ export function statusForOutcome(outcomeKey: string | undefined): number {
     outcomeKey === "errors.discover_places_failed"
   ) {
     return 502;
+  }
+  if (
+    outcomeKey === "errors.visa_invalid_country_code" ||
+    outcomeKey === "errors.visa_unconfigured"
+  ) {
+    return 400;
+  }
+  if (outcomeKey === "errors.visa_quota_exceeded") {
+    return 429;
   }
   return 200;
 }

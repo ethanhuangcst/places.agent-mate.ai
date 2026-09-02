@@ -76,15 +76,29 @@ export function parsePace(raw: unknown): "tight" | "medium" | "relaxed" | null {
  * Canonical MCP trip-chat rules (Option A).
  */
 export const MCP_TRIP_CHAT_RULES = [
-  "RULE 0 — Chat first, tools second. BEFORE any discover_places / arrange_day for a multi-day trip, paste the FIXED 8-row trip form (intake.question) in ONE message. Forbidden: one MCP call per question; forbidden: asking a random subset.",
+  "RULE 0 — Chat first, tools second. BEFORE any discover_places / make_itinerary for a multi-day trip, paste the FIXED 8-row trip form (intake.question) in ONE message. Forbidden: one MCP call per question; forbidden: asking a random subset.",
   "RULE 1 — Fixed form rows: (1) city (2) start date (3) days/end (4) optional hotel (5) pace 轻松/适中/紧凑 default 适中 (6) spend 节约/适中/宽松 scale 1–3 default 2 (7) interests optional (8) must-include day-trips — list place names.",
-  "RULE 2 — Fill known answers in the form; for unset pace/spend use defaults and say so. Call discover_places ONCE when rows 1–3 are answered. arrange_day may receive empty candidates — server auto-discovers from city; prefer passing the discover pool when available. Do not invent POIs.",
-  "RULE 3 — must_include: user lists names (e.g. 辛特拉、卡斯凯什) → keep ALL listed. Affirmed multi-option question without names → keep ALL offered options. Ambiguous → confirm. Pass preferences.must_include every arrange_day. Enough days → one day per day-trip. To schedule a must_include day-trip on a chosen day, pass preferences.day_theme naming that place (e.g. day_theme=辛特拉一日) — the server only force-schedules a must_include on a day whose day_theme names it; otherwise the token waits for a later themed day (last-day gate still guarantees coverage). No city hardcode catalogs.",
-  "RULE 4 — arrange_day dayIndex=1..N with num_days; default pace=medium spend_level=2. ONE day at a time: call arrange_day for Day N, present its RICH multi-line card, then call arrange_day for Day N+1 yourself (no asking the user, no waiting for 继续). Do NOT fire multiple arrange_day in parallel — the host cannot present between parallel tool calls. Last day → overview only if must_include coverage is complete. Present each day card ONCE; overview ONCE; never re-paste.",
-  "RULE 5 — No hotel: omit from_origin/to_destination; keep legs_to_here between blocks. Medium day fills through dinner ~20:00; ending before 16:00 is too short.",
+  "RULE 2 — Fill known answers in the form; for unset pace/spend use defaults and say so. Call discover_places ONCE when rows 1–3 are answered. Then call make_itinerary ONCE with that candidates pool (do not drop the pool; do not pass empty candidates). Do not invent POIs. arrange_day is LEGACY — do not use it for new trips.",
+  "RULE 3 — must_include: user lists names (e.g. 地点A、地点B) → keep ALL listed. Affirmed multi-option question without names → keep ALL offered options. Ambiguous → confirm. Pass must_include on make_itinerary. Enough days → one day per day-trip. No city hardcode catalogs.",
+  "RULE 4 — After discover_places: call make_itinerary ONCE with numDays, origin, pace, budget, must_include, and the returned candidates. Then execute the returned next_tool_call chain (display_current_stop → plan_next_stop → display_current_stop …) WITHOUT stopping after each stop, until next_action is trip_complete. Pass skeleton and cursor exactly as provided in each next_tool_call.arguments. Do NOT stop after presenting one stop. Forbidden as a fill substitute: travel_tips, geocode-only research, rewrite/详细版 menus, or inventing times from knowledge. Do NOT call arrange_day for new trips.",
+  "RULE 5 — No hotel: omit from_origin/to_destination on fill tools. Medium day fills through dinner ~20:00; ending before 16:00 is too short.",
   "RULE 6 — sources MUST stay an ARRAY. No truncation excuses. Never restart Day 1 mid-trip.",
-  "RULE 7 — Day card format: multi-line blocks (title line, reason, transit line, route link, place link) — never a single compressed bullet with |. Only list arrange_day blocks — do not invent free-walk slots.",
+  "RULE 7 — Present skeleton day cards first, then fill stops from the skeleton only — do not invent free-walk slots or places not in the pool.",
 ].join(" ");
+
+/**
+ * ADR-045 §8 — global anti-fabrication rule, appended to every host_instructions
+ * emission. Stateless `/mcp` (§7) eliminates session failures, but other
+ * failures (provider timeout, rate limit) can still occur; this prevents the
+ * host LLM from inventing an itinerary from parametric knowledge on failure.
+ */
+export const MCP_NO_INVENT_RULE =
+  "NO INVENTING: never fabricate an itinerary, stop times, transit, or restaurants from your own knowledge — " +
+  "not on failure and not after a successful skeleton. " +
+  "If a tool fails, tell the user the planning service is temporarily unavailable and ask them to retry. " +
+  "You must not present fabricated concrete itineraries as if they came from the tools. " +
+  "After make_itinerary you MUST execute the returned next_tool_call chain (display_current_stop → plan_next_stop → display_current_stop …) until trip_complete — do NOT stop after one stop (candidates optional). " +
+  "Forbidden as a fill substitute: travel_tips, geocode-only research, or writing a 详细版 from parametric knowledge.";
 
 const FORM_COPY: Record<
   "city" | "start_date" | "num_days" | "daily_origin" | "pace" | "spend_level" | "interests" | "must_include",
@@ -119,8 +133,8 @@ const FORM_COPY: Record<
     CN: "兴趣（可选）：历史 / 美食 / 海边 / 街区 / 夜生活 / 街头漫步 / 市集",
   },
   must_include: {
-    EN: "Must-include / day trips — list place names (optional). Example: Sintra, Cascais",
-    CN: "必去/一日游 — 请写出地名（可选）。例如：辛特拉、卡斯凯什",
+    EN: "Must-include / day trips — list place names (optional). Example: Place A, Place B",
+    CN: "必去/一日游 — 请写出地名（可选）。例如：地点A、地点B",
   },
 };
 
@@ -379,9 +393,10 @@ export function buildIntakeHostInstructions(
     `${MCP_TRIP_CHAT_RULES} ` +
     `SAFETY NET: Paste intake.question (the FULL 8-row form) into chat as-is. Do not rewrite rows or drop interest examples on row 7. Do not drop rows. ` +
     `After rows 1–3 are answered, call discover_places ONCE (pass pace, spend_level, origin, must_include when known). ` +
-    `arrange_day may use empty candidates — server auto-discovers from city. ` +
+    `Then call make_itinerary ONCE with the returned candidates pool. arrange_day is LEGACY — do not use it for new trips. ` +
     `Defaults if skipped: pace=medium, spend_level=2.\n` +
-    `完整表单：\n${intake.question}`
+    `完整表单：\n${intake.question}\n` +
+    MCP_NO_INVENT_RULE
   );
 }
 
@@ -396,6 +411,7 @@ export function normalizeMustIncludeToken(s: string): string {
 
 /**
  * True if token is covered by day_theme or any scheduled name (substring either way).
+ * Do not weaken this so a town token (e.g. 辛特拉) matches an unrelated palace name.
  */
 export function mustIncludeTokenCovered(
   token: string,
@@ -408,4 +424,31 @@ export function mustIncludeTokenCovered(
     if (!n) return false;
     return n.includes(t) || t.includes(n);
   });
+}
+
+/**
+ * Strip destination-agnostic area / day-trip suffixes so "贝伦区" can be
+ * covered by "贝伦塔". Does not invent city POI lists (ADR-042).
+ */
+export function stripAreaSuffix(token: string): string {
+  const stripped = token
+    .trim()
+    .replace(/\s*(day[\s-]?trip|area|district)$/i, "")
+    .replace(/(一日游|一日|一带|附近|地区|区)$/u, "")
+    .trim();
+  return stripped.length >= 2 ? stripped : token.trim();
+}
+
+/**
+ * Skeleton / pool coverage for must_include: exact/substring match, or the
+ * area-core after suffix strip (区 / 一带 / 一日游). Used by make_itinerary
+ * validation — not by arrange_day's stricter mustIncludeTokenCovered.
+ */
+export function skeletonCoversMustInclude(
+  token: string,
+  haystacks: string[],
+): boolean {
+  if (mustIncludeTokenCovered(token, haystacks)) return true;
+  const core = stripAreaSuffix(token);
+  return core !== token.trim() && mustIncludeTokenCovered(core, haystacks);
 }

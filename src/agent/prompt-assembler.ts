@@ -4,7 +4,7 @@ import { type Locale } from "../core/locales";
 
 export interface PromptContext {
   locale: Locale;
-  intent: "meal" | "place" | "itinerary" | "chat";
+  intent: "meal" | "place" | "itinerary" | "itinerary-skeleton" | "travel-tips" | "chat";
   budget?: "budget" | "premium";
   timeOfDay?: "morning" | "afternoon" | "evening";
   glossary?: string;
@@ -29,6 +29,8 @@ const INTENT_TO_OVERLAY: Record<string, string> = {
   meal: "overlays/meal-search.md",
   place: "overlays/place-search.md",
   itinerary: "overlays/itinerary-planner.md",
+  "itinerary-skeleton": "overlays/itinerary-skeleton.md",
+  "travel-tips": "overlays/travel-tips.md",
 };
 
 function loadOverlay(intent: string): string | null {

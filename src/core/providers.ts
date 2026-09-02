@@ -41,11 +41,11 @@ export function configuredProviders(): Set<ProviderId> {
 
 const CAPABILITY: Record<
   ProviderId,
-  { search: boolean; details: boolean; geocode: boolean; navigate: boolean }
+  { search: boolean; details: boolean; geocode: boolean }
 > = {
-  AMAP: { search: true, details: true, geocode: true, navigate: true },
-  GOOGLE_MAPS: { search: true, details: true, geocode: true, navigate: true },
-  TRIPADVISOR: { search: false, details: false, geocode: false, navigate: false },
+  AMAP: { search: true, details: true, geocode: true },
+  GOOGLE_MAPS: { search: true, details: true, geocode: true },
+  TRIPADVISOR: { search: false, details: false, geocode: false },
 };
 
 export type Capability = keyof (typeof CAPABILITY)["AMAP"];
