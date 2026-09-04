@@ -28,6 +28,24 @@ export type TripDocument = {
   updatedAt: Date;
 };
 
+export type TripArtifactsTips = {
+  iconic_places?: string[];
+  iconic_grounded?: boolean;
+  intro?: string;
+  transit?: string;
+  clothing?: string;
+  safety?: string;
+  weather?: unknown;
+};
+
+export type TripArtifactsVisa = Record<string, unknown>;
+
+export type TripArtifacts = {
+  tips?: TripArtifactsTips;
+  visa?: TripArtifactsVisa;
+  [key: string]: unknown;
+};
+
 export type TripPatch = Partial<Pick<TripDocument, TripFieldKey | "locale" | "status">>;
 
 export type TripWriteResult = {

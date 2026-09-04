@@ -3,14 +3,13 @@ import { prisma } from "../src/db/client";
 import { generateCallerSecret, hashPassword } from "../src/core/crypto";
 import { dispatchTool } from "../src/http/dispatch";
 import { AGENT_ID } from "../src/core/locales";
-import { planNextStop, displayCurrentStop } from "../src/core/plan-next-stop";
+import { planNextStopFill } from "../src/core/plan-next-stop";
 
 vi.mock("../src/core/plan-next-stop", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/core/plan-next-stop")>();
   return {
     ...actual,
-    planNextStop: vi.fn(),
-    displayCurrentStop: vi.fn(),
+    planNextStopFill: vi.fn(),
   };
 });
 
@@ -37,19 +36,18 @@ async function makeKey() {
   return `Bearer ${generated.secret}`;
 }
 
-describe("dispatch — plan_next_stop / display_current_stop (TC-M10-44-03)", () => {
+describe("dispatch — plan_next_stop (TC-M10-44-03 / F65)", () => {
   beforeEach(async () => {
     await resetDb();
-    vi.mocked(planNextStop).mockReset();
-    vi.mocked(displayCurrentStop).mockReset();
+    vi.mocked(planNextStopFill).mockReset();
   });
   afterEach(async () => {
     await prisma.callerApiKey.deleteMany();
   });
 
-  it("should_return_200_with_legs_when_plan_next_stop_valid", async () => {
+  it("should_return_200_with_legs_and_stop_display_when_plan_next_stop_valid", async () => {
     const auth = await makeKey();
-    vi.mocked(planNextStop).mockResolvedValue({
+    vi.mocked(planNextStopFill).mockResolvedValue({
       next_stop: { name: "Pastéis de Belém", location: { lat: 38.7, lng: -9.1, crs: "WGS84" } },
       legs: [
         {
@@ -64,6 +62,13 @@ describe("dispatch — plan_next_stop / display_current_stop (TC-M10-44-03)", ()
       ],
       transit_outcome: "directions",
       single_mode: false,
+      stop_display: {
+        stop: { name: "Pastéis de Belém", kind: "meal", card: null, deeplinks: {} },
+        legs_to_here: [],
+        slot: { start: "12:00", end: "13:00" },
+        transit_outcome: "directions",
+        notes: [],
+      },
     });
     const result = await dispatchTool("plan_next_stop", auth, {
       current_stop: { name: "Torre de Belém", lat: 38.69, lng: -9.21 },
@@ -74,14 +79,19 @@ describe("dispatch — plan_next_stop / display_current_stop (TC-M10-44-03)", ()
     expect(result.status).toBe(200);
     expect(result.envelope.ok).toBe(true);
     expect(result.envelope.agent).toBe(AGENT_ID);
-    const data = result.envelope.data as { transit_outcome: string; legs: unknown[] };
+    const data = result.envelope.data as {
+      transit_outcome: string;
+      legs: unknown[];
+      slot: { start: string; end: string };
+    };
     expect(data.transit_outcome).toBe("directions");
     expect(data.legs).toHaveLength(1);
+    expect(data.slot).toEqual({ start: "12:00", end: "13:00" });
   });
 
   it("should_return_502_when_plan_next_stop_throws", async () => {
     const auth = await makeKey();
-    vi.mocked(planNextStop).mockRejectedValue(new Error("vendor down"));
+    vi.mocked(planNextStopFill).mockRejectedValue(new Error("vendor down"));
     const result = await dispatchTool("plan_next_stop", auth, {
       current_stop: { name: "A" },
       next_stop: { name: "B" },
@@ -102,33 +112,42 @@ describe("dispatch — plan_next_stop / display_current_stop (TC-M10-44-03)", ()
     expect(result.envelope.outcome?.key).toBe("errors.invalid_input");
   });
 
-  it("should_return_200_with_slot_when_display_current_stop_valid", async () => {
+  it("should_return_invalid_input_and_log_issues_when_end_time_not_hhmm", async () => {
     const auth = await makeKey();
-    vi.mocked(displayCurrentStop).mockReturnValue({
-      stop: { name: "Torre de Belém", kind: "attraction", card: null, deeplinks: {} },
-      legs_to_here: [],
-      slot: { start: "10:00", end: "11:30" },
-      transit_outcome: "heuristic",
-      notes: [],
-    });
-    const result = await dispatchTool("display_current_stop", auth, {
-      stop: { name: "Torre de Belém", kind: "attraction" },
-      candidates: { places: [], restaurants: [] },
-      locale: "EN",
-    });
-    expect(result.status).toBe(200);
-    expect(result.envelope.ok).toBe(true);
-    const data = result.envelope.data as { slot: { start: string; end: string } };
-    expect(data.slot).toEqual({ start: "10:00", end: "11:30" });
-  });
-
-  it("should_return_400_when_display_current_stop_body_invalid", async () => {
-    const auth = await makeKey();
-    const result = await dispatchTool("display_current_stop", auth, {
-      stop: { name: "" },
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await dispatchTool("plan_next_stop", auth, {
+      current_stop: { name: "Hotel", kind: "stay", end_time: "9:00" },
+      next_stop: { name: "Tower", kind: "attraction" },
       locale: "EN",
     });
     expect(result.status).toBe(400);
     expect(result.envelope.outcome?.key).toBe("errors.invalid_input");
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("should_allow_origin_mode_without_current_stop", async () => {
+    const auth = await makeKey();
+    vi.mocked(planNextStopFill).mockResolvedValue({
+      next_stop: { name: "Hotel", location: null },
+      legs: [],
+      transit_outcome: "heuristic",
+      single_mode: false,
+      stop_display: {
+        stop: { name: "Hotel", kind: "stay", card: null, deeplinks: {} },
+        legs_to_here: [],
+        slot: { start: "09:00", end: "09:00" },
+        transit_outcome: "heuristic",
+        notes: ["origin_stop"],
+      },
+    });
+    const result = await dispatchTool("plan_next_stop", auth, {
+      origin_mode: true,
+      next_stop: { name: "Hotel", kind: "stay" },
+      time_from: "09:00",
+      locale: "EN",
+    });
+    expect(result.status).toBe(200);
+    expect(result.envelope.ok).toBe(true);
   });
 });

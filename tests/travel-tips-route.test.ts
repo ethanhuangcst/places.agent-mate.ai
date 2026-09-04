@@ -50,6 +50,7 @@ describe("TC-M12-50-05 travel_tips HTTP dispatch envelope", () => {
     vi.mocked(travelTips).mockReset();
   });
   afterEach(async () => {
+    await prisma.trip.deleteMany();
     await prisma.callerApiKey.deleteMany();
   });
 
@@ -94,5 +95,65 @@ describe("TC-M12-50-05 travel_tips HTTP dispatch envelope", () => {
     });
     expect(result.status).toBe(502);
     expect(result.envelope.outcome?.key).toBe("errors.travel_tips_timeout");
+  });
+
+  it("TC-M18-76-01 should_dual_write_iconic_artifacts_and_return_trip_id", async () => {
+    vi.mocked(travelTips).mockResolvedValue({
+      ...sampleResult,
+      intro: "",
+      transit: "",
+      clothing: "",
+      safety: "",
+    } as never);
+    const secret = await makeCaller();
+    const result = await dispatchTool("travel_tips", `Bearer ${secret}`, {
+      destination: "Lisbon",
+      locale: "EN",
+    });
+    expect(result.status).toBe(200);
+    const data = result.envelope.data as {
+      iconic_places: string[];
+      trip_id: string;
+      revision: number;
+    };
+    expect(data.iconic_places).toEqual(["Belém Tower"]);
+    expect(data.trip_id).toBeTruthy();
+    const fetched = await dispatchTool("fetch_trip_details", `Bearer ${secret}`, {
+      trip_id: data.trip_id,
+      fields: ["artifacts"],
+      locale: "EN",
+    });
+    expect(fetched.status).toBe(200);
+    const arts = (fetched.envelope.data as { data: { artifacts: { tips: { iconic_places: string[] } } } })
+      .data.artifacts;
+    expect(arts.tips.iconic_places).toEqual(["Belém Tower"]);
+  });
+
+  it("TC-M18-76-02 should_write_visa_artifacts_without_wiping_tips", async () => {
+    vi.mocked(travelTips).mockResolvedValue(sampleResult as never);
+    const secret = await makeCaller();
+    const tips = await dispatchTool("travel_tips", `Bearer ${secret}`, {
+      destination: "Lisbon",
+      locale: "EN",
+    });
+    const tripId = (tips.envelope.data as { trip_id: string }).trip_id;
+    const visa = await dispatchTool("visa_requirement", `Bearer ${secret}`, {
+      passport: "CHN",
+      destination: "JPN",
+      trip_id: tripId,
+      revision: (tips.envelope.data as { revision: number }).revision,
+      locale: "EN",
+    });
+    expect(visa.status).toBe(200);
+    const fetched = await dispatchTool("fetch_trip_details", `Bearer ${secret}`, {
+      trip_id: tripId,
+      fields: ["artifacts"],
+      locale: "EN",
+    });
+    const arts = (fetched.envelope.data as {
+      data: { artifacts: { tips: { iconic_places: string[] }; visa: { destination: string } } };
+    }).data.artifacts;
+    expect(arts.tips.iconic_places).toEqual(["Belém Tower"]);
+    expect(arts.visa.destination).toBe("JPN");
   });
 });

@@ -5,6 +5,7 @@
 import {
   applyTripWrite,
   slimCandidatesForStore,
+  tripPatchCandidatesIfNonEmpty,
 } from "./trip-store";
 import { TripStoreError, type TripPatch, type TripWriteResult } from "./trip-types";
 
@@ -28,6 +29,7 @@ export async function dualWriteTrip(opts: {
   expectedRevision?: number;
   locale?: string;
   patch: TripPatch;
+  candidatesWrite?: "merge" | "replace";
 }): Promise<TripMeta> {
   const written = await applyTripWrite(opts);
   return tripMetaFromWrite(written);
@@ -39,9 +41,10 @@ export async function dualWriteTripIfPresent(opts: {
   expectedRevision?: number;
   locale?: string;
   patch: TripPatch;
+  candidatesWrite?: "merge" | "replace";
 }): Promise<TripMeta | undefined> {
   if (!opts.tripId) return undefined;
   return dualWriteTrip(opts);
 }
 
-export { slimCandidatesForStore, TripStoreError };
+export { slimCandidatesForStore, tripPatchCandidatesIfNonEmpty, TripStoreError };

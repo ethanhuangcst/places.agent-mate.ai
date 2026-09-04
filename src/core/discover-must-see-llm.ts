@@ -10,6 +10,7 @@
 
 import OpenAI from "openai";
 import {
+  configuredChatModel,
   createOpenAI,
   extractChatCompletionText,
   isLlmAbortError,
@@ -69,7 +70,7 @@ export async function inferMustSeeFromPool(
     const completion = await withAbortTimeout(INFER_TIMEOUT_MS, (signal) =>
       create(
         {
-          model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
+          model: configuredChatModel(),
           messages: [
             {
               role: "user",

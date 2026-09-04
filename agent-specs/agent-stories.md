@@ -20,7 +20,7 @@
 | 技术设计                | `[agent-design.md](./agent-design.md)`                                                                                       |
 
 
-**状态：** MVP-1 / **MVP-2** 已验收（2026-08-19）。**MVP-3a～MVP-7** 代码与收尾已落地（见 `[0.refactor-plan.md](./0.refactor-plan.md)`）。Feature **24–33** 对应 AC 已交付。**MVP-8（行程优化）** Feature **34–38** 均为 **Done**（2026-08-23）。**MVP-9** Feature **42 Done**；**40 Cancelled**；**39 / 41 仍 ToDo**。**MVP-10** Feature **43 / 44 / 47 Done**；**45 部分 Done**（`arrange_day` 硬删 gate where2play plan-46）。**MVP-11** Feature **48 Done**（as-built）。**MVP-12** Feature **49–52 Done**（as-built / ADR-045）。**MVP-13–14** Feature **53–61 Done**。**MVP-15** Feature **62 Done**（as-built）。**MVP-16** Feature **63–66 ToDo**（ADR-046）— 开放清单见 `[e2e-test-result/04-rome.md](./e2e-test-result/04-rome.md)` 开发计划。
+**状态：** MVP-1 / **MVP-2** 已验收（2026-08-19）。**MVP-3a～MVP-15** 见 `[0.refactor-plan.md](./0.refactor-plan.md)`。**MVP-16** F63/64/65 部分 Done。**MVP-17** P0–P2 代码切片。**MVP-18** Feature **74–77** / **71–72** 代码 **Done**（2026-09-02；usable 签收待用户确认；P2 F68/70/37f 未做）。
 
 **相关：** `[performance.md](./performance.md)`（L1/L2/L3、Mode H、§11 Progressive 交叉引用 where2play）· [ADR-037](../../workspace-specs/adr/ADR-037-where2play-plan-l2-quanzil.md) · [ADR-038](../../workspace-specs/adr/ADR-038-discover-places-quality.md) · [ADR-044](../../workspace-specs/adr/ADR-044-orizn-visa-rest-adapter.md) · [ADR-046](../../workspace-specs/adr/ADR-046-trip-store-pg-memory-fetch.md) · where2play `[2play-stories.md](../../3.where2play/2play-specs/2play-stories.md)` features **31–33**, **38–39**
 
@@ -226,7 +226,7 @@
 | 62 | agent | 骨架确定性修复 | `places-agent-skeleton-deterministic-repair` | reseatStay + dropCity + 超时 prior validation | 见下文 | **MVP-15** | 是 | **Done** |
 | 63 | agent | Trip Store | `places-agent-trip-store` | PG+内存；懒创建；revision（ADR-046） | 见下文 | **MVP-16** | 是 | **Done（P0）** |
 | 64 | agent | fetch_trip_details | `places-agent-fetch-trip-details` | 按 fields 只读切片 | 见下文 | **MVP-16** | 是 | **Done（P0）** |
-| 65 | agent | 删除 display_current_stop | `places-agent-drop-display-current-stop` | 写并入 plan_next_stop；读走 fetch | 见下文 | **MVP-16** | 是 | ToDo |
+| 65 | agent | 删除 display_current_stop | `places-agent-drop-display-current-stop` | 写并入 plan_next_stop；读走 fetch | 见下文 | **MVP-16** | 是 | **Done** |
 | 66 | agent | 对外工具精简 | `places-agent-tool-surface-slim` | 评估并落地删/合并（含 arrange gate） | 见下文 | **MVP-16** | 是 | **评估 Done（硬删 ToDo）** |
 
 
@@ -3675,7 +3675,7 @@ And Fast CI 不消耗 live 配额
 
 Given 候选池非空
 When 调用 `findIconicPlaces({ destination, pool, limit })`
-Then LLM 从池挑 ≤ limit 个，`normalizeMustIncludeToken` 校验，丢弃不在池的
+Then **不**再调供应商搜点、**不**走 LLM；按 `user_ratings_total`（缺则 `rating`）从该池取 ≤ limit 并打 `must_see`
 And 返回 `grounded: true`，名字可进 `make_itinerary`
 
 **AC2**
@@ -3806,7 +3806,7 @@ Then tips-prose 不带 iconic 名自生成，`iconic_places.grounded:false`
 
 Given tips-prose 超时
 When 超时触发
-Then 返回结构化 i18n 错误 `errors.travel_tips_timeout`，不静默伪造 tips
+Then **MVP-12：** 返回结构化 i18n 错误 `errors.travel_tips_timeout`。**MVP-18 F76 覆盖：** 若 iconic 已有 names → HTTP 200 + 双写 artifacts，intro 可空；2play 仍只 fetch。不静默伪造 iconic 名单。
 
 ### US7 — LLM 调用预算
 
@@ -4121,3 +4121,377 @@ Then 消息含 `LLM timed out` **且** 含 prior validation 摘要
 Given F59–F61 填充路径  
 When 本 Feature 落地  
 Then 填充语义不变；不默认提高 `LLM_SKELETON_TIMEOUT_MS`
+
+---
+
+# plan_next_stop fill 契约 — `plan-fill-contract`
+
+**类别：** agent + 2play BFF · Feature **67** · MVP-17 P1 · 状态：**ToDo**
+
+**作为** 行程调用方  
+**我希望** 第 2 站起的 `plan_next_stop` 请求体始终通过 Zod（`end_time` 为 `HH:MM`、不传 `revision: null`）  
+**以便** 骨架生成后不会以 `errors.invalid_input` 中断填充
+
+### US1 — 时间格式
+
+**AC1** Given 上一站 `slot.end` 为 `9:00` 或 `09:00`  
+When BFF 构造下一站 body  
+Then `current_stop.end_time` 与 `previous_stop.end_time` 均为 `09:00`（`^\d{2}:\d{2}$`）
+
+### US2 — revision
+
+**AC1** Given `revision` 缺失或非正整数  
+When 发送 `plan_next_stop` / `make_itinerary`  
+Then body **省略** `revision` 字段（不传 `null`）
+
+**AC2** Given `errors.trip_revision_conflict`  
+When BFF 重试  
+Then 先 `fetch_trip_details` 读取当前 `revision`，再带新 revision 重试一次
+
+### US3 — 可观测性与 i18n
+
+**AC1** Given Zod `safeParse` 失败  
+When dispatch `plan_next_stop`  
+Then 服务端日志含 `issues` 路径；用户 envelope 仍为 `errors.invalid_input`（无内部 stack）
+
+**AC2** Given 2play 收到 `errors.invalid_input`  
+When Plan 错误区渲染  
+Then 使用 `play.errors.invalid_input` 译文（EN/CN/HK/TW），不展示 raw key
+
+---
+
+# 必去地单一源（findIconicPlaces）— `iconic-single-source`
+
+**类别：** agent core + 2play · Feature **69** · MVP-17 P2 · 依赖 F49/F50 · 状态：**ToDo**
+
+**作为** 规划用户  
+**我希望** 出行贴士 01 与助手步骤 g 的必去地名单相同，且多天行程含附近一日游地区名  
+**以便** 不在 BFF 拼 discover 池当展示真相（ADR-045 / ADR-042）
+
+### US1 — 展示源
+
+**AC1** Given where2play 需要必去地芯片或贴士 01  
+When 拉取名单  
+Then **只**消费 `travel_tips.iconic_places`（内部 `findIconicPlaces`）；**不**与 `discover_places.inferred_must_see` merge 作为产品名单
+
+**AC2** Given 同一行程 prefetch  
+When 助手步骤 g 与贴士 01 渲染  
+Then 有序列表字符串相等（同一数组引用或深等）
+
+### US2 — 多天 ungrounded
+
+**AC1** Given `numDays >= 3` 且 pool 空  
+When `findIconicPlaces` ungrounded  
+Then user prompt 要求同时给出 **附近一日游地区名** 与 **城内地标**；源码 **无** 城市 POI 表（ADR-042）
+
+**AC2** Given discover 对某 iconic 名补搜失败  
+When 返回 `inferred_must_see`  
+Then 该失败 **不得**覆盖 2play 已拿到的 `travel_tips.iconic_places`
+
+### US3 — Lisbon 主干
+
+**AC1** Given `python3 scripts/e2e-places-agent.py --only 1`  
+When 链路完成  
+Then `trip_complete`；`travel_tips.iconic_places` 被写入结果 md（展示源基线）
+
+---
+
+# findIconicPlaces 必去地质量 — `iconic-ranking-quality`
+
+**类别：** agent core · Feature **74** · MVP-18 P1 · 依赖 F49 · 状态：**Done**（2026-09-02，夹具测绿）
+
+**作为** 任意目的地的规划用户  
+**我希望** 必去名单按**知名度**和**空间多样性**（多天含一日游尺度）排序，且全世界同一套逻辑  
+**以便** 质量不靠为某一城市点名过关
+
+### US1 — 无城市表、无城市验收
+
+**AC1** Given 实现与测试  
+When 审查源码与用例  
+Then **不**增长 per-city POI 表；**不**出现「某城 live 必须含某镇」类 AC 或 expected 字符串
+
+### US2 — 热度
+
+**AC1** Given 合成 attraction 池：部分卡片 `user_ratings_total` 显著更高  
+When grounded 排序 / 再选  
+Then 高热度名进入截断后的名单（具体名用夹具，非真实城市）
+
+### US3 — 多天空间多样性
+
+**AC1** Given `numDays >= 3` 且夹具坐标含「中心簇」与「外围簇」（相对虚构 city geocode）  
+When 合并 iconic 名单  
+Then 至少一名落在外围簇；不得 100% 落在中心小半径内
+
+**AC2** Given ungrounded `numDays >= 3`  
+When 构造 LLM prompt  
+Then 要求城内地标与附近一日游目的地；prompt **不**枚举真实城镇名
+
+---
+
+# 宿主逐步 fetch_trip_details — `trip-host-fetch`
+
+**类别：** agent 契约 + 2play · Feature **75** · MVP-18 P0 · 依赖 F64 · 状态：**Done**（2026-09-02）
+
+**作为** where2play  
+**我希望** places-agent 每步写入 Trip 后，用 `fetch_trip_details` 取当前 UI 所需切片  
+**以便** 芯片、骨架、行程卡与账本一致，而不是用写工具的 LLM 响应当展示真相
+
+### US1 — 字段切片
+
+**AC1** Given 刚完成 `make_itinerary`  
+When 2play 需要骨架预览  
+Then `fetch_trip_details` `fields: ["skeleton"]`（可含 `trip_id`/`revision`），UI 列表来自该切片
+
+**AC2** Given 刚完成一次 `plan_next_stop`  
+When 更新行程卡  
+Then fetch `filled`（及所需 `cursor`），不以仅 NDJSON 本地拼装为唯一真源
+
+**AC3** Given 刚完成 `travel_tips` 写 artifacts（F76）  
+When 助手步骤 g 或贴士 01  
+Then fetch `artifacts`；`iconic_places` 与账本一致
+
+**AC4** Given Plan 页任何行程相关区块（含贴士四卡、签证、骨架、填站）  
+When 渲染  
+Then 不以 BFF OPENAI_CN 或写工具响应里的散文为真源（ADR-046 D6）
+
+### US2 — 编排
+
+**AC1** Given 写工具返回 `trip_id` + `revision`  
+When 下一步写  
+Then BFF 带上该对；冲突则 fetch 再写（延续 F67 AC2）
+
+---
+
+# artifacts：travel_tips 与 visa_requirement — `artifacts-tips-visa`
+
+**类别：** agent · Feature **76** · MVP-18 P0 · 状态：**Done**（2026-09-02；技术设计见 agent-design §22.3）
+
+**作为** 行程账本  
+**我希望** `travel_tips` 与 `visa_requirement` 把结构化结果写入 `artifacts`  
+**以便** 2play 只 `fetch_trip_details`，不为贴士/签证再跑 LLM 散文、也不把写工具 HTTP 体当 UI
+
+### US1 — tips 双写与超时
+
+**AC1** Given `travel_tips` 成功或部分成功  
+When dispatch 返回  
+Then `dualWriteTrip` 含 `artifacts.tips.iconic_places`（及已有散文/天气若有）
+
+**AC2** Given 散文 LLM 超时但 iconic 分支已有 names  
+When 工具结束  
+Then HTTP **200**；账本仍有 iconic；intro 可空
+
+**AC3** Given 2play 渲染贴士或步骤 g  
+When 取数  
+Then 只读 fetch `artifacts`；测试禁止断言 UI 绑定 `travelTips()` HTTP 字段为展示源
+
+### US2 — visa 双写
+
+**AC1** Given `visa_requirement` 返回结构化签证（adapter，非 LLM）  
+When dispatch  
+Then 写入 `artifacts.visa`；不覆盖已有 `artifacts.tips`
+
+**AC2** Given 2play 签证卡或出行建议签证块  
+When 渲染  
+Then 数据来自 fetch `artifacts.visa`，不是 `POST /v1/visa_requirement` 响应体
+
+---
+
+# 助手时刻高容错 — `intake-time-coerce`
+
+**类别：** agent + 2play · Feature **77** · MVP-18 P0 · 依赖 F67 · 状态：**Done**（2026-09-02）
+
+**作为** 使用行程助手的用户  
+**我希望** 用口语说出出发时刻仍能规划  
+**以便** 智能体不因 `7:00 am` 触发 `invalid_input`
+
+### US1 — ABC
+
+**AC1** Given 步骤 c 输入 `7:00 am` / `7am` / `早上七点` / `七点半`  
+When 合并进 `timeFrom`  
+Then 内部值为 `07:00` 或 `07:30`
+
+**AC2** Given 无法解析的字符串  
+When 提交步骤 c  
+Then 使用 `09:00`，不把原串送给 agent
+
+**AC3** Given `time_from` 或 `end_time` 为 `9:00`  
+When agent `plan_next_stop`  
+Then preprocess 为 `09:00` 且 200（非 400）
+
+---
+
+# make 墙钟与失败可恢复 — `make-wall-clock`
+
+**类别：** agent + 2play BFF · Feature **78** · MVP-19 · 状态：**Done**
+
+**作为** 规划用户  
+**我希望** `make_itinerary` 在网关断开前结束，或失败后仍能读到已落库骨架  
+**以便** 不会看起来像「每天只有酒店」
+
+### US1
+
+**AC1** Given 工具超时配置  
+When 与反向代理 / 2play `maxDuration` 比较  
+Then agent 超时更短；超时错误含 prior validation（延续 F62）
+
+**AC2** Given make HTTP 非 200  
+When 2play 已有 `trip_id`  
+Then **先** `fetch_trip_details(skeleton)`；若每天 ≥1 非 stay 则视为成功并继续 fill；否则 i18n 错误，不进入 filling
+
+**AC3** Given 校验失败的 stay-only 骨架  
+When dispatch  
+Then 不作为 200 成功写入供 UI 当完成态
+
+---
+
+# 池后热度打标 — `iconic-from-pool-heat`
+
+**类别：** agent · Feature **79** · MVP-19 · 状态：**Done**  
+**依赖：** 不扩 CATALOG
+
+**作为** 步骤 g 用户  
+**我希望** 芯片来自供应商池里评论数最高的若干 attraction  
+**以便** 前 5 项含可核验热门点
+
+### US1
+
+**AC1** Given discover 类目搜索已返回带 `user_ratings_total` 的合成池  
+When Phase B 打标  
+Then 内部 `findIconicPlaces({ pool })` 按评论数（缺则 rating）降序打 `must_see`；默认 cap 为请求 `max_number` 否则 5；不调用无池 LLM；不另搜附近热点
+
+**AC2** Given slim 入库  
+When fetch `candidates`  
+Then 卡片仍有 `user_ratings_total` / `rating`（供应商有则保留）
+
+**AC3** Given 非目录城市与热门城市  
+When 同一代码路径  
+Then 无 per-city 表；测试禁止硬编码真实镇名 expected
+
+---
+
+# 骨架必去只认站名 — `skeleton-stop-must-include`
+
+**类别：** agent · Feature **80** · MVP-19 · 状态：**Done**
+
+**作为** 行程校验  
+**我希望** 用户必去出现在 stop 名上，且池非空时每天不只有酒店  
+**以便** 主题句不能冒充已安排
+
+### US1
+
+**AC1** Given `must_include: ["贝伦塔"]` 且 `day_theme` 含贝伦、stops 仅 stay  
+When `validateSkeleton`  
+Then 失败（retryable）
+
+**AC2** Given 池 ≥3 个 attraction  
+When 某日 stops 全部 `kind=stay`  
+Then 失败
+
+**AC3** Given 中文必去与英文池名 coverage 命中  
+When 合法骨架  
+Then 通过；站名为池内官方名
+
+---
+
+# Trip 无 watch — `trip-no-watch`
+
+**类别：** agent 合同 + 2play · Feature **81** · MVP-19 · 状态：**Done**
+
+**作为** 宿主  
+**我希望** 规格写明没有推送，必须同流 fetch，且 session 记住 `trip_id`  
+**以便** 断流后仍能续读账本
+
+### US1
+
+**AC1** Given agent-design §24.5  
+When 审查  
+Then 明确不做 SSE/Redis 推送；观察者只有 `fetch_trip_details`
+
+**AC2** Given 2play `PlanSessionCache`  
+When upsert  
+Then 含 `trip_id` 与 `revision`（criteria 或独立列）
+
+**AC3** Given `GET /api/plan/current`  
+When 有未过期 cache 且含 trip_id  
+Then 可再 fetch skeleton/filled 恢复，不丢账本
+
+---
+
+# iconic 与用户必去正交 — `must-see-orthogonal`
+
+**类别：** agent + 2play · Feature **82** · MVP-19 · 状态：**Done**
+
+**作为** 账本  
+**我希望** 8 处热门打标与 3 处用户指定分开存  
+**以便** 用户选 3 处不会抹掉 8 处 `must_see`
+
+### US1
+
+**AC1** Given 池上 8 张 `must_see`  
+When `make_itinerary` 带 `must_include` 3 名  
+Then 写后 fetch：仍 ≥8 个 `must_see`（除非补搜只增加）；`constraints.must_include` 长度为 3
+
+**AC2** Given 用户名不在池  
+When 补搜命中  
+Then 新卡可 `user_requested`；不得把其他卡 `must_see` 设 false
+
+**AC3** Given 步骤 g  
+When 渲染芯片  
+Then 名单 = `must_see`（热门）；约束条用户必去 = `mustInclude`；二者可重叠但不是同一字段覆盖
+
+---
+
+# 骨架过滤锚点是目的地 — `skeleton-geo-anchor-city`
+
+**类别：** agent · Feature **83** · MVP-21 S2 · 状态：**Done**（2026-09-03，用户确认可用）  
+**ADR：** [ADR-048](../../workspace-specs/adr/ADR-048-skeleton-geo-anchor-is-destination.md)
+
+**作为** 行程调用方  
+**我希望** 错误的酒店坐标不会把目的地候选滤空，且全住宿骨架不能当成功  
+**以便** 直连与 2play 都不会 200 写入「每天只有酒店」
+
+### US1
+
+**AC1** Given 里斯本坐标候选池 ≥3 且 `origin` 为远离城市的 lat/lng（如澳门一带）  
+When `enrichMakeItineraryInput` / `make_itinerary`  
+Then 80km 过滤锚点为 **city**（或候选质心），池不被掏空；过远 origin 坐标被丢弃、保留 name
+
+**AC2** Given 过滤前 attractions ≥3  
+When LLM 或夹具产出某日仅 stay  
+Then `validateSkeleton` 失败（retryable）；HTTP 不得 200 成功落库该骨架
+
+**AC3** Given 过滤前池很小（<3）且无景点  
+When stay-only  
+Then 行为与现网「池不足」一致（允许或失败须在测试中写明）；**不**用 per-city 酒店表
+
+---
+
+# 可规划景点门槛 + 内部 patchTrip — `eligible-attraction`
+
+**类别：** agent · Feature **84** · MVP-22 S1 · 状态：**Done**（2026-09-04；用户确认 usable）  
+**ADR：** [ADR-049](../../workspace-specs/adr/ADR-049-verified-attraction-and-meal-slots.md)
+
+**作为** 规划调用方  
+**我希望** 合称/名胜区不进候选池与芯片，对不上的必去被降级，漏网脏卡能从本 trip 池删掉  
+**以便** 杭州类目的地不会因脏 `must_include` 整单 502
+
+### US1
+
+**AC1** Given 卡片名为「西湖十景」或「…风景名胜区」，或无坐标，或类型为餐馆  
+When `isEligibleAttraction`  
+Then 不合格。有 id（或 slim 无 sources）、有坐标、非合称、非餐馆 → 合格。不打 details。无 per-city 表。
+
+**AC2** Given discover Phase A 池含合称与合格景点  
+When `discover_places` 写入 candidates / 打标  
+Then 合称不在 `candidates.places`、不打 `must_see`。`must_include` 合称不补搜、不走 F57 展开。
+
+**AC3** Given `must_include` 含合称，池内其余为合格景点  
+When `validateSkeleton` / `make_itinerary`  
+Then 合称被降级（不要求骨架覆盖）；不因该项 502。仍覆盖能对上 eligible 名的必去（F80）。
+
+**AC4** Given Trip 池已有合称卡  
+When 内部 `patchTrip`（`candidatesWrite=replace`）写入过滤后池  
+Then fetch `candidates` 不再含该卡；`revision` 升。HTTP `patch_trip` 仍只改 constraints，不得改池。
+
+---
+

@@ -25,12 +25,14 @@ import {
   nameMatchesMustSeeTokens,
 } from "./discover-must-see";
 import { filterAttractionPlaces, filterDiningPlaces } from "./place-filters";
+import { filterEligibleAttractions, isIneligibleMustIncludeToken } from "./eligible-attraction";
 import {
   dedupeByCluster,
   dedupeRestaurantsByStem,
   ensureMustSeeDiversity,
 } from "./discover-dedupe";
 import { normalizeMustIncludeToken, mustIncludeTokenCovered, skeletonCoversMustInclude, MCP_NO_INVENT_RULE } from "./trip-intake";
+import { markUserRequested } from "./candidate-flags";
 import {
   applyMustIncludeDayEvidence,
   blockCoversMustIncludeToken,
@@ -44,6 +46,7 @@ import {
 } from "./must-include-coverage";
 import { enrichArrangeDayWithTransit } from "./enrich-arrange-transit";
 import { findIconicPlaces } from "./find-iconic-places";
+import { comparePoolHeat } from "./pool-heat-must-see";
 import { filterCardsNearAnchor, pickSupplementaryMustIncludeHit } from "./geo-bounds";
 import { getAdapter } from "../adapters";
 import { type ProviderId, isProviderId } from "./providers";
@@ -442,28 +445,34 @@ export function buildUserMessage(input: {
 import OpenAI from "openai";
 import { parseLocale } from "./locales";
 import { loadGlossary } from "../agent/loop";
+import { resolveChatLlmConfig } from "./llm-chat-config";
 
 export function useFixtureLlm(): boolean {
-  return !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === "fixture";
+  return resolveChatLlmConfig() == null;
 }
 
 export function createOpenAI(): OpenAI | null {
-  if (useFixtureLlm()) return null;
+  const cfg = resolveChatLlmConfig();
+  if (!cfg) return null;
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL,
+    apiKey: cfg.apiKey,
+    baseURL: cfg.baseURL,
   });
 }
 
-const DEFAULT_LLM_TIMEOUT_MS = 150_000;
+export function configuredChatModel(): string {
+  return resolveChatLlmConfig()?.model ?? "qwen-plus";
+}
 
-/** Env: LLM_ARRANGE_TIMEOUT_MS (default 150000). Quanzil structured arrange often needs >45s. */
+const DEFAULT_LLM_TIMEOUT_MS = 160_000;
+
+/** Env: LLM_ARRANGE_TIMEOUT_MS (default 160000). Quanzil structured arrange often needs >45s. */
 export function llmArrangeTimeoutMs(): number {
   const raw = Number(process.env.LLM_ARRANGE_TIMEOUT_MS ?? DEFAULT_LLM_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_LLM_TIMEOUT_MS;
 }
 
-/** Env: LLM_ITINERARY_TIMEOUT_MS (default 150000). */
+/** Env: LLM_ITINERARY_TIMEOUT_MS (default 160000). */
 export function llmItineraryTimeoutMs(): number {
   const raw = Number(process.env.LLM_ITINERARY_TIMEOUT_MS ?? DEFAULT_LLM_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_LLM_TIMEOUT_MS;
@@ -579,7 +588,7 @@ export async function callItineraryLlmWithValidationRetry<T>(opts: {
       const completion = await withAbortTimeout(opts.timeoutMs, (signal) =>
         opts.create(
           {
-            model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
+            model: configuredChatModel(),
             messages,
             max_completion_tokens: opts.maxCompletionTokens,
             temperature: opts.temperature,
@@ -854,7 +863,9 @@ async function searchCandidatePools(input: {
   const places = rankDiscoverCandidates(
     ensureMustSeeDiversity(
       dedupeByCluster(
-        filterAttractionPlaces(mergePlaceCardsByName(placeResults.map((r) => r.data ?? []))),
+        filterEligibleAttractions(
+          filterAttractionPlaces(mergePlaceCardsByName(placeResults.map((r) => r.data ?? []))),
+        ),
       ),
     ),
     tokens,
@@ -892,6 +903,8 @@ export type DiscoverPlacesInput = {
   providers?: string[];
   /** User must_include tokens — supplementary-searched into the pool when uncovered. */
   must_include?: string[];
+  /** Cap for heat-on-pool must_see marks (F41 S2). Default 5. */
+  max_number?: number;
 };
 
 export type DiscoverPlacesResult = {
@@ -938,6 +951,7 @@ export function slimArrangeCandidate(card: PlaceCard): PlaceCard {
     address: card.address,
     location: card.location,
     rating: card.rating,
+    user_ratings_total: card.user_ratings_total,
     category: card.category,
     price_level: card.price_level,
     price_per_person: card.price_per_person,
@@ -950,6 +964,7 @@ export function slimArrangeCandidate(card: PlaceCard): PlaceCard {
       ),
     })),
     must_see: card.must_see,
+    user_requested: card.user_requested,
   };
 }
 
@@ -1081,71 +1096,39 @@ export async function discoverPlaces(
       ? { lat: input.origin.lat, lng: input.origin.lng }
       : undefined;
 
-  // ADR-045 §3: run iconic-places inference (ungrounded) IN PARALLEL with the
-  // candidate search. The ungrounded LLM call does not add to the critical path.
-  const [poolResult, iconic] = await Promise.all([
-    searchCandidatePools({
-      city: input.city,
-      locale,
-      providers: input.providers,
-      origin: input.origin,
-    }),
-    findIconicPlaces({ city: input.city, locale, limit: 3 }),
-  ]);
+  // Phase A: provider candidate search (0 LLM).
+  const poolResult = await searchCandidatePools({
+    city: input.city,
+    locale,
+    providers: input.providers,
+    origin: input.origin,
+  });
 
-  let places = poolResult.places.slice(0, CANDIDATE_CAP * Math.min(numDays, 3));
+  let places = filterEligibleAttractions(
+    poolResult.places.slice(0, CANDIDATE_CAP * Math.min(numDays, 3)),
+  );
   let restaurants = poolResult.restaurants.slice(0, CANDIDATE_CAP * Math.min(numDays, 3));
 
-  // Match iconic names to the pool (normalized); mark matched cards must_see.
-  const iconicNorm = new Map<string, string>();
-  for (const n of iconic.names) iconicNorm.set(normalizeMustIncludeToken(n), n);
-  const matchedNorm = new Set<string>();
-  for (const card of places) {
-    const n = normalizeMustIncludeToken(card.name);
-    if (iconicNorm.has(n)) {
-      card.must_see = true;
-      matchedNorm.add(n);
-    }
+  // Phase B: heat-rank the existing pool only (no extra POI search / no LLM).
+  const iconicLimit = Math.min(12, Math.max(1, input.max_number ?? 5));
+  if (places.length > 0) {
+    await findIconicPlaces({
+      city: input.city,
+      locale,
+      pool: places,
+      limit: iconicLimit,
+      numDays,
+    });
   }
 
-  // Supplementary search: for iconic names not already in the pool, search by
-  // name so they enter the pool (grounding the ungrounded LLM output). ≤3 calls.
-  const unmatched = iconic.names.filter(
-    (n) => !matchedNorm.has(normalizeMustIncludeToken(n)),
-  );
-  if (unmatched.length > 0) {
-    const extraResults = await Promise.all(
-      unmatched.map((name) =>
-        searchPlaces({
-          address: input.city,
-          query: name,
-          locale,
-          providers: input.providers,
-          near,
-          rankPreference: "RELEVANCE",
-        }),
-      ),
-    );
-    const existingNames = new Set(places.map((p) => normalizeMustIncludeToken(p.name)));
-    for (const res of extraResults) {
-      const found = filterAttractionPlaces(
-        mergePlaceCardsByName([res.data ?? []]),
-      )[0];
-      if (!found) continue;
-      const fn = normalizeMustIncludeToken(found.name);
-      if (!fn || existingNames.has(fn)) continue;
-      found.must_see = true;
-      existingNames.add(fn);
-      places.push(found);
-    }
-  }
-
-  // User must_include (areas / day-trips): mark covered cards; search uncovered tokens.
-  const userMust = (input.must_include ?? []).map((t) => t.trim()).filter(Boolean);
+  // Phase C: user must_include — supplement pool; orthogonal to heat flags (F82).
+  const userMust = (input.must_include ?? [])
+    .map((t) => t.trim())
+    .filter((t) => t && !isIneligibleMustIncludeToken(t));
   if (userMust.length > 0) {
     for (const card of places) {
       if (userMust.some((t) => skeletonCoversMustInclude(t, [card.name]))) {
-        card.must_see = true;
+        markUserRequested(card);
       }
     }
     const uncoveredUser = userMust.filter(
@@ -1168,12 +1151,14 @@ export async function discoverPlaces(
       extraUser.forEach((res, i) => {
         const token = uncoveredUser[i] ?? "";
         const found = pickSupplementaryMustIncludeHit(
-          filterAttractionPlaces(mergePlaceCardsByName([res.data ?? []])),
+          filterEligibleAttractions(
+            filterAttractionPlaces(mergePlaceCardsByName([res.data ?? []])),
+          ),
           token,
           { city: input.city, existingNorm: existingNames },
         );
         if (!found) return;
-        found.must_see = true;
+        markUserRequested(found);
         existingNames.add(normalizeMustIncludeToken(found.name));
         places.push(found);
       });
@@ -1192,8 +1177,10 @@ export async function discoverPlaces(
         ).data;
   if (anchor?.lat != null && anchor?.lng != null) {
     const point = { lat: anchor.lat, lng: anchor.lng };
-    places = filterCardsNearAnchor(places, point);
+    places = filterEligibleAttractions(filterCardsNearAnchor(places, point));
     restaurants = filterCardsNearAnchor(restaurants, point);
+  } else {
+    places = filterEligibleAttractions(places);
   }
 
   for (const card of places) {
@@ -1207,13 +1194,11 @@ export async function discoverPlaces(
     counts: { places: places.length, restaurants: restaurants.length },
   });
 
-  // ADR-045 §3: inferred_must_see = iconic names that are now grounded in the
-  // pool (matched or found via supplementary search). Unmatched-and-not-found
-  // names are dropped (cannot be scheduled).
-  const poolNameSet = new Set(places.map((p) => normalizeMustIncludeToken(p.name)));
-  const inferred_must_see = iconic.names.filter((n) =>
-    poolNameSet.has(normalizeMustIncludeToken(n)),
-  );
+  // inferred_must_see = final pool must_see names in heat order (F79).
+  const inferred_must_see = places
+    .filter((p) => p.must_see === true)
+    .sort(comparePoolHeat)
+    .map((p) => p.name);
 
   return { candidates: { places, restaurants }, inferred_must_see };
 }

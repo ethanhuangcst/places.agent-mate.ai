@@ -4,9 +4,10 @@
  * Replaces `discover-must-see-llm.ts` `inferMustSeeFromPool` with a single
  * method that works in two modes:
  *
- * - grounded (pool non-empty): LLM picks from the pool, names are
- *   pool-validated (no hallucinations), `grounded: true`. Used by discover /
- *   make_itinerary where a candidate pool exists and names must be schedulable.
+ * - grounded (pool non-empty): vendor heat on the existing pool only
+ *   (`user_ratings_total`, else `rating`) — no extra POI search, no LLM.
+ *   Marks `must_see` on those cards. `grounded: true`. Used by discover_places
+ *   after Phase A has built the pool.
  * - ungrounded (pool empty/undefined): LLM produces names from parametric
  *   knowledge for the destination, `grounded: false`. Used by travel_tips,
  *   which may be called before any pool exists. Knowledge lives in the LLM
@@ -17,6 +18,7 @@
  */
 
 import {
+  configuredChatModel,
   createOpenAI,
   extractChatCompletionText,
   isLlmAbortError,
@@ -25,6 +27,7 @@ import {
 } from "./itinerary-planner";
 import { normalizeMustIncludeToken } from "./trip-intake";
 import { cachedIconicPlaces, hashPool, type IconicCacheKey } from "./iconic-places-cache";
+import { markMustSeeByPoolHeat } from "./pool-heat-must-see";
 import type { Locale } from "./locales";
 import type { PlaceCard } from "./types";
 
@@ -35,10 +38,12 @@ const LLM_TEMPERATURE = 0.3;
 export type FindIconicPlacesInput = {
   city: string;
   locale: Locale;
-  /** Candidate attraction cards. When non-empty → grounded mode. */
+  /** Candidate attraction cards. When non-empty → heat-on-pool (no LLM). */
   pool?: PlaceCard[];
   /** Max iconic names to return. */
   limit: number;
+  /** Trip length — widens ungrounded picks to nearby day trips when ≥ 3 days. */
+  numDays?: number;
   /** Optional test injection for the LLM client. */
   _testChatCreate?: ItineraryChatCreate;
 };
@@ -48,6 +53,12 @@ export type FindIconicPlacesResult = {
   /** true = names were pool-validated (grounded); false = ungrounded LLM output. */
   grounded: boolean;
 };
+
+/** Scale iconic picks with trip length (ADR-042: LLM weights, not source tables). */
+export function iconicLimitForTripDays(numDays?: number): number {
+  const days = Math.max(1, numDays ?? 3);
+  return Math.min(12, Math.max(3, days + 2));
+}
 
 /**
  * Extract a JSON array from LLM text that may contain markdown fencing.
@@ -76,7 +87,7 @@ async function callLlm(
     const completion = await withAbortTimeout(INFER_TIMEOUT_MS, (signal) =>
       create(
         {
-          model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
+          model: configuredChatModel(),
           messages: [{ role: "user", content: userMessage }],
           max_completion_tokens: MAX_COMPLETION_TOKENS,
           temperature: LLM_TEMPERATURE,
@@ -110,6 +121,7 @@ function parseNames(raw: string | null): string[] {
 
 /**
  * Unified iconic-places acquisition.
+ * Grounded = heat-rank existing pool (no vendor search, no LLM).
  */
 export async function findIconicPlaces(
   input: FindIconicPlacesInput,
@@ -123,6 +135,10 @@ export async function findIconicPlaces(
     .filter((n): n is string => Boolean(n));
   const grounded = pool.length > 0;
 
+  if (grounded) {
+    return { names: markMustSeeByPoolHeat(pool, limit), grounded: true };
+  }
+
   const resolveUncached = async (): Promise<FindIconicPlacesResult> => {
     // Fixture / no-key mode: cannot infer without an LLM.
     if (!input._testChatCreate && createOpenAI() === null) {
@@ -132,39 +148,14 @@ export async function findIconicPlaces(
     const create = buildCreate(input);
     if (!create) return { names: [], grounded };
 
-    if (grounded) {
-      if (poolNames.length === 0) return { names: [], grounded: true };
-
-      const poolNormalized = new Map<string, string>();
-      for (const n of poolNames) poolNormalized.set(normalizeMustIncludeToken(n), n);
-
-      const userMessage =
-        `You are a travel expert. From these candidate attractions, identify up to ${limit} ` +
-        `that are widely considered must-see / iconic for this destination. ` +
-        `Return ONLY a JSON array of place names, drawn exactly from the provided list (copy names verbatim). ` +
-        `Names: ${JSON.stringify(poolNames)}`;
-
-      const raw = await callLlm(create, userMessage);
-      const parsed = parseNames(raw);
-
-      const validated: string[] = [];
-      const seen = new Set<string>();
-      for (const item of parsed) {
-        const n = normalizeMustIncludeToken(item);
-        if (!n || seen.has(n)) continue;
-        const original = poolNormalized.get(n);
-        if (!original) continue; // hallucination — not in pool
-        seen.add(n);
-        validated.push(original);
-        if (validated.length >= limit) break;
-      }
-      return { names: validated, grounded: true };
-    }
-
     // Ungrounded: LLM produces names from parametric knowledge for the city.
+    const dayTripHint =
+      input.numDays != null && input.numDays >= 3
+        ? ` The visitor has ${input.numDays} days — include widely recommended nearby day-trip destinations and landmarks reachable from ${input.city}, not only city-center sights.`
+        : "";
     const userMessage =
       `You are a travel expert. For the destination "${input.city}", list up to ${limit} ` +
-      `places that are widely considered must-see / iconic. ` +
+      `places that are widely considered must-see / iconic.${dayTripHint} ` +
       `Return ONLY a JSON array of place names (real, well-known attractions for this destination). ` +
       `Do not invent places that do not exist. If you are unsure, return fewer.`;
 

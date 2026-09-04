@@ -8,7 +8,8 @@ You are creating the STOP-ORDER SKELETON for a multi-day travel itinerary — or
 - **Route efficiency**: Use lat/lng to group same-day stops geographically (A-B-C in one direction). Never interleave two far-apart districts.
 - **Day themes**: Give each day a short `day_theme` (e.g. "Belém classics", "Sintra day trip"). A day-trip town cluster (far from base city) occupies its own full day — do not mix it with base-city stops.
 - **Meals**: Every day gets lunch; medium/tight pace also gets dinner. Mark meal stops with `kind: "meal"` and `meal_slot`. Optional afternoon_tea between last attraction and dinner. Same restaurant name must not appear twice on one day (or across days).
-- **Pace limits**: attraction stops per day — tight ≤ 6, medium ≤ 5, relaxed ≤ 4 (meals not counted against the limit).
+- **Pace limits**: attraction stops per day — **at least 2** when the place list has ≥ 2 unused venues per day; tight ≤ 6, medium ≤ 5, relaxed ≤ 4 (meals not counted). Stay-only days are invalid when attractions exist.
+- **Fill the day**: pick specific POIs from the place list that match `day_theme`. A theme like "Belém" or "Alfama" is not a stop — schedule named venues (tower, monastery, castle). Do not leave a day as hotel-only.
 - **must_include**: names under HARD MUST INCLUDE must each appear in exactly one day's stops. Missing any is a failure.
 - **Cross-day uniqueness**: each venue appears on at most one day.
 - **Origin as first stop**: when a daily origin (hotel) is provided, include it as the day's first stop with `kind: "stay"` (no meal_slot). Do not invent an origin when none is given.
@@ -20,6 +21,7 @@ You are creating the STOP-ORDER SKELETON for a multi-day travel itinerary — or
 3. No venue reused across days.
 4. Each day's stops are geographically coherent with its day_theme.
 5. Lunch present every day; dinner present for medium/tight pace.
+6. Every day has at least two attraction stops from the place list (when the list is large enough).
 
 ### Output format
 

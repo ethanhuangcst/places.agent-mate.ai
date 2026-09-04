@@ -8,20 +8,23 @@ import {
 import { planItinerary } from "../core/itinerary";
 import { arrangeDay, discoverPlaces, enrichArrangeTransit } from "../core/itinerary-planner";
 import { makeItinerary, createSkeletonChatCreate } from "../core/make-itinerary";
-import { displayCurrentStop, planNextStop } from "../core/plan-next-stop";
+import { planNextStopFill } from "../core/plan-next-stop";
 import { visaRequirement } from "../core/visa-requirement";
 import { mergeMustInclude } from "../core/must-include-merge";
 import { travelTips, TravelTipsTimeoutError } from "../core/travel-tips";
+import { getTripOrThrow } from "../core/trip-store";
 import {
   dualWriteTrip,
   dualWriteTripIfPresent,
   slimCandidatesForStore,
+  tripPatchCandidatesIfNonEmpty,
   TripStoreError,
 } from "../core/trip-dual-write";
 import {
   fetchTripDetails,
   FETCH_TRIP_HOST_INSTRUCTIONS_ON_MISS,
 } from "../core/fetch-trip-details";
+import { artifactsTipsPatch, artifactsVisaPatch } from "../core/trip-artifacts";
 import { type PlanItineraryInput, type PlaceCard } from "../core/types";
 import { parseLocale, type Locale } from "../core/locales";
 import {
@@ -34,9 +37,8 @@ import {
 import {
   arrangeDayBody,
   discoverPlacesBody,
-  displayCurrentStopBody,
-  enrichArrangeTransitBody,
   fetchTripDetailsBody,
+  patchTripBody,
   geocodeBody,
   getPlaceDetailsBody,
   makeItineraryBody,
@@ -44,6 +46,7 @@ import {
   planNextStopBody,
   searchPlacesBody,
   searchRestaurantsBody,
+  enrichArrangeTransitBody,
   visaRequirementBody,
   travelTipsBody,
 } from "./schemas";
@@ -59,10 +62,10 @@ export type ToolName =
   | "enrich_arrange_transit"
   | "make_itinerary"
   | "plan_next_stop"
-  | "display_current_stop"
   | "fetch_trip_details"
   | "visa_requirement"
-  | "travel_tips";
+  | "travel_tips"
+  | "patch_trip";
 
 export type DispatchResult = { status: number; envelope: Envelope };
 
@@ -150,6 +153,7 @@ export async function dispatchTool(
         numDays: parsed.data.numDays,
         providers: parsed.data.providers,
         must_include: parsed.data.must_include,
+        max_number: parsed.data.max_number,
       });
       // ADR-045 §2: merge user must_include with inferred must-see (HTTP parity with MCP).
       const merged = mergeMustInclude(parsed.data.must_include ?? [], result.inferred_must_see ?? []);
@@ -167,7 +171,9 @@ export async function dispatchTool(
             bounds: parsed.data.bounds,
             origin: parsed.data.origin,
             numDays: parsed.data.numDays,
-            must_include: merged.length ? merged : parsed.data.must_include,
+            party_size: parsed.data.party_size,
+            budget: parsed.data.budget,
+            must_include: parsed.data.must_include,
           },
           candidates: slimCandidatesForStore({
             places: (result.candidates?.places ?? []) as Array<Record<string, unknown>>,
@@ -278,12 +284,13 @@ export async function dispatchTool(
             budget: parsed.data.budget,
             must_include: parsed.data.must_include,
           },
-          candidates: slimCandidatesForStore({
-            places: parsed.data.candidates.places as Array<Record<string, unknown>>,
-            restaurants: parsed.data.candidates.restaurants as Array<Record<string, unknown>>,
-          }),
+          ...(tripPatchCandidatesIfNonEmpty(
+            result.candidates_slim.places as Array<Record<string, unknown>>,
+            result.candidates_slim.restaurants as Array<Record<string, unknown>>,
+          )),
           skeleton: result.skeleton,
         },
+        candidatesWrite: "replace",
       });
       return {
         status: 200,
@@ -302,14 +309,19 @@ export async function dispatchTool(
   }
   if (tool === "plan_next_stop") {
     const parsed = planNextStopBody.safeParse(body ?? {});
-    if (!parsed.success) return invalid(locale, extra);
+    if (!parsed.success) {
+      console.error("plan_next_stop invalid_input", parsed.error.issues);
+      return invalid(locale, extra);
+    }
     try {
       const cs = parsed.data.current_stop;
       const anchor =
-        typeof cs.lat === "number" && typeof cs.lng === "number"
+        cs && typeof cs.lat === "number" && typeof cs.lng === "number"
           ? { lat: cs.lat, lng: cs.lng, crs: "WGS84" as const }
           : undefined;
-      const result = await planNextStop({
+      const result = await planNextStopFill({
+        origin_mode: parsed.data.origin_mode,
+        with_stop_display: parsed.data.with_stop_display,
         current_stop: cs,
         next_stop: parsed.data.next_stop,
         candidates: {
@@ -320,8 +332,14 @@ export async function dispatchTool(
         anchor,
         transit_preference: parsed.data.transit_preference,
         providers: parsed.data.providers,
+        previous_stop: parsed.data.previous_stop,
+        legs_to_here: parsed.data.legs_to_here as never,
+        time_from: parsed.data.time_from,
+        stay_role: parsed.data.stay_role,
+        default_duration_min: parsed.data.default_duration_min,
         locale,
       });
+      const slot = result.stop_display?.slot;
       const trip = await dualWriteTripIfPresent({
         callerKey: auth.keyId,
         tripId: parsed.data.trip_id,
@@ -329,54 +347,24 @@ export async function dispatchTool(
         locale,
         patch: {
           filled: {
-            current_stop: cs,
-            next_stop: parsed.data.next_stop,
+            stop: parsed.data.next_stop,
+            slot,
             legs: result.legs,
           },
         },
       });
+      const flat = result.stop_display
+        ? {
+            stop: result.stop_display.stop,
+            slot: result.stop_display.slot,
+            legs_to_here: result.stop_display.legs_to_here,
+            from_origin: result.stop_display.from_origin,
+            notes: result.stop_display.notes,
+          }
+        : {};
       return {
         status: 200,
-        envelope: okEnvelope({ ...result, ...(trip ?? {}) }, locale, { locales: extra }),
-      };
-    } catch (err) {
-      const tripFail = tripStoreFailure(err, locale, extra);
-      if (tripFail) return tripFail;
-      return {
-        status: 502,
-        envelope: errorEnvelope("errors.provider_failed", locale, extra),
-      };
-    }
-  }
-  if (tool === "display_current_stop") {
-    const parsed = displayCurrentStopBody.safeParse(body ?? {});
-    if (!parsed.success) return invalid(locale, extra);
-    try {
-      const result = displayCurrentStop({
-        stop: parsed.data.stop,
-        candidates: {
-          places: parsed.data.candidates.places as PlaceCard[],
-          restaurants: parsed.data.candidates.restaurants as PlaceCard[],
-        },
-        previous_stop: parsed.data.previous_stop,
-        legs_to_here: parsed.data.legs_to_here as never,
-        default_duration_min: parsed.data.default_duration_min,
-        time_from: parsed.data.time_from,
-        stay_role: parsed.data.stay_role,
-        locale,
-      });
-      const trip = await dualWriteTripIfPresent({
-        callerKey: auth.keyId,
-        tripId: parsed.data.trip_id,
-        expectedRevision: parsed.data.revision,
-        locale,
-        patch: {
-          filled: { stop: parsed.data.stop, slot: result.slot },
-        },
-      });
-      return {
-        status: 200,
-        envelope: okEnvelope({ ...result, ...(trip ?? {}) }, locale, { locales: extra }),
+        envelope: okEnvelope({ ...result, ...flat, ...(trip ?? {}) }, locale, { locales: extra }),
       };
     } catch (err) {
       const tripFail = tripStoreFailure(err, locale, extra);
@@ -410,8 +398,30 @@ export async function dispatchTool(
   if (tool === "visa_requirement") {
     const parsed = visaRequirementBody.safeParse(body ?? {});
     if (!parsed.success) return invalid(locale, extra);
-    const result = await visaRequirement(parsed.data);
-    return { status: statusForOutcome(result.outcomeKey), envelope: toolToEnvelope(result) };
+    try {
+      const result = await visaRequirement(parsed.data);
+      const trip = await dualWriteTrip({
+        callerKey: auth.keyId,
+        tripId: parsed.data.trip_id,
+        expectedRevision: parsed.data.revision,
+        locale,
+        patch: { artifacts: artifactsVisaPatch(result.data, result.outcomeKey) },
+      });
+      const envelope = toolToEnvelope(result);
+      return {
+        status: statusForOutcome(result.outcomeKey),
+        envelope: {
+          ...envelope,
+          data: envelope.data
+            ? { ...(envelope.data as object), ...trip }
+            : { ...trip },
+        },
+      };
+    } catch (err) {
+      const tripFail = tripStoreFailure(err, locale, extra);
+      if (tripFail) return tripFail;
+      throw err;
+    }
   }
   if (tool === "travel_tips") {
     const parsed = travelTipsBody.safeParse(body ?? {});
@@ -428,8 +438,17 @@ export async function dispatchTool(
         locale,
         providers: parsed.data.providers,
       });
-      return { status: 200, envelope: okEnvelope(result, locale, { locales: extra }) };
+      const trip = await dualWriteTrip({
+        callerKey: auth.keyId,
+        tripId: parsed.data.trip_id,
+        expectedRevision: parsed.data.revision,
+        locale,
+        patch: { artifacts: artifactsTipsPatch(result) },
+      });
+      return { status: 200, envelope: okEnvelope({ ...result, ...trip }, locale, { locales: extra }) };
     } catch (err) {
+      const tripFail = tripStoreFailure(err, locale, extra);
+      if (tripFail) return tripFail;
       const key =
         err instanceof TravelTipsTimeoutError
           ? "errors.travel_tips_timeout"
@@ -437,6 +456,37 @@ export async function dispatchTool(
       return {
         status: 502,
         envelope: errorEnvelope(key, locale, extra),
+      };
+    }
+  }
+  // HTTP patch_trip: constraints only (2play intake). Pool/skeleton writes use internal patchTrip.
+  if (tool === "patch_trip") {
+    const parsed = patchTripBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    try {
+      const current = await getTripOrThrow(auth.keyId, parsed.data.trip_id);
+      const prev =
+        current.constraints && typeof current.constraints === "object" && !Array.isArray(current.constraints)
+          ? (current.constraints as Record<string, unknown>)
+          : {};
+      const merged = { ...prev, ...parsed.data.constraints };
+      const trip = await dualWriteTrip({
+        callerKey: auth.keyId,
+        tripId: parsed.data.trip_id,
+        expectedRevision: parsed.data.revision ?? current.revision,
+        locale,
+        patch: { constraints: merged },
+      });
+      return {
+        status: 200,
+        envelope: okEnvelope({ ...trip, constraints: merged }, locale, { locales: extra }),
+      };
+    } catch (err) {
+      const tripFail = tripStoreFailure(err, locale, extra);
+      if (tripFail) return tripFail;
+      return {
+        status: 502,
+        envelope: errorEnvelope("errors.provider_failed", locale, extra),
       };
     }
   }

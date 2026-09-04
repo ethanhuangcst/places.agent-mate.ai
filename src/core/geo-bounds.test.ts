@@ -50,6 +50,16 @@ describe("pickSupplementaryMustIncludeHit", () => {
 });
 
 describe("filterCardsNearAnchor", () => {
+  it("should_keep_name_only_card_when_coordinates_missing", () => {
+    const nameless = {
+      provider: "GOOGLE_MAPS" as const,
+      name: "Alfama",
+      sources: [],
+    };
+    const kept = filterCardsNearAnchor([BELEM, nameless, YELLOWSTONE], LISBON);
+    expect(kept.map((c) => c.name)).toEqual(["贝伦塔", "Alfama"]);
+  });
+
   it("should_drop_other_continent_card_and_keep_metro_and_day_trip", () => {
     const kept = filterCardsNearAnchor(
       [BELEM, CASCAIS, CABO, YELLOWSTONE],

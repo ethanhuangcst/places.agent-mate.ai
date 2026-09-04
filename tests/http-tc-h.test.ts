@@ -105,7 +105,6 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       "enrich_arrange_transit",
       "make_itinerary",
       "plan_next_stop",
-      "display_current_stop",
       "fetch_trip_details",
       "visa_requirement",
       "travel_tips",

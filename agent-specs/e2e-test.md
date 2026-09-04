@@ -18,15 +18,15 @@
 | 步 | 工具 | 何时调用 | 输入要点 | 输出要点 |
 | --- | --- | --- | --- | --- |
 | 1 | `geocode` | 用户提供酒店/住宿区域时 | `query`（酒店名）、`locale` | `{lat, lng, address}`，作为后续 `origin`；无酒店时跳过 |
+| 1b | `travel_tips` | **写** artifacts（MVP-18）；不进 fill 关键路径 | `destination`、`bounds`、`locale` | 落库 `iconic_places`；**2play 展示经 `fetch_trip_details`** |
 | 2 | `discover_places` | 必调 | `city / bounds / numDays / pace / spend_level / providers / must_include / interests? / origin?` | 候选池 `places`+`restaurants`、`inferred_must_see`、`host_instructions` |
-| 3 | `make_itinerary` | 必调 | `candidates`（精简：仅 `name/location/must_see/sources`）、`pace/budget/must_include/origin?` | 多日停靠顺序**骨架**（`name/kind/meal_slot`，无时间无交通）+ 首个 `next_tool_call`（指向 Day1 stay 的 `display_current_stop`，携带 `skeleton`+`cursor`） |
-| 4 | `display_current_stop` | 沿链 | `stop`、`time_from`、`skeleton`、`cursor`、`legs_to_here?`、`previous_stop?` | 当前 stop 卡片、`from_origin`/`legs_to_here`、时段 + 下一 `next_tool_call` |
-| 5 | `plan_next_stop` | 沿链 | `current_stop`、`next_stop`、`candidates`、`transit_preference`、`providers`、`skeleton`、`cursor` | `legs`+recommended + 下一 `next_tool_call`（下一 stop 的 `display_current_stop`） |
+| 3 | `make_itinerary` | 必调 | `candidates`（精简：仅 `name/location/must_see/sources`）、`pace/budget/must_include/origin?` | 多日停靠顺序**骨架**（`name/kind/meal_slot`，无时间无交通）+ 首个 `next_tool_call`（指向 Day1 stay 的 `plan_next_stop` `origin_mode`） |
+| 4 | `plan_next_stop` | 沿链（F65：写侧含 stop display） | `origin_mode` 或 `current_stop`（`end_time` 须 `HH:MM`）、`next_stop`、`candidates`、`trip_id`/`revision` | 卡片 + `slot` + `legs` + 下一 `next_tool_call` |
+| 5 | 重复 4 | 直到末站 | — | `next_action == trip_complete` 时结束 |
 
-**目标态（ADR-046 / MVP-16，未实现）：** 链改为以 `trip_id` 为中心；新增 `fetch_trip_details`；删除 `display_current_stop`（写并入 `plan_next_stop`）。见 `e2e-test.md` Q11 / S11。现行 30 城脚本仍按上表 as-built 执行直至 F65。
-| 6 | 重复 4↔5 | 直到末站 | — | `next_action == trip_complete` 时结束 |
+**As-built（ADR-046 / F65 Done）：** 链以 `trip_id` 为中心；无独立 `display_current_stop`；写并入 `plan_next_stop`。Lisbon 主干探针：`python3 scripts/e2e-places-agent.py --only 1`。
 
-> 关键断言：`make_itinerary` 起的每一步响应都含具体 `next_tool_call`（`name`+`arguments`，携带 `skeleton`+`cursor`），host 逐字执行即可，不应中途停止或改调 `travel_tips` 等他工具。
+> 关键断言：`make_itinerary` 起的每一步响应都含具体 `next_tool_call`（`name`+`arguments`），host 逐字执行即可，不应中途停止。fill 链禁止因 `end_time` 非 `^\d{2}:\d{2}$` 或 `revision: null` 得到 `errors.invalid_input`。`travel_tips` 只写账本，不替代 fill；脚本可记录 envelope，**2play UI 不以该 envelope 为展示源**。
 
 ## 3. 测试环境与前置
 

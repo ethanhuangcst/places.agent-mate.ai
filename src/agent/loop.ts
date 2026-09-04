@@ -12,6 +12,7 @@ import { planItinerary } from "../core/itinerary";
 import { parseLocale, type Locale } from "../core/locales";
 import { t } from "../core/i18n";
 import { type PlaceCard } from "../core/types";
+import { resolveChatLlmConfig } from "../core/llm-chat-config";
 
 export type ChatAttachment = {
   filename: string;
@@ -319,16 +320,17 @@ function fixtureTurn(userText: string, toolCallsSoFar: string[]): FixtureTurn {
 function useFixtureLlm(): boolean {
   return (
     process.env.QUANZIL_MODE === "fixture" ||
-    !process.env.OPENAI_API_KEY ||
-    process.env.PLACES_VENDOR_MODE === "fixture"
+    process.env.PLACES_VENDOR_MODE === "fixture" ||
+    resolveChatLlmConfig() == null
   );
 }
 
 function createClient(): OpenAI | null {
-  if (useFixtureLlm()) return null;
+  const cfg = resolveChatLlmConfig();
+  if (!cfg) return null;
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL,
+    apiKey: cfg.apiKey,
+    baseURL: cfg.baseURL,
   });
 }
 
@@ -394,7 +396,7 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
       }
     } else {
       const completion = await openai.chat.completions.create({
-        model: process.env.OPENAI_CHAT_MODEL ?? "gpt-5.4",
+        model: resolveChatLlmConfig()?.model ?? "qwen-plus",
         messages: history,
         tools: TOOL_DEFS,
         max_completion_tokens: 1024,
@@ -461,5 +463,5 @@ export async function runChatLoop(input: ChatInput): Promise<ChatResult> {
 }
 
 export function configuredChatModel(): string {
-  return process.env.OPENAI_CHAT_MODEL ?? "gpt-5.4";
+  return resolveChatLlmConfig()?.model ?? "qwen-plus";
 }

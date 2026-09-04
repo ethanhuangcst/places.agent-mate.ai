@@ -80,7 +80,7 @@ export const MCP_TRIP_CHAT_RULES = [
   "RULE 1 — Fixed form rows: (1) city (2) start date (3) days/end (4) optional hotel (5) pace 轻松/适中/紧凑 default 适中 (6) spend 节约/适中/宽松 scale 1–3 default 2 (7) interests optional (8) must-include day-trips — list place names.",
   "RULE 2 — Fill known answers in the form; for unset pace/spend use defaults and say so. Call discover_places ONCE when rows 1–3 are answered. Then call make_itinerary ONCE with that candidates pool (do not drop the pool; do not pass empty candidates). Do not invent POIs. arrange_day is LEGACY — do not use it for new trips.",
   "RULE 3 — must_include: user lists names (e.g. 地点A、地点B) → keep ALL listed. Affirmed multi-option question without names → keep ALL offered options. Ambiguous → confirm. Pass must_include on make_itinerary. Enough days → one day per day-trip. No city hardcode catalogs.",
-  "RULE 4 — After discover_places: call make_itinerary ONCE with numDays, origin, pace, budget, must_include, and the returned candidates. Then execute the returned next_tool_call chain (display_current_stop → plan_next_stop → display_current_stop …) WITHOUT stopping after each stop, until next_action is trip_complete. Pass skeleton and cursor exactly as provided in each next_tool_call.arguments. Do NOT stop after presenting one stop. Forbidden as a fill substitute: travel_tips, geocode-only research, rewrite/详细版 menus, or inventing times from knowledge. Do NOT call arrange_day for new trips.",
+  "RULE 4 — After discover_places: call make_itinerary ONCE with numDays, origin, pace, budget, must_include, and the returned candidates. Then execute the returned next_tool_call chain (plan_next_stop origin_mode → plan_next_stop …) WITHOUT stopping after each stop, until next_action is trip_complete. Pass skeleton and cursor exactly as provided in each next_tool_call.arguments. Do NOT stop after presenting one stop. Forbidden as a fill substitute: travel_tips, geocode-only research, rewrite/详细版 menus, or inventing times from knowledge. Do NOT call arrange_day for new trips.",
   "RULE 5 — No hotel: omit from_origin/to_destination on fill tools. Medium day fills through dinner ~20:00; ending before 16:00 is too short.",
   "RULE 6 — sources MUST stay an ARRAY. No truncation excuses. Never restart Day 1 mid-trip.",
   "RULE 7 — Present skeleton day cards first, then fill stops from the skeleton only — do not invent free-walk slots or places not in the pool.",
@@ -97,7 +97,7 @@ export const MCP_NO_INVENT_RULE =
   "not on failure and not after a successful skeleton. " +
   "If a tool fails, tell the user the planning service is temporarily unavailable and ask them to retry. " +
   "You must not present fabricated concrete itineraries as if they came from the tools. " +
-  "After make_itinerary you MUST execute the returned next_tool_call chain (display_current_stop → plan_next_stop → display_current_stop …) until trip_complete — do NOT stop after one stop (candidates optional). " +
+  "After make_itinerary you MUST execute the returned next_tool_call chain (plan_next_stop with origin_mode then plan_next_stop …) until trip_complete — do NOT stop after one stop (candidates optional). " +
   "Forbidden as a fill substitute: travel_tips, geocode-only research, or writing a 详细版 from parametric knowledge.";
 
 const FORM_COPY: Record<

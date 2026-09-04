@@ -23,7 +23,6 @@ export const GUIDE_HTTP_ENDPOINTS = [
   "POST /v1/geocode",
   "POST /v1/make_itinerary",
   "POST /v1/plan_next_stop",
-  "POST /v1/display_current_stop",
   "POST /v1/fetch_trip_details",
   "POST /v1/chat",
 ] as const;
@@ -38,7 +37,6 @@ export const GUIDE_MCP_TOOLS = [
   "geocode",
   "make_itinerary",
   "plan_next_stop",
-  "display_current_stop",
   "fetch_trip_details",
 ] as const;
 
@@ -116,13 +114,6 @@ export const GUIDE_CAPABILITIES: readonly GuideCapability[] = [
     label: "plan_next_stop",
     labelLiteral: true,
     bodyKey: "admin.guide.cap_plan_next_stop_body",
-    channel: "both",
-  },
-  {
-    id: "display_current_stop",
-    label: "display_current_stop",
-    labelLiteral: true,
-    bodyKey: "admin.guide.cap_display_current_stop_body",
     channel: "both",
   },
   {

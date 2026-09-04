@@ -75,7 +75,7 @@ describe("buildIntakeHostInstructions", () => {
     expect(MCP_TRIP_CHAT_RULES).toMatch(/scale 1–3|spend_level=2/);
     expect(MCP_TRIP_CHAT_RULES).toMatch(/empty candidates|auto-discover/i);
     expect(MCP_TRIP_CHAT_RULES).toMatch(/execute the returned next_tool_call chain/);
-    expect(MCP_TRIP_CHAT_RULES).toMatch(/display_current_stop/);
+    expect(MCP_TRIP_CHAT_RULES).toMatch(/plan_next_stop/);
     expect(MCP_TRIP_CHAT_RULES).toMatch(/travel_tips/);
   });
 });

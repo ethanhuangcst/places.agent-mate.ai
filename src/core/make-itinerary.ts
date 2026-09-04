@@ -18,13 +18,22 @@ import { assembleSystemPrompt } from "../agent/prompt-assembler";
 import { loadGlossary } from "../agent/loop";
 import { parseLocale } from "./locales";
 import { slimArrangeCandidates } from "./itinerary-planner";
+import { markUserRequested } from "./candidate-flags";
 import { normalizeMustIncludeToken, skeletonCoversMustInclude } from "./trip-intake";
 import { geocode, searchPlaces, searchRestaurants } from "./tools";
+import { resolveChatLlmConfig } from "./llm-chat-config";
 import {
+  DISCOVER_GEO_MAX_KM,
   filterCardsNearAnchor,
   pickSupplementaryMustIncludeHit,
   trimThemedDayOutliers,
 } from "./geo-bounds";
+import { haversineKm } from "./must-include-coverage";
+import {
+  degradeMustInclude,
+  filterEligibleAttractions,
+  isIneligibleMustIncludeToken,
+} from "./eligible-attraction";
 
 // --- Schema ---
 
@@ -116,6 +125,26 @@ export function remapStopNamesToPool(
         const canon = byNorm.get(normalizeStopNameKey(s.name));
         return canon ? { ...s, name: canon } : s;
       }),
+    })),
+  };
+}
+
+/** Remove invented attraction stops so LLM pool-miss does not 502 the whole skeleton. */
+export function dropUnknownAttractionStops(
+  raw: unknown,
+  pool: { places: PlaceCard[]; restaurants: PlaceCard[]; stays: string[] },
+): unknown {
+  const parsed = ItinerarySkeletonSchema.safeParse(raw);
+  if (!parsed.success) return raw;
+  const known = new Set([
+    ...pool.places.map((p) => p.name),
+    ...pool.stays,
+  ]);
+  return {
+    ...parsed.data,
+    days: parsed.data.days.map((day) => ({
+      ...day,
+      stops: day.stops.filter((s) => s.kind !== "attraction" || known.has(s.name)),
     })),
   };
 }
@@ -272,7 +301,8 @@ export type SkeletonValidationResult =
  * Validate skeleton against pool + hard constraints.
  * - every stop name ∈ candidates (places ∪ restaurants ∪ origin stays)
  * - no venue reused across days
- * - must_include covered by stop name or day_theme (area suffixes ok)
+ * - must_include covered by stop names only (area suffixes ok; day_theme does not count)
+ * - stay-only day rejected when attraction pool has ≥ 3 places
  * - attraction stops per day ≤ pace limit
  */
 export function validateSkeleton(
@@ -281,6 +311,7 @@ export function validateSkeleton(
   mustInclude: string[],
   pace?: string,
   city?: string,
+  densityPlaces?: number,
 ): SkeletonValidationResult {
   const parsed = ItinerarySkeletonSchema.safeParse(raw);
   if (!parsed.success) {
@@ -305,6 +336,7 @@ export function validateSkeleton(
   const limit = paceStopLimit(pace);
   const requireLunch = pool.restaurants.length > 0;
   const cityNorm = city ? normalizeMustIncludeToken(city) : "";
+  const nPlaces = densityPlaces ?? pool.places.length;
 
   const dayIndexes = new Set<number>();
   for (const day of skeleton.days) {
@@ -325,7 +357,7 @@ export function validateSkeleton(
           );
         }
       }
-      if (!names.has(stop.name)) {
+      if (!names.has(stop.name) && stop.kind !== "meal") {
         errors.push(`stop "${stop.name}" (day ${day.day_index}) not found in candidate list`);
       }
       if (
@@ -367,6 +399,24 @@ export function validateSkeleton(
     if (stayCount > 1) {
       errors.push(`day ${day.day_index} has more than one stay stop`);
     }
+    if (
+      nPlaces >= 3 &&
+      day.stops.length > 0 &&
+      day.stops.every((s) => s.kind === "stay")
+    ) {
+      errors.push(`day ${day.day_index} is stay-only while attraction candidates exist`);
+    }
+    const minAttr =
+      skeleton.days.length >= 2 && nPlaces >= skeleton.days.length * 2
+        ? 2
+        : nPlaces >= 3
+          ? 1
+          : 0;
+    if (attractions < minAttr) {
+      errors.push(
+        `day ${day.day_index} has ${attractions} attraction stops; need at least ${minAttr} from the place list`,
+      );
+    }
     if (attractions > limit) {
       errors.push(
         `day ${day.day_index} has ${attractions} attraction stops > pace limit ${limit}`,
@@ -400,11 +450,13 @@ export function validateSkeleton(
     }
   }
 
-  const haystacks = skeleton.days.flatMap((d) => [
-    d.day_theme,
-    ...d.stops.map((s) => s.name),
-  ]);
-  const missing = mustInclude.filter((m) => !skeletonCoversMustInclude(m, haystacks));
+  const haystacks = skeleton.days.flatMap((d) => d.stops.map((s) => s.name));
+  const requiredMust = degradeMustInclude(
+    mustInclude,
+    filterEligibleAttractions(pool.places),
+    skeletonCoversMustInclude,
+  );
+  const missing = requiredMust.filter((m) => !skeletonCoversMustInclude(m, haystacks));
   if (missing.length) {
     errors.push(`must_include not scheduled: ${missing.join("; ")}`);
   }
@@ -433,7 +485,7 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
   );
   const hasRestaurants = input.candidates.restaurants.length > 0;
   parts.push(
-    `Pace: ${input.pace ?? "medium"} (attraction stops/day: tight ≤ 6, medium ≤ 5, relaxed ≤ 4). ` +
+    `Pace: ${input.pace ?? "medium"} (attraction stops/day: at least 2 when the place list is large enough, tight ≤ 6, medium ≤ 5, relaxed ≤ 4). ` +
       (hasRestaurants
         ? `Every day needs a lunch stop from the restaurant list (place lunch at midday, after the 2nd or 3rd attraction — never after the last attraction); medium/tight also need dinner.`
         : `Restaurant list is empty — omit meal stops; do not invent restaurant names.`),
@@ -454,7 +506,7 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
   }
   if (input.must_include?.length) {
     parts.push(
-      `\nHARD MUST INCLUDE (cover each token once via a scheduled stop name OR a day_theme; ` +
+      `\nHARD MUST INCLUDE (cover each token once via a scheduled stop name — not day_theme; ` +
         `area words like 区/一带/一日游 are covered by a candidate whose name contains the core — ` +
         `do NOT invent a stop whose exact name is the area token if it is not in the candidate list). ` +
         `On a day whose theme names a must_include area, only schedule attractions near that area — ` +
@@ -503,16 +555,27 @@ export type SkeletonChatCreate = (
  * back to the deterministic fixture skeleton.
  */
 export function createSkeletonChatCreate(): SkeletonChatCreate | null {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key || key === "fixture") return null;
-  const openai = new OpenAI({ apiKey: key, baseURL: process.env.OPENAI_BASE_URL });
+  const cfg = resolveChatLlmConfig();
+  if (!cfg) return null;
+  const openai = new OpenAI({
+    apiKey: cfg.apiKey,
+    baseURL: cfg.baseURL,
+    timeout: llmSkeletonTimeoutMs(),
+  });
   return openai.chat.completions.create.bind(openai.chat.completions) as unknown as SkeletonChatCreate;
 }
 
-const DEFAULT_SKELETON_TIMEOUT_MS = 150_000;
+/** Documented 2play `PLACES_AGENT_PLAN_TIMEOUT_MS` default — agent LLM must finish below this. */
+export const PLAN_GATEWAY_BUDGET_MS = 180_000;
+
+const DEFAULT_SKELETON_TIMEOUT_MS = 160_000;
 
 export function llmSkeletonTimeoutMs(): number {
-  const raw = Number(process.env.LLM_SKELETON_TIMEOUT_MS ?? DEFAULT_SKELETON_TIMEOUT_MS);
+  const raw = Number(
+    process.env.LLM_SKELETON_TIMEOUT_MS ??
+      process.env.LLM_ITINERARY_TIMEOUT_MS ??
+      DEFAULT_SKELETON_TIMEOUT_MS,
+  );
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SKELETON_TIMEOUT_MS;
 }
 
@@ -583,7 +646,13 @@ export function buildFixtureSkeleton(input: MakeItineraryInput): ItinerarySkelet
     if (input.origin?.name) {
       stops.push({ name: input.origin.name, kind: "stay" });
     }
-    const attractions = prioritizedPlaces.slice(placeIdx, placeIdx + Math.min(3, perDay));
+    const remainingDays = input.numDays - d + 1;
+    const remainingPlaces = prioritizedPlaces.length - placeIdx;
+    const take = Math.min(
+      perDay,
+      Math.max(remainingDays > 0 ? Math.ceil(remainingPlaces / remainingDays) : 0, remainingPlaces > 0 ? 1 : 0),
+    );
+    const attractions = prioritizedPlaces.slice(placeIdx, placeIdx + take);
     placeIdx += attractions.length;
     for (const a of attractions) {
       if (input.must_include?.includes(a.name)) {
@@ -618,15 +687,20 @@ export type MakeItinerarySearchFn = (input: {
   near?: { lat: number; lng: number };
 }) => Promise<{ data?: PlaceCard[] }>;
 
-async function enrichMakeItineraryInput(
+export type EnrichedMakeItinerary = MakeItineraryInput & {
+  /** Attraction count after supplements, before 80km city filter (ADR-048). */
+  placesBeforeGeoFilter: number;
+};
+
+export async function enrichMakeItineraryInput(
   input: MakeItineraryInput,
   opts?: {
     searchRestaurants?: MakeItinerarySearchFn;
     searchPlaces?: MakeItinerarySearchFn;
     geocode?: (query: string) => Promise<{ lat: number; lng: number } | null>;
   },
-): Promise<MakeItineraryInput> {
-  let places = [...input.candidates.places];
+): Promise<EnrichedMakeItinerary> {
+  let places = filterEligibleAttractions([...input.candidates.places]);
   let restaurants = [...input.candidates.restaurants];
   const city = input.city.trim();
 
@@ -652,7 +726,10 @@ async function enrichMakeItineraryInput(
 
   const placeNames = places.map((p) => p.name);
   const uncovered = (input.must_include ?? []).filter(
-    (t) => t.trim() && !skeletonCoversMustInclude(t, placeNames),
+    (t) =>
+      t.trim() &&
+      !isIneligibleMustIncludeToken(t) &&
+      !skeletonCoversMustInclude(t, placeNames),
   );
   if (uncovered.length > 0 && city) {
     const searchP = opts?.searchPlaces ?? searchPlaces;
@@ -673,16 +750,19 @@ async function enrichMakeItineraryInput(
         existingNorm,
       });
       if (!found) return;
-      found.must_see = true;
+      markUserRequested(found);
       existingNorm.add(normalizeMustIncludeToken(found.name));
       places.unshift(found);
     });
   }
 
+  places = filterEligibleAttractions(places);
+
   // F57: area tokens → geocode token + nearby search (ADR-042, no city catalog).
+  // F84: do not expand collection / scenic-area labels.
   for (const token of input.must_include ?? []) {
     const t = token.trim();
-    if (!t) continue;
+    if (!t || isIneligibleMustIncludeToken(t)) continue;
     const covering = places.filter((p) => skeletonCoversMustInclude(t, [p.name])).length;
     if (covering >= 3) continue;
     let geo: { lat: number; lng: number } | null = null;
@@ -711,7 +791,7 @@ async function enrichMakeItineraryInput(
         const n = normalizeMustIncludeToken(card.name);
         if (!n || existingNorm.has(n)) continue;
         if (city && n === normalizeMustIncludeToken(city)) continue;
-        card.must_see = true;
+        markUserRequested(card);
         existingNorm.add(n);
         places.push(card);
         if (places.filter((p) => skeletonCoversMustInclude(t, [p.name])).length >= 8) break;
@@ -721,30 +801,58 @@ async function enrichMakeItineraryInput(
     }
   }
 
-  let anchor: { lat: number; lng: number } | null =
-    input.origin?.lat != null && input.origin?.lng != null
-      ? { lat: input.origin.lat, lng: input.origin.lng }
-      : null;
-  if (!anchor && city) {
+  places = filterEligibleAttractions(places);
+
+  let cityAnchor: { lat: number; lng: number } | null = null;
+  if (city) {
     try {
       if (opts?.geocode) {
-        anchor = await opts.geocode(city);
+        cityAnchor = await opts.geocode(city);
       } else {
         const g = await geocode({ query: city, locale: input.locale });
         if (g.data?.lat != null && g.data?.lng != null) {
-          anchor = { lat: g.data.lat, lng: g.data.lng };
+          cityAnchor = { lat: g.data.lat, lng: g.data.lng };
         }
       }
     } catch {
-      anchor = null;
+      cityAnchor = null;
     }
   }
-  if (anchor) {
-    places = filterCardsNearAnchor(places, anchor);
-    restaurants = filterCardsNearAnchor(restaurants, anchor);
+  if (!cityAnchor) {
+    const pts = [...places, ...restaurants].filter(
+      (c) => c.location?.lat != null && c.location?.lng != null,
+    );
+    if (pts.length) {
+      cityAnchor = {
+        lat: pts.reduce((s, c) => s + (c.location?.lat ?? 0), 0) / pts.length,
+        lng: pts.reduce((s, c) => s + (c.location?.lng ?? 0), 0) / pts.length,
+      };
+    }
   }
 
-  return { ...input, candidates: { places, restaurants } };
+  let origin = input.origin;
+  if (
+    cityAnchor &&
+    origin?.lat != null &&
+    origin?.lng != null &&
+    haversineKm(cityAnchor, { lat: origin.lat, lng: origin.lng }) > DISCOVER_GEO_MAX_KM
+  ) {
+    origin = { name: origin.name };
+  }
+
+  const placesBeforeGeoFilter = places.length;
+  if (cityAnchor) {
+    places = filterCardsNearAnchor(places, cityAnchor);
+    restaurants = filterCardsNearAnchor(restaurants, cityAnchor);
+  }
+
+  return {
+    ...input,
+    origin,
+    must_include: degradeMustInclude(input.must_include, places, skeletonCoversMustInclude),
+    candidates: { places, restaurants },
+    placesBeforeGeoFilter,
+  };
 }
 
 export async function makeItinerary(
@@ -759,6 +867,7 @@ export async function makeItinerary(
 ): Promise<MakeItineraryResult> {
   const locale = parseLocale(input.locale);
   const enriched = await enrichMakeItineraryInput(input, opts);
+  const placesBeforeGeo = enriched.placesBeforeGeoFilter;
   const slim = slimArrangeCandidates(enriched.candidates);
   const pool = {
     places: enriched.candidates.places,
@@ -796,7 +905,7 @@ export async function makeItinerary(
         const completion = await withAbortTimeout(llmSkeletonTimeoutMs(), (signal) =>
           create(
             {
-              model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o",
+              model: resolveChatLlmConfig()?.model ?? "qwen-plus",
               messages,
               max_completion_tokens: 2048,
               temperature: 0.3,
@@ -829,6 +938,7 @@ export async function makeItinerary(
         continue;
       }
       parsedJson = remapStopNamesToPool(parsedJson, pool);
+      parsedJson = dropUnknownAttractionStops(parsedJson, pool);
       parsedJson = trimAreaAliasStops(parsedJson, enriched.must_include ?? [], enriched.city);
       parsedJson = reseatLateLunchStops(parsedJson);
       parsedJson = reseatStayToDayOrigin(parsedJson);
@@ -842,6 +952,7 @@ export async function makeItinerary(
         enriched.must_include ?? [],
         enriched.pace,
         enriched.city,
+        placesBeforeGeo,
       );
       if (validated.ok) {
         skeleton = validated.skeleton;
@@ -851,6 +962,7 @@ export async function makeItinerary(
       }
     }
     if (!done) {
+      console.error("make_itinerary: skeleton validation failed", lastError);
       throw new Error(`make_itinerary: skeleton validation failed — ${lastError}`);
     }
   } else {
@@ -862,7 +974,10 @@ export async function makeItinerary(
             reseatStayToDayOrigin(
               reseatLateLunchStops(
                 trimAreaAliasStops(
-                  remapStopNamesToPool(buildFixtureSkeleton(enriched), pool),
+                  dropUnknownAttractionStops(
+                    remapStopNamesToPool(buildFixtureSkeleton(enriched), pool),
+                    pool,
+                  ),
                   enriched.must_include ?? [],
                   enriched.city,
                 ),
@@ -877,6 +992,7 @@ export async function makeItinerary(
       enriched.must_include ?? [],
       enriched.pace,
       enriched.city,
+      placesBeforeGeo,
     );
     if (!validated.ok) {
       throw new Error(`make_itinerary: fixture skeleton invalid — ${validated.error}`);

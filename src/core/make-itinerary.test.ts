@@ -3,7 +3,11 @@ import {
   buildFixtureSkeleton,
   buildSkeletonUserMessage,
   dropCityNameStops,
+  dropUnknownAttractionStops,
+  enrichMakeItineraryInput,
+  llmSkeletonTimeoutMs,
   makeItinerary,
+  PLAN_GATEWAY_BUDGET_MS,
   reseatLateLunchStops,
   reseatStayToDayOrigin,
   remapStopNamesToPool,
@@ -99,6 +103,67 @@ describe("validateSkeleton", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("TC-M22-84-02 should_not_fail_when_must_include_is_collection_name", () => {
+    const result = validateSkeleton(skeletonJson(input), pool, ["西湖十景"], "medium");
+    expect(result.ok).toBe(true);
+  });
+
+  it("should_reject_stay_only_day_when_attraction_pool_exists", () => {
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "empty",
+          stops: [{ name: "Hills Hotel Lisboa", kind: "stay" }],
+        },
+      ],
+    };
+    const result = validateSkeleton(raw, pool, [], "medium");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/stay-only|attraction/i);
+  });
+
+  it("should_reject_day_with_one_attraction_when_pool_covers_two_per_day", () => {
+    const fatPool = {
+      places: [
+        place("A"),
+        place("B"),
+        place("C"),
+        place("D"),
+        place("E"),
+        place("F"),
+      ],
+      restaurants: input.candidates.restaurants,
+      stays: ["Hills Hotel Lisboa"],
+    };
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "thin",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "A", kind: "attraction" },
+            { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { name: "C", kind: "attraction" },
+          ],
+        },
+        {
+          day_index: 2,
+          day_theme: "thin2",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+            { name: "B", kind: "attraction" },
+          ],
+        },
+      ],
+    };
+    const result = validateSkeleton(raw, fatPool, [], "relaxed");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/at least 2/);
+  });
+
   it("should_trim_extra_attractions_when_day_exceeds_pace_limit (TC-M13-55-01)", () => {
     const manyPlaces = {
       places: [
@@ -169,14 +234,111 @@ describe("validateSkeleton", () => {
     }
   });
 
+  it("should_drop_unknown_attraction_and_keep_valid_skeleton", () => {
+    const raw = JSON.parse(JSON.stringify(skeletonJson(input))) as {
+      days: Array<{ stops: Array<{ name: string; kind: string; meal_slot?: string }> }>;
+    };
+    raw.days[0]!.stops.splice(2, 0, { name: "白堤", kind: "attraction" });
+    const trimmed = dropUnknownAttractionStops(raw, pool);
+    const result = validateSkeleton(trimmed, pool, [], "medium");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.skeleton.days[0]!.stops.some((s) => s.name === "白堤")).toBe(false);
+      expect(result.skeleton.days[0]!.stops.some((s) => s.name === "Torre de Belém")).toBe(true);
+    }
+  });
+
   it("should_reject_stop_when_name_not_in_pool", () => {
     const bad = JSON.parse(JSON.stringify(skeletonJson(input)));
-    bad.days[0].stops[1].name = "Invented Palace";
+    bad.days[0].stops[2].name = "Invented Palace";
     const result = validateSkeleton(bad, pool, [], "medium");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("not found in candidate list");
       expect(result.retryable).toBe(true);
+    }
+  });
+
+  it("TC-M19-78-01 should_default_skeleton_timeout_below_gateway_budget", () => {
+    const prevSk = process.env.LLM_SKELETON_TIMEOUT_MS;
+    const prevIt = process.env.LLM_ITINERARY_TIMEOUT_MS;
+    delete process.env.LLM_SKELETON_TIMEOUT_MS;
+    delete process.env.LLM_ITINERARY_TIMEOUT_MS;
+    expect(llmSkeletonTimeoutMs()).toBe(160_000);
+    expect(llmSkeletonTimeoutMs()).toBeLessThan(PLAN_GATEWAY_BUDGET_MS);
+    if (prevSk === undefined) delete process.env.LLM_SKELETON_TIMEOUT_MS;
+    else process.env.LLM_SKELETON_TIMEOUT_MS = prevSk;
+    if (prevIt === undefined) delete process.env.LLM_ITINERARY_TIMEOUT_MS;
+    else process.env.LLM_ITINERARY_TIMEOUT_MS = prevIt;
+  });
+
+  it("TC-M19-80-01 should_reject_must_include_when_only_day_theme_matches", () => {
+    const stayOnly = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "贝伦海岸一日",
+          stops: [{ name: "Hills Hotel Lisboa", kind: "stay" }],
+        },
+      ],
+    };
+    const result = validateSkeleton(
+      stayOnly,
+      { places: [place("贝伦塔"), place("辛特拉宫"), place("卡斯凯什老城")], restaurants: [], stays: pool.stays },
+      ["贝伦塔"],
+      "medium",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("must_include not scheduled");
+      expect(result.retryable).toBe(true);
+    }
+  });
+
+  it("TC-M19-80-02 should_reject_stay_only_day_when_attraction_pool_has_three", () => {
+    const stayOnly = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "rest day",
+          stops: [{ name: "Hills Hotel Lisboa", kind: "stay" }],
+        },
+      ],
+    };
+    const result = validateSkeleton(
+      stayOnly,
+      { places: [place("A"), place("B"), place("C")], restaurants: [], stays: pool.stays },
+      [],
+      "medium",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/stay-only/i);
+    }
+  });
+
+  it("TC-M19-80-03 should_accept_cn_must_include_when_official_stop_name_covers", () => {
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "coast",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "贝伦塔", kind: "attraction" },
+          ],
+        },
+      ],
+    };
+    const result = validateSkeleton(
+      raw,
+      { places: [place("贝伦塔"), place("辛特拉宫"), place("A")], restaurants: [], stays: pool.stays },
+      ["贝伦塔"],
+      "medium",
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.skeleton.days[0]?.stops.some((s) => s.name === "贝伦塔")).toBe(true);
     }
   });
 
@@ -207,6 +369,15 @@ describe("validateSkeleton", () => {
     const ok = JSON.parse(JSON.stringify(skeletonJson(input)));
     ok.days[1].stops.push({ name: "Pastéis de Belém", kind: "meal", meal_slot: "dinner" });
     const result = validateSkeleton(ok, pool, [], "medium");
+    expect(result.ok).toBe(true);
+  });
+
+  it("should_accept_meal_stop_when_name_not_in_restaurant_pool", () => {
+    const raw = JSON.parse(JSON.stringify(skeletonJson(input))) as {
+      days: Array<{ stops: Array<{ name: string; kind: string; meal_slot?: string }> }>;
+    };
+    raw.days[0]!.stops[1] = { name: "楼外楼", kind: "meal", meal_slot: "lunch" };
+    const result = validateSkeleton(raw, pool, [], "medium");
     expect(result.ok).toBe(true);
   });
 
@@ -350,7 +521,7 @@ describe("validateSkeleton", () => {
 
   it("should_trim_area_alias_stops_before_validation (TC-M14-60-03)", () => {
     const sintraPool = {
-      places: [place("Sintra"), place("Pena Palace")],
+      places: [place("Sintra"), place("Pena Palace"), place("Palace of Sintra")],
       restaurants: pool.restaurants,
       stays: pool.stays,
     };
@@ -362,7 +533,7 @@ describe("validateSkeleton", () => {
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Sintra", kind: "attraction" },
-            { name: "Pena Palace", kind: "attraction" },
+            { name: "Palace of Sintra", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
           ],
         },
@@ -501,13 +672,14 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
       numDays: 1,
       must_include: ["卡斯凯什"],
       candidates: {
-        places: [place("贝伦塔")],
+        places: [place("贝伦塔"), place("卡斯凯什老城")],
         restaurants: [restaurant("Pastéis de Belém")],
       },
     });
     const cascais = place("Cascais", 38.697, -9.4217);
     const result = await makeItinerary(input, {
       searchPlaces: async () => ({ data: [cascais] }),
+      geocode: async () => ({ lat: 38.7223, lng: -9.1393 }),
       create: fakeCreate(
         JSON.stringify({
           days: [
@@ -517,6 +689,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
               stops: [
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { name: "卡斯凯什老城", kind: "attraction" },
                 { name: "Cascais", kind: "attraction" },
               ],
             },
@@ -525,7 +698,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
       ),
     });
     expect(result.candidates_slim.places.map((p) => p.name)).toContain("Cascais");
-    expect(result.skeleton.days[0]?.stops.some((s) => s.name === "Cascais")).toBe(true);
+    expect(result.skeleton.days[0]?.stops.some((s) => s.name === "卡斯凯什老城")).toBe(true);
   });
 
   it("should_merge_nearby_search_hits_for_area_must_include (TC-M13-57-01)", async () => {
@@ -541,10 +714,11 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
     const pena = place("Pena Palace", 38.7877, -9.3906);
     const moor = place("Castelo dos Mouros", 38.7926, -9.3893);
     const quinta = place("Quinta da Regaleira", 38.7963, -9.396);
+    const sintraPalace = place("Palace of Sintra", 38.7979, -9.3904);
     const result = await makeItinerary(input, {
       geocode: async (q) => (q === "Sintra" ? { lat: 38.8029, lng: -9.3817 } : { lat: 38.72, lng: -9.14 }),
       searchPlaces: async (req) => {
-        if (req.near) return { data: [pena, moor, quinta] };
+        if (req.near) return { data: [pena, moor, quinta, sintraPalace] };
         return { data: [place("Sintra", 38.8029, -9.3817)] };
       },
       create: fakeCreate(
@@ -555,9 +729,9 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
               day_theme: "Sintra day trip",
               stops: [
                 { name: "Hills Hotel Lisboa", kind: "stay" },
+                { name: "Palace of Sintra", kind: "attraction" },
                 { name: "Pena Palace", kind: "attraction" },
                 { name: "Castelo dos Mouros", kind: "attraction" },
-                { name: "Quinta da Regaleira", kind: "attraction" },
                 { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
               ],
             },
@@ -579,12 +753,35 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
         restaurants: [restaurant("Pastéis de Belém"), restaurant("Time Out Market")],
       },
     });
-    await expect(
-      makeItinerary(input, {
-        searchPlaces: async () => ({ data: [place("里斯本")] }),
-        create: fakeCreate(JSON.stringify(skeletonJson(input))),
-      }),
-    ).rejects.toThrow(/must_include not scheduled: 卡斯凯什/);
+    const result = await makeItinerary(input, {
+      searchPlaces: async () => ({ data: [place("里斯本")] }),
+      geocode: async () => ({ lat: 38.72, lng: -9.14 }),
+      create: fakeCreate(
+        JSON.stringify({
+          days: [
+            {
+              day_index: 1,
+              day_theme: "Belem",
+              stops: [
+                { name: "Hills Hotel Lisboa", kind: "stay" },
+                { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { name: "贝伦塔", kind: "attraction" },
+              ],
+            },
+            {
+              day_index: 2,
+              day_theme: "Alfama",
+              stops: [
+                { name: "Hills Hotel Lisboa", kind: "stay" },
+                { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+                { name: "Castelo de São Jorge", kind: "attraction" },
+              ],
+            },
+          ],
+        }),
+      ),
+    });
+    expect(result.skeleton.days).toHaveLength(2);
   });
 
   it("should_drop_far_continent_candidates_when_origin_has_coords", async () => {
@@ -634,6 +831,47 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
       "Hills Hotel Lisboa",
       "卡斯凯什",
     ]);
+  });
+
+  it("TC-M19-82-02 should_mark_user_requested_not_must_see_on_supplementary_backfill", async () => {
+    const input = baseInput({
+      must_include: ["卡斯凯什"],
+      candidates: {
+        places: [place("贝伦塔"), place("Castelo de São Jorge")],
+        restaurants: [restaurant("Pastéis de Belém"), restaurant("Time Out Market"), restaurant("Cervejaria Ramiro"), restaurant("Taberna")],
+      },
+    });
+    const cascais = place("卡斯凯什老城", 38.697, -9.4217);
+    const result = await makeItinerary(input, {
+      searchPlaces: async () => ({ data: [cascais] }),
+      create: fakeCreate(
+        JSON.stringify({
+          days: [
+            {
+              day_index: 1,
+              day_theme: "卡斯凯什",
+              stops: [
+                { name: "Hills Hotel Lisboa", kind: "stay" },
+                { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { name: "卡斯凯什老城", kind: "attraction" },
+              ],
+            },
+            {
+              day_index: 2,
+              day_theme: "Alfama",
+              stops: [
+                { name: "Hills Hotel Lisboa", kind: "stay" },
+                { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+                { name: "Castelo de São Jorge", kind: "attraction" },
+              ],
+            },
+          ],
+        }),
+      ),
+    });
+    const backfill = result.candidates_slim.places.find((p) => p.name === "卡斯凯什老城");
+    expect(backfill?.user_requested).toBe(true);
+    expect(backfill?.must_see).not.toBe(true);
   });
 
   it("should_enrich_empty_restaurants_and_uncovered_must_include_before_llm", async () => {
@@ -973,5 +1211,71 @@ describe("buildFixtureSkeleton", () => {
       .filter((s) => s.kind === "attraction")
       .map((s) => s.name);
     expect(attractionNames[0]).toBe("Pena Palace");
+  });
+
+  it("TC-M21-83-01 should_keep_lisbon_pool_when_origin_is_far", async () => {
+    const enriched = await enrichMakeItineraryInput(
+      {
+        city: "里斯本",
+        numDays: 4,
+        locale: "CN",
+        origin: { name: "Hills Hotel Lisboa", lat: 22.186785, lng: 113.549525 },
+        candidates: {
+          places: [place("贝伦塔", 38.69, -9.21), place("城堡", 38.71, -9.13), place("MAAT", 38.69, -9.2)],
+          restaurants: [],
+        },
+      },
+      { geocode: async () => ({ lat: 38.7223, lng: -9.1393 }) },
+    );
+    expect(enriched.candidates.places.length).toBe(3);
+    expect(enriched.placesBeforeGeoFilter).toBe(3);
+    expect(enriched.origin?.lat).toBeUndefined();
+    expect(enriched.origin?.name).toBe("Hills Hotel Lisboa");
+  });
+
+  it("TC-M22-84-02 should_drop_collection_cards_and_must_include_in_enrich", async () => {
+    const enriched = await enrichMakeItineraryInput(
+      baseInput({
+        must_include: ["西湖十景"],
+        candidates: {
+          places: [
+            place("西湖十景"),
+            place("Torre de Belém"),
+            place("Mosteiro dos Jerónimos"),
+            place("Castelo de São Jorge"),
+          ],
+          restaurants: baseInput().candidates.restaurants,
+        },
+      }),
+      {
+        geocode: async () => ({ lat: 38.72, lng: -9.14 }),
+        searchPlaces: async () => ({ data: [] }),
+        searchRestaurants: async () => ({ data: [] }),
+      },
+    );
+    expect(enriched.candidates.places.map((p) => p.name)).not.toContain("西湖十景");
+    expect(enriched.must_include).toEqual([]);
+  });
+
+  it("TC-M21-83-02 should_reject_stay_only_using_pre_filter_pool_size", () => {
+    const stayOnly = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "rest",
+          stops: [{ name: "Hills Hotel Lisboa", kind: "stay" }],
+        },
+      ],
+    };
+    const result = validateSkeleton(
+      stayOnly,
+      { places: [], restaurants: [], stays: ["Hills Hotel Lisboa"] },
+      [],
+      "relaxed",
+      "里斯本",
+      40,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/stay-only/i);
   });
 });

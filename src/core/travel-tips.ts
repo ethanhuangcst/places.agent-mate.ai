@@ -26,7 +26,7 @@ import {
   callItineraryLlmWithValidationRetry,
   type ItineraryChatCreate,
 } from "./itinerary-planner";
-import { findIconicPlaces } from "./find-iconic-places";
+import { findIconicPlaces, iconicLimitForTripDays } from "./find-iconic-places";
 import { getWeatherAdapter } from "../adapters/open-meteo/fixture";
 import { aggregatePlanningImpact } from "./travel-weather";
 import { cachedWeatherFetch, type WeatherCacheKey, type WeatherForecastValue } from "./weather-cache";
@@ -234,12 +234,16 @@ async function iconicBranch(
   input: TravelTipsInput,
   pool: string[],
 ): Promise<{ names: string[]; grounded: boolean }> {
+  const numDays =
+    input.bounds?.start && input.bounds?.end ? enumerateDates(input.bounds).length : undefined;
+  const limit = iconicLimitForTripDays(numDays);
   try {
     return await Promise.race([
       findIconicPlaces({
         city: input.destination,
         locale: input.locale,
-        limit: 3,
+        limit,
+        numDays,
         pool: pool.length > 0 ? poolToCards(pool) : undefined,
         _testChatCreate: input._testChatCreate,
       }),
@@ -261,6 +265,7 @@ function poolToCards(names: string[]): PlaceCard[] {
   return names.map((n) => ({
     provider: "GOOGLE_MAPS",
     name: n,
+    category: "tourist_attraction",
     location: { lat: 0, lng: 0, crs: "WGS84" },
     sources: [],
   }));
@@ -326,20 +331,38 @@ async function tipsProseLlm(
 // --- Main entry ---
 
 export async function travelTips(input: TravelTipsInput): Promise<TravelTipsResult> {
-  // 方案 A: skeleton attraction names seed the iconic pool; skeleton takes
-  // precedence over an explicit pool.
   const pool = poolFromSkeleton(input.skeleton).length > 0
     ? poolFromSkeleton(input.skeleton)
     : input.pool ?? [];
 
-  // Fixture/no-key mode: cannot run the tips-prose LLM. Return iconic + weather
-  // (degraded) without a prose call.
   const create = buildCreate(input);
   const fixtureMode = !input._testChatCreate && createOpenAI() === null;
 
+  let weather: TravelTipsWeather | null = null;
+  let iconic: { names: string[]; grounded: boolean } = { names: [], grounded: false };
+
+  const partial = (): TravelTipsResult => ({
+    intro: "",
+    iconic_places: iconic.names,
+    iconic_grounded: iconic.grounded,
+    transit: "",
+    weather,
+    weather_unavailable: weather === null,
+    clothing: "",
+    safety: "",
+  });
+
+  const mapThrow = (err: unknown): never => {
+    if (err instanceof TravelTipsTimeoutError) throw err;
+    if (isLlmAbortError(err) || isLlmAbortError((err as Error)?.cause)) {
+      throw new TravelTipsTimeoutError();
+    }
+    throw err;
+  };
+
   try {
     return await withAbortTimeout(OUTER_TIMEOUT_MS, async () => {
-      const [weather, iconic] = await Promise.all([
+      [weather, iconic] = await Promise.all([
         weatherBranch(input),
         iconicBranch(input, pool),
       ]);
@@ -357,23 +380,34 @@ export async function travelTips(input: TravelTipsInput): Promise<TravelTipsResu
         };
       }
 
-      const prose = await tipsProseLlm(input, create, weather, iconic);
-      return {
-        intro: prose.intro,
-        iconic_places: iconic.names,
-        iconic_grounded: iconic.grounded,
-        transit: prose.transit,
-        weather,
-        weather_unavailable: weather === null,
-        clothing: prose.clothing,
-        safety: prose.safety,
-      };
+      try {
+        const prose = await tipsProseLlm(input, create, weather, iconic);
+        return {
+          intro: prose.intro,
+          iconic_places: iconic.names,
+          iconic_grounded: iconic.grounded,
+          transit: prose.transit,
+          weather,
+          weather_unavailable: weather === null,
+          clothing: prose.clothing,
+          safety: prose.safety,
+        };
+      } catch (err) {
+        if (iconic.names.length > 0) return {
+          intro: "",
+          iconic_places: iconic.names,
+          iconic_grounded: iconic.grounded,
+          transit: "",
+          weather,
+          weather_unavailable: weather === null,
+          clothing: "",
+          safety: "",
+        };
+        return mapThrow(err);
+      }
     });
   } catch (err) {
-    if (err instanceof TravelTipsTimeoutError) throw err;
-    if (isLlmAbortError(err) || isLlmAbortError((err as Error)?.cause)) {
-      throw new TravelTipsTimeoutError();
-    }
-    throw err;
+    if (iconic.names.length > 0) return partial();
+    return mapThrow(err);
   }
 }

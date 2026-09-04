@@ -7,6 +7,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/client";
+import { normalizeMustIncludeToken } from "./trip-intake";
 import {
   TRIP_FIELD_KEYS,
   TripStoreError,
@@ -124,6 +125,34 @@ export async function ensureTrip(opts: {
   return { trip_id: doc.id, revision: doc.revision, created: true };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Nested merge so tips writes do not wipe visa (F76). */
+export function mergeTripArtifacts(current: unknown, patch: unknown): Record<string, unknown> {
+  const cur = isRecord(current) ? { ...current } : {};
+  const p = isRecord(patch) ? patch : {};
+  const out: Record<string, unknown> = { ...cur };
+  if (p.tips !== undefined) {
+    out.tips = {
+      ...(isRecord(cur.tips) ? cur.tips : {}),
+      ...(isRecord(p.tips) ? p.tips : {}),
+    };
+  }
+  if (p.visa !== undefined) {
+    out.visa = {
+      ...(isRecord(cur.visa) ? cur.visa : {}),
+      ...(isRecord(p.visa) ? p.visa : {}),
+    };
+  }
+  for (const [key, value] of Object.entries(p)) {
+    if (key === "tips" || key === "visa") continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 function jsonValue(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
   if (value === null || value === undefined) return Prisma.JsonNull;
   return value as Prisma.InputJsonValue;
@@ -134,6 +163,8 @@ export async function commitPatch(opts: {
   tripId: string;
   expectedRevision: number;
   patch: TripPatch;
+  /** F84: replace drops cards absent from the patch (default merge keeps F82 heat). */
+  candidatesWrite?: "merge" | "replace";
 }): Promise<{ revision: number; patch: TripPatch }> {
   const current = await getTripOrThrow(opts.callerKey, opts.tripId);
   if (current.revision !== opts.expectedRevision) {
@@ -141,17 +172,34 @@ export async function commitPatch(opts: {
   }
 
   const nextRevision = current.revision + 1;
+  const mergedArtifacts =
+    opts.patch.artifacts !== undefined
+      ? mergeTripArtifacts(current.artifacts, opts.patch.artifacts)
+      : undefined;
   const data: Prisma.TripUpdateManyMutationInput = {
     revision: nextRevision,
   };
   if (opts.patch.locale !== undefined) data.locale = opts.patch.locale;
   if (opts.patch.status !== undefined) data.status = opts.patch.status;
   if (opts.patch.constraints !== undefined) data.constraints = jsonValue(opts.patch.constraints);
-  if (opts.patch.candidates !== undefined) data.candidates = jsonValue(opts.patch.candidates);
+  const incomingPool = opts.patch.candidates as CandidatePool | undefined;
+  const mergedCandidates =
+    incomingPool !== undefined
+      ? opts.candidatesWrite === "replace"
+        ? {
+            places: incomingPool.places ?? [],
+            restaurants: incomingPool.restaurants ?? [],
+          }
+        : mergeCandidatesPreserveMustSee(
+            current.candidates as CandidatePool | null | undefined,
+            incomingPool,
+          )
+      : undefined;
+  if (mergedCandidates !== undefined) data.candidates = jsonValue(mergedCandidates);
   if (opts.patch.skeleton !== undefined) data.skeleton = jsonValue(opts.patch.skeleton);
   if (opts.patch.cursor !== undefined) data.cursor = jsonValue(opts.patch.cursor);
   if (opts.patch.filled !== undefined) data.filled = jsonValue(opts.patch.filled);
-  if (opts.patch.artifacts !== undefined) data.artifacts = jsonValue(opts.patch.artifacts);
+  if (mergedArtifacts !== undefined) data.artifacts = jsonValue(mergedArtifacts);
 
   const result = await prisma.trip.updateMany({
     where: {
@@ -173,13 +221,11 @@ export async function commitPatch(opts: {
     status: opts.patch.status !== undefined ? opts.patch.status : current.status,
     constraints:
       opts.patch.constraints !== undefined ? opts.patch.constraints : current.constraints,
-    candidates:
-      opts.patch.candidates !== undefined ? opts.patch.candidates : current.candidates,
+    candidates: mergedCandidates !== undefined ? mergedCandidates : current.candidates,
     skeleton: opts.patch.skeleton !== undefined ? opts.patch.skeleton : current.skeleton,
     cursor: opts.patch.cursor !== undefined ? opts.patch.cursor : current.cursor,
     filled: opts.patch.filled !== undefined ? opts.patch.filled : current.filled,
-    artifacts:
-      opts.patch.artifacts !== undefined ? opts.patch.artifacts : current.artifacts,
+    artifacts: mergedArtifacts !== undefined ? mergedArtifacts : current.artifacts,
     updatedAt: new Date(),
   };
   memory.set(opts.tripId, updated);
@@ -190,12 +236,24 @@ export async function commitPatch(opts: {
  * Lazy-create (or attach) then apply patch. Uses current revision when
  * `expectedRevision` is omitted (typical first write after ensure).
  */
+/** Internal write primitive (ADR-049). HTTP `patch_trip` stays constraints-only. */
+export async function patchTrip(opts: {
+  callerKey: string;
+  tripId: string;
+  expectedRevision: number;
+  patch: TripPatch;
+  candidatesWrite?: "merge" | "replace";
+}): Promise<{ revision: number; patch: TripPatch }> {
+  return commitPatch(opts);
+}
+
 export async function applyTripWrite(opts: {
   callerKey: string;
   tripId?: string;
   expectedRevision?: number;
   locale?: string;
   patch: TripPatch;
+  candidatesWrite?: "merge" | "replace";
 }): Promise<TripWriteResult> {
   const ensured = await ensureTrip({
     callerKey: opts.callerKey,
@@ -208,11 +266,54 @@ export async function applyTripWrite(opts: {
     tripId: ensured.trip_id,
     expectedRevision: expected,
     patch: opts.patch,
+    candidatesWrite: opts.candidatesWrite,
   });
   return {
     trip_id: ensured.trip_id,
     revision: written.revision,
     patch: written.patch,
+  };
+}
+
+type CandidatePool = {
+  places?: Array<Record<string, unknown>>;
+  restaurants?: Array<Record<string, unknown>>;
+};
+
+function mergeCandidatePool(
+  current: Array<Record<string, unknown>>,
+  incoming: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const byName = new Map<string, Record<string, unknown>>();
+  for (const card of current) {
+    const name = typeof card.name === "string" ? normalizeMustIncludeToken(card.name) : "";
+    if (name) byName.set(name, { ...card });
+  }
+  for (const card of incoming) {
+    const name = typeof card.name === "string" ? normalizeMustIncludeToken(card.name) : "";
+    if (!name) continue;
+    const prev = byName.get(name);
+    if (prev) {
+      const merged = { ...prev, ...card };
+      if (prev.must_see === true) merged.must_see = true;
+      byName.set(name, merged);
+    } else {
+      byName.set(name, { ...card });
+    }
+  }
+  return [...byName.values()];
+}
+
+/** F82: keep store `must_see` heat when make/discover patches a slimmer pool. */
+export function mergeCandidatesPreserveMustSee(
+  current: CandidatePool | null | undefined,
+  incoming: CandidatePool,
+): { places: Array<Record<string, unknown>>; restaurants: Array<Record<string, unknown>> } {
+  const curPlaces = Array.isArray(current?.places) ? current.places : [];
+  const curRestaurants = Array.isArray(current?.restaurants) ? current.restaurants : [];
+  return {
+    places: mergeCandidatePool(curPlaces, incoming.places ?? []),
+    restaurants: mergeCandidatePool(curRestaurants, incoming.restaurants ?? []),
   };
 }
 
@@ -226,14 +327,27 @@ export function slimCandidatesForStore(candidates: {
     if (typeof c.name === "string") out.name = c.name;
     if (c.location && typeof c.location === "object") out.location = c.location;
     if (c.must_see !== undefined) out.must_see = c.must_see;
+    if (c.user_requested !== undefined) out.user_requested = c.user_requested;
     if (typeof c.category === "string") out.category = c.category;
     if (typeof c.kind === "string") out.kind = c.kind;
+    if (typeof c.provider === "string") out.provider = c.provider;
+    if (typeof c.rating === "number") out.rating = c.rating;
+    if (typeof c.user_ratings_total === "number") out.user_ratings_total = c.user_ratings_total;
     return out;
   };
   return {
     places: (candidates.places ?? []).map(slim),
     restaurants: (candidates.restaurants ?? []).map(slim),
   };
+}
+
+/** Empty HTTP/MCP `candidates` must not overwrite a discover pool already in the Trip. */
+export function tripPatchCandidatesIfNonEmpty(
+  places: Array<Record<string, unknown>>,
+  restaurants: Array<Record<string, unknown>>,
+): { candidates: ReturnType<typeof slimCandidatesForStore> } | Record<string, never> {
+  if (places.length === 0 && restaurants.length === 0) return {};
+  return { candidates: slimCandidatesForStore({ places, restaurants }) };
 }
 
 export function pickTripFields(

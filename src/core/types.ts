@@ -37,6 +37,9 @@ export type PlaceCard = {
   };
   /** ADR-045 §4: marks pool cards identified as must-see / iconic. Signal travels with the card. */
   must_see?: boolean;
+  /** F82: user-typed must_include — orthogonal to discover heat (`must_see`). */
+  user_requested?: boolean;
+  user_ratings_total?: number;
 };
 
 export type SearchInput = {

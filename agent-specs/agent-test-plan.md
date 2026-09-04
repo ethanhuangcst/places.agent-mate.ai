@@ -1814,7 +1814,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 
 | ID | 类型 | 主题 | 文件 | 状态 |
 | --- | --- | --- | --- | --- |
-| TC-M12-49-01 | Unit | grounded：pool 非空，LLM 从池挑，池校验，丢弃池外名，`grounded:true` | `src/core/find-iconic-places.test.ts` | ToDo |
+| TC-M12-49-01 | Unit | grounded：pool 非空，热度从池打标（无 LLM / 无二次搜点），`grounded:true` | `src/core/find-iconic-places.test.ts` | **Done** |
 | TC-M12-49-02 | Unit | ungrounded：pool 空，LLM 按目的地生成，`grounded:false`，仅展示 | 同上 | ToDo |
 | TC-M12-49-03 | Unit | limit 截断 + 归一化去重（user ∪ iconic，user 优先） | `src/core/must-include-merge.test.ts` | ToDo |
 | TC-M12-49-04 | Unit | discover 并行：findIconicPlaces 与 searchCandidatePools 并行；补搜 unmatched 进池 | `src/core/itinerary-planner.test.ts` | ToDo |
@@ -1834,7 +1834,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M12-50-07 | Unit | skeleton 消费：传 skeleton → 提取 stops 名作 pool 传 findIconicPlaces（grounded）；提取无 LLM；skeleton 与 pool 都传时 skeleton 优先 | `src/core/travel-tips.test.ts` | ToDo |
 | TC-M12-50-08 | Unit | 天气聚合（多日）：severity 取全段最差；drivers 全段并集去重；temperature 为 [min,max] 区间；单日不聚合 | 同上 | ToDo |
 | TC-M12-50-09 | Unit | 20s 超时硬保证：geocode+weather 与 findIconicPlaces 并行；tips-prose 在两者后；外层 AbortSignal 20s | 同上 | ToDo |
-| TC-M12-50-10 | Unit | 降级：geocode/weather 失败 → tips-prose 无天气继续返回其余；findIconicPlaces 超时 → tips-prose 无 iconic 自生成（grounded:false）；tips-prose 超时 → errors.travel_tips_timeout | 同上 | ToDo |
+| TC-M12-50-10 | Unit | 降级：geocode/weather 失败 → 其余仍可写库；findIconicPlaces 超时 → grounded:false；**MVP-18：** tips-prose 超时仍 200 且 iconic 双写（覆盖原 travel_tips_timeout 502） | 同上 | ToDo |
 | TC-M12-50-11 | Unit | 不二次验证：findIconicPlaces 返回结果直接信任，不调 searchPlaces 验证 | 同上 | ToDo |
 
 #### TC-M12-51（别名重指向）
@@ -1922,3 +1922,70 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M16-65-02 | Contract | MCP/HTTP 不再注册 display_current_stop | 同上 + guide | ToDo |
 | TC-M16-66-01 | Spec | 对外工具精简评估表已写入（保留/删/合并） | refactor-plan / stories | **Done** |
 | TC-M16-LIVE-01 | E2E opt-in | 持 trip_id 完成 Lisbon 链到 trip_complete；可 fetch skeleton/某日 | `scripts/e2e-places-agent.py` | ToDo |
+
+## 26. MVP-17 P0–P2 主干收口（TC-M17-*）
+
+绑定 Feature **67 / 69** · `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 17 · `[e2e-test.md](./e2e-test.md)` Lisbon `--only 1`。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M17-67-01 | Unit | `end_time` `"9:00"` 不通过 `planNextStopBody`；`"09:00"` 通过 | `src/http/schemas` 或 dispatch 测 | ToDo |
+| TC-M17-67-02 | Unit | BFF `tripLedgerFields` 省略非法 revision；冲突重试带新 revision | where2play `plan-skeleton-fill` / `plan-agent-body` | ToDo |
+| TC-M17-67-03 | Contract | Zod 失败仍 `errors.invalid_input`；服务端可记 issues | `tests/plan-next-stop-dispatch.test.ts` | ToDo |
+| TC-M17-69-01 | Unit | ungrounded `numDays>=3` prompt 含 day-trip 指示（注入 LLM，无城市表） | `src/core/find-iconic-places.test.ts` | ToDo |
+| TC-M17-69-02 | Unit | 2play iconic helper **fetch artifacts**（写 tips 后），不 merge discover | where2play `plan-iconic` | ToDo |
+| TC-M17-LIVE-01 | E2E opt-in | `python3 scripts/e2e-places-agent.py --only 1` → trip_complete；md 含 iconic_places | `scripts/e2e-places-agent.py` | **Done**（2026-09-02 Lisbon） |
+
+## 27. MVP-18 写库 + fetch + 容错 + iconic 质量（TC-M18-*）
+
+绑定 Feature **74–77** · `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 18 · `[agent-design.md](./agent-design.md)` §20.11 / §22。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M18-74-01 | Unit | 合成池高热度进入截断名单 | `src/core/find-iconic-places.test.ts` | Done |
+| TC-M18-74-02 | Unit | numDays≥3 时外围距离簇至少一名（虚构坐标） | 同上 | Done |
+| TC-M18-75-01 | Contract | fetch skeleton / filled / artifacts 切片 | `tests/fetch-trip-details.test.ts` | Done |
+| TC-M18-76-01 | Unit | travel_tips 散文超时仍返回并双写 iconic | `src/core/travel-tips*.test.ts` + dispatch | Done |
+| TC-M18-76-02 | Unit | visa dispatch 写 artifacts.visa | dispatch / trip-store | Done |
+| TC-M18-76-03 | Unit | 2play 贴士/芯片测试不把 travel_tips HTTP 当展示源 | where2play `plan-iconic` / plan-page | Done |
+| TC-M18-77-01 | Unit | `7:00 am` → `07:00`；乱码 → `09:00` | 2play intake + `normalizeAgentTime` | Done |
+| TC-M18-77-02 | Unit | agent preprocess `9:00` 通过 plan_next_stop | `tests/plan-next-stop-body.test.ts` | Done |
+| TC-M18-LIVE-01 | E2E opt-in | Lisbon `--only 1` 仍 trip_complete | `e2e-places-agent.py` | **Done**（2026-09-02 重跑 129s OK） |
+
+## 28. MVP-19 超时 / 热度 / 正交 / 校验（TC-M19-*）
+
+绑定 Feature **78–82** · `[agent-design.md](./agent-design.md)` §20.4 / §24 · `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 19。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M19-78-01 | Unit | make 超时配置 < 文档网关上限 | `src/core/make-itinerary.test.ts` | **Done** |
+| TC-M19-78-02 | Unit | 2play make 失败后 fetch skeleton 有多站则续 | where2play `plan-skeleton-fill.test.ts` | **Done** |
+| TC-M19-79-01 | Unit | 合成池按 `user_ratings_total` 打标前 K；无无池 LLM | `src/core/discover*.test.ts` 或 iconic 测 | **Done** |
+| TC-M19-79-02 | Unit | slim 保留评论数 | `src/core/trip-store.test.ts` | **Done** |
+| TC-M19-80-01 | Unit | theme 含必去 + 仅 stay → validate 失败 | `src/core/make-itinerary.test.ts` | **Done** |
+| TC-M19-80-02 | Unit | 池满时整天 stay-only → 失败 | 同上 | **Done** |
+| TC-M19-81-01 | Spec | design §24.5 无推送 | 文档抽检 | **Done** |
+| TC-M19-81-02 | Unit | PlanSessionCache 含 trip_id | 2play prisma / current route 测 | **Done** |
+| TC-M19-82-01 | Unit | make 带 3 处 must_include 不把 8 处 must_see 清成 3 | dispatch / trip-store 测 | **ToDo** |
+| TC-M19-LIVE-01 | E2E opt-in | 里斯本 3 日：骨架每日非 stay≥1；芯片来自热度 must_see | `e2e-places-agent.py` + 2play | **ToDo** |
+
+## 29. MVP-21 城市锚点（TC-M21-83-*）
+
+绑定 Feature **83** / ADR-048。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M21-83-01 | Unit | origin 澳门坐标 + 里斯本池 → 过滤后仍有景点；origin 坐标丢弃 | `src/core/make-itinerary.test.ts` | **Done** |
+| TC-M21-83-02 | Unit | 过滤前池 ≥3 时 stay-only → validate 失败 | 同上 | **Done** |
+
+## 30. MVP-22 S1 可规划景点（TC-M22-84-*）
+
+绑定 Feature **84** / ADR-049。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M22-84-01 | Unit | 合称/无坐标/餐馆不合格；合格景点通过 | `src/core/eligible-attraction.test.ts` | **Done** |
+| TC-M22-84-02 | Unit | 合称 must_include 降级后 validate 可通过 | `src/core/make-itinerary.test.ts` | **Done** |
+| TC-M22-84-03 | Unit | `patchTrip` replace 后脏卡不在 fetch 池 | `src/core/trip-store.test.ts` | **Done** |
+| TC-M22-84-04 | Spec | HTTP `patch_trip` 仍只改 constraints | `src/http/dispatch.ts` | **Done** |
+| TC-M22-84-05 | Unit | 池外景点（白堤）被丢掉后骨架仍可过校验 | `src/core/make-itinerary.test.ts` | **Done** |

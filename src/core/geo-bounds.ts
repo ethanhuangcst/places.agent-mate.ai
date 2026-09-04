@@ -41,7 +41,7 @@ export function filterCardsNearAnchor(
 ): PlaceCard[] {
   return cards.filter((c) => {
     const loc = c.location;
-    if (loc?.lat == null || loc?.lng == null) return false;
+    if (loc?.lat == null || loc?.lng == null) return true;
     return haversineKm(anchor, loc) <= maxKm;
   });
 }

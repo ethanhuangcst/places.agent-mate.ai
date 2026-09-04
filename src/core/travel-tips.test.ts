@@ -73,7 +73,30 @@ describe("travelTips (ADR-045 §4)", () => {
     expect(out.intro.length).toBeLessThanOrEqual(80);
   });
 
-  it("TC-M12-50-03: should_throw_travel_tips_timeout_when_tips_prose_aborts", async () => {
+  it("TC-M18-76-01: should_return_iconic_when_tips_prose_aborts", async () => {
+    const mixedChat = (async (params: { messages: Array<{ content: string }> }) => {
+      const user = params.messages[params.messages.length - 1]?.content ?? "";
+      if (user.includes("JSON array")) {
+        return { choices: [{ message: { content: '["Pena Palace"]' } }] };
+      }
+      const e = new Error("The user aborted the request");
+      e.name = "AbortError";
+      throw e;
+    }) as never;
+    const out = await travelTips({
+      destination: "X",
+      locale: "EN",
+      _testGeo: { lat: 38.72, lng: -9.14 },
+      _testChatCreate: mixedChat,
+    });
+    expect(out.iconic_places).toEqual(["Pena Palace"]);
+    expect(out.intro).toBe("");
+    expect(out.transit).toBe("");
+    expect(out.clothing).toBe("");
+    expect(out.safety).toBe("");
+  });
+
+  it("TC-M12-50-03: should_throw_travel_tips_timeout_when_iconic_and_prose_abort", async () => {
     const abortChat = (async () => {
       const e = new Error("The user aborted the request");
       e.name = "AbortError";
@@ -118,7 +141,7 @@ describe("travelTips (ADR-045 §4)", () => {
         tipsJson({ intro: "i", transit: "t", clothing: "c", safety: "s" }),
       ),
     });
-    // skeleton attraction names seed the pool → grounded mode → names pool-validated.
+    // skeleton attraction names seed the pool → heat-on-pool (no iconic LLM).
     expect(out.iconic_grounded).toBe(true);
     expect(out.iconic_places).toEqual(["Torre de Belém"]);
   });

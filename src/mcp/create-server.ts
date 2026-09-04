@@ -26,9 +26,11 @@ import {
 import { toolToEnvelope, errorEnvelope, type Envelope } from "../http/envelope";
 import { localeSchema, providerIdSchema } from "../http/schemas";
 import { makeItinerary, createSkeletonChatCreate } from "../core/make-itinerary";
-import { displayCurrentStop, planNextStop } from "../core/plan-next-stop";
-import { visaRequirement } from "../core/visa-requirement";
+import { planNextStopFill } from "../core/plan-next-stop";
+import { artifactsTipsPatch, artifactsVisaPatch } from "../core/trip-artifacts";
 import { travelTips, TravelTipsTimeoutError } from "../core/travel-tips";
+import { visaRequirement } from "../core/visa-requirement";
+import type { FetchTripFields } from "../core/trip-types";
 import {
   mustIncludeCoverageKey,
   peekMissingMustInclude,
@@ -38,6 +40,7 @@ import {
   dualWriteTrip,
   dualWriteTripIfPresent,
   slimCandidatesForStore,
+  tripPatchCandidatesIfNonEmpty,
   TripStoreError,
 } from "../core/trip-dual-write";
 import {
@@ -57,7 +60,7 @@ function discoverHostInstructions(numDays: number): string {
     `${MCP_TRIP_CHAT_RULES} ` +
     `Trip length: ${numDays} day(s). Next: call make_itinerary ONCE with numDays=${numDays}, origin, pace, budget, must_include, ` +
     "and the candidates pool from this response (pass places; restaurants may be omitted — server fills dining if empty; do not echo photos). " +
-    "After make_itinerary succeeds, IMMEDIATELY call display_current_stop for Day 1 stay (see next_tool_call). " +
+    "After make_itinerary succeeds, IMMEDIATELY call plan_next_stop for Day 1 stay (origin_mode; see next_tool_call). " +
     "Do not call travel_tips or write a 详细版 from knowledge. " +
     "Do NOT call arrange_day for this trip — arrange_day is LEGACY. " +
     MCP_NO_INVENT_RULE
@@ -65,9 +68,9 @@ function discoverHostInstructions(numDays: number): string {
 }
 
 const MCP_SKELETON_HOST_INSTRUCTIONS =
-  "REQUIRED NEXT TOOL: execute next_tool_call (display_current_stop for Day 1 first stay, time_from=09:00) immediately. " +
+  "REQUIRED NEXT TOOL: execute next_tool_call (plan_next_stop origin_mode for Day 1 first stay, time_from=09:00) immediately. " +
   "Pass skeleton and cursor exactly as provided in next_tool_call.arguments. Candidates may be omitted — pass stop name only. " +
-  "Then keep executing each returned next_tool_call (plan_next_stop → display_current_stop) without stopping, " +
+  "Then keep executing each returned next_tool_call (plan_next_stop with with_stop_display) without stopping, " +
   "until next_action is trip_complete. Present each tool-filled stop (card + transit + times) as you go. " +
   "FORBIDDEN until fill tools have run: travel_tips, offering 详细版/优化版 menus, " +
   "or writing a timetable from your own knowledge. Do NOT stop after one stop. " +
@@ -111,26 +114,7 @@ type NextFillStep =
       next_action: "plan_next_stop";
       next_tool_call: {
         name: "plan_next_stop";
-        arguments: {
-          current_stop: FillStop;
-          next_stop: SkeletonEchoStop;
-          skeleton: SkeletonEcho;
-          cursor: FillCursor;
-          locale: string;
-        };
-      };
-    }
-  | {
-      next_action: "display_current_stop";
-      next_tool_call: {
-        name: "display_current_stop";
-        arguments: {
-          stop: SkeletonEchoStop;
-          time_from: "09:00";
-          skeleton: SkeletonEcho;
-          cursor: FillCursor;
-          locale: string;
-        };
+        arguments: Record<string, unknown>;
       };
     }
   | { next_action: "trip_complete"; next_tool_call: undefined };
@@ -177,12 +161,17 @@ function nextFillStep(
     .sort((a, b) => a.day_index - b.day_index)[0];
   if (nextDay && nextDay.stops.length > 0) {
     return {
-      next_action: "display_current_stop",
+      next_action: "plan_next_stop",
       next_tool_call: {
-        name: "display_current_stop",
+        name: "plan_next_stop",
         arguments: {
-          stop: slimStop(nextDay.stops[0]),
+          origin_mode: true,
+          next_stop: slimStop(nextDay.stops[0]),
           time_from: "09:00",
+          stay_role: stayRoleForFillStop(slimStop(nextDay.stops[0]), {
+            day_index: nextDay.day_index,
+            stop_index: 0,
+          }),
           skeleton,
           cursor: { day_index: nextDay.day_index, stop_index: 0 },
           locale,
@@ -200,19 +189,11 @@ function skeletonFillHandoff(
   city?: string,
   tripMeta?: { trip_id?: string; revision?: number },
 ): {
-  next_action: "display_current_stop";
-  prefer_tool: "display_current_stop";
+  next_action: "plan_next_stop";
+  prefer_tool: "plan_next_stop";
   next_tool_call?: {
-    name: "display_current_stop";
-    arguments: {
-      stop: SkeletonEchoStop;
-      time_from: "09:00";
-      skeleton: SkeletonEcho;
-      cursor: FillCursor;
-      locale: string;
-      trip_id?: string;
-      revision?: number;
-    };
+    name: "plan_next_stop";
+    arguments: Record<string, unknown>;
   };
   host_instructions: string;
 } {
@@ -231,14 +212,16 @@ function skeletonFillHandoff(
     })),
   };
   return {
-    next_action: "display_current_stop",
-    prefer_tool: "display_current_stop",
+    next_action: "plan_next_stop",
+    prefer_tool: "plan_next_stop",
     next_tool_call: stay
       ? {
-          name: "display_current_stop",
+          name: "plan_next_stop",
           arguments: {
-            stop: slimStop(stay),
+            origin_mode: true,
+            next_stop: slimStop(stay),
             time_from: "09:00",
+            stay_role: stayRoleForFillStop(slimStop(stay), { day_index: dayIndex, stop_index: stopIndex }),
             skeleton: echo,
             cursor: { day_index: dayIndex, stop_index: stopIndex },
             locale,
@@ -435,7 +418,7 @@ async function runPlanItinerary(args: Record<string, unknown>) {
 
   // ADR-045 §5 / F51 — aliases repoint to the skeleton flow:
   // discover_places → make_itinerary. Returns the stop-order skeleton; the
-  // host then fills stops incrementally via plan_next_stop + display_current_stop.
+  // host then fills stops incrementally via plan_next_stop (F65: display merged).
   const numDays = discoverGate.numDays ?? planArgsNumDays(args) ?? 1;
   const origin =
     (args.origin as { name?: string; lat?: number; lng?: number } | undefined) ?? {
@@ -553,7 +536,7 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
       description:
         "places-agent: MUST call this for city+days trip asks (e.g. 推荐西安三天行程 / 推荐重庆二日游 / N日游 / itinerary) — do NOT invent a free-text itinerary from parametric knowledge. " +
         "DEFAULT for 推荐行程 / N日游. L1 candidate pool. After this succeeds, call make_itinerary ONCE with the returned candidates (do not drop the pool; do not pass empty candidates). " +
-        "Then execute the returned next_tool_call chain (display_current_stop → plan_next_stop → display_current_stop …) without stopping until trip_complete — do not call travel_tips or write a 详细版. arrange_day is LEGACY — do not use it for new trips. " +
+        "Then execute the returned next_tool_call chain (plan_next_stop origin_mode → plan_next_stop …) without stopping until trip_complete — do not call travel_tips or write a 详细版. arrange_day is LEGACY — do not use it for new trips. " +
         "plan_itinerary / trip_plan / trips aliases run the same skeleton flow. " +
         `${MCP_TRIP_CHAT_RULES} ` +
         "BEFORE calling: paste the FIXED 8-row trip form (city, start, days, optional hotel, pace, spend 1–3, interests, must_include). " +
@@ -894,7 +877,29 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
         ...sharedShape,
       },
     },
-    async (args) => jsonResult(toolToEnvelope(await visaRequirement(args))),
+    async (args) => {
+      try {
+        const result = await visaRequirement(args);
+        const trip = await dualWriteTrip({
+          callerKey,
+          tripId: args.trip_id,
+          expectedRevision: args.revision,
+          locale: args.locale ?? "EN",
+          patch: { artifacts: artifactsVisaPatch(result.data, result.outcomeKey) },
+        });
+        const envelope = toolToEnvelope(result);
+        return jsonResult({
+          ...envelope,
+          data: envelope.data
+            ? { ...(envelope.data as object), ...trip }
+            : { ...trip },
+        });
+      } catch (err) {
+        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+        if (fail) return jsonResult(fail);
+        throw err;
+      }
+    },
   );
 
   server.registerTool(
@@ -903,7 +908,7 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
       description:
         "places-agent (MVP-12): Standalone destination tips only — ≤80-char intro + up to 3 iconic places + " +
         "local transit + weather + clothing + safety. NOT a substitute for filling an itinerary. " +
-        "After make_itinerary, do NOT call this; use display_current_stop + plan_next_stop. " +
+        "After make_itinerary, do NOT call this; use plan_next_stop (origin_mode + with_stop_display). " +
         "Do not use this to write a day-by-day timetable. May be called before any trip tools. " +
         "20s timeout; degrades weather/iconic on failure.",
       inputSchema: {
@@ -940,8 +945,17 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
           locale: args.locale ?? "EN",
           providers: args.providers,
         });
-        return jsonResult({ agent: AGENT_ID, ok: true, data: result });
+        const trip = await dualWriteTrip({
+          callerKey,
+          tripId: args.trip_id,
+          expectedRevision: args.revision,
+          locale: args.locale ?? "EN",
+          patch: { artifacts: artifactsTipsPatch(result) },
+        });
+        return jsonResult({ agent: AGENT_ID, ok: true, data: { ...result, ...trip } });
       } catch (err) {
+        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+        if (fail) return jsonResult(fail);
         const key =
           err instanceof TravelTipsTimeoutError
             ? "errors.travel_tips_timeout"
@@ -963,7 +977,7 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
         "days[].day_theme + stops[].{name, kind(stay|attraction|meal), meal_slot} with NO times and NO transit. " +
         "Call AFTER discover_places (pass its candidates pool; stop names must come from it). " +
         "candidates.restaurants may be omitted (defaults to []; server searches dining if empty). Do not echo photos. " +
-        "REQUIRED after success: execute the returned next_tool_call (display_current_stop for Day 1 stay), then keep executing each subsequent next_tool_call (plan_next_stop → display_current_stop) without stopping until next_action is trip_complete. Pass skeleton and cursor exactly as provided in next_tool_call.arguments. Do not call travel_tips or write a 详细版 from knowledge. " +
+        "REQUIRED after success: execute the returned next_tool_call (plan_next_stop origin_mode for Day 1 stay), then keep executing each subsequent next_tool_call (plan_next_stop) without stopping until next_action is trip_complete. Pass skeleton and cursor exactly as provided in next_tool_call.arguments. Do not call travel_tips or write a 详细版 from knowledge. " +
         "MCP returns the full skeleton JSON (streaming events are HTTP-only).",
       inputSchema: {
         city: z.string().min(1),
@@ -1015,14 +1029,13 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
                 budget: args.budget,
                 must_include: args.must_include,
               },
-              candidates: slimCandidatesForStore({
-                places: namedCardsFromHost(args.candidates?.places) as Array<Record<string, unknown>>,
-                restaurants: namedCardsFromHost(args.candidates?.restaurants) as Array<
-                  Record<string, unknown>
-                >,
-              }),
+              ...tripPatchCandidatesIfNonEmpty(
+                result.candidates_slim.places as Array<Record<string, unknown>>,
+                result.candidates_slim.restaurants as Array<Record<string, unknown>>,
+              ),
               skeleton: result.skeleton,
             },
+            candidatesWrite: "replace",
           });
           tripMeta = trip;
         } catch (err) {
@@ -1065,20 +1078,26 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
     "plan_next_stop",
     {
       description:
-        "places-agent (MVP-10 fill): Serial transit legs current_stop → next_stop (no LLM). " +
+        "places-agent (MVP-10 fill): Serial transit legs current_stop → next_stop (no LLM) plus rich stop card " +
+        "(PlaceCard slim + deeplinks) and back-filled slot times when with_stop_display (default). " +
+        "Use origin_mode=true for day-opening stays (time_from=09:00, no legs). " +
         "Name-only stops are geocoded first; pass transit_preference (e.g. 打卡电车/打车) to narrow to that single mode, " +
         "otherwise dual-mode legs (walk/transit/drive) are returned with one recommended. " +
         "Candidates may be omitted (name-only stops are geocoded). Do not echo the discover pool. " +
-        "After this, immediately call display_current_stop(next_stop) with the returned legs.",
+        "Execute each returned next_tool_call until trip_complete. Do not call travel_tips.",
       inputSchema: {
-        current_stop: z.object({
-          name: z.string().min(1),
-          kind: z.enum(["stay", "attraction", "meal"]).optional(),
-          meal_slot: z.enum(["lunch", "afternoon_tea", "dinner"]).optional(),
-          lat: z.number().optional(),
-          lng: z.number().optional(),
-          end_time: z.string().optional(),
-        }),
+        origin_mode: z.boolean().optional(),
+        with_stop_display: z.boolean().optional(),
+        current_stop: z
+          .object({
+            name: z.string().min(1),
+            kind: z.enum(["stay", "attraction", "meal"]).optional(),
+            meal_slot: z.enum(["lunch", "afternoon_tea", "dinner"]).optional(),
+            lat: z.number().optional(),
+            lng: z.number().optional(),
+            end_time: z.string().optional(),
+          })
+          .optional(),
         next_stop: z.object({
           name: z.string().min(1),
           kind: z.enum(["stay", "attraction", "meal"]).optional(),
@@ -1095,113 +1114,6 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
           .default({ places: [], restaurants: [] }),
         transit_preference: z.string().optional(),
         city: z.string().optional(),
-        skeleton: skeletonEchoSchema,
-        cursor: cursorSchema,
-        ...sharedShape,
-      },
-    },
-    async (args) => {
-      try {
-        const anchor =
-          typeof args.current_stop.lat === "number" && typeof args.current_stop.lng === "number"
-            ? { lat: args.current_stop.lat, lng: args.current_stop.lng, crs: "WGS84" as const }
-            : undefined;
-        const result = await planNextStop({
-          current_stop: args.current_stop,
-          next_stop: args.next_stop,
-          candidates: {
-            places: (args.candidates?.places ?? []) as never[],
-            restaurants: (args.candidates?.restaurants ?? []) as never[],
-          },
-          city: args.city,
-          anchor,
-          transit_preference: args.transit_preference,
-          providers: args.providers,
-          locale: args.locale ?? "EN",
-        });
-        const skeleton = args.skeleton as SkeletonEcho | undefined;
-        const cursor = args.cursor as FillCursor | undefined;
-        const nextToolCall =
-          skeleton && cursor
-            ? {
-                name: "display_current_stop" as const,
-                arguments: {
-                  stop: slimStop(args.next_stop),
-                  legs_to_here: result.legs,
-                  previous_stop: {
-                    ...slimStop(args.current_stop),
-                    ...(args.current_stop.end_time ? { end_time: args.current_stop.end_time } : {}),
-                  },
-                  stay_role: stayRoleForFillStop(slimStop(args.next_stop), cursor),
-                  skeleton,
-                  cursor,
-                  locale: args.locale ?? "EN",
-                  ...(args.city ? { city: args.city } : {}),
-                  ...(args.trip_id ? { trip_id: args.trip_id, revision: args.revision } : {}),
-                },
-              }
-            : undefined;
-        const trip = await dualWriteTripIfPresent({
-          callerKey,
-          tripId: args.trip_id,
-          expectedRevision: args.revision,
-          locale: args.locale ?? "EN",
-          patch: {
-            filled: {
-              current_stop: args.current_stop,
-              next_stop: args.next_stop,
-              legs: result.legs,
-            },
-            ...(cursor ? { cursor } : {}),
-          },
-        });
-        return jsonResult({
-          agent: AGENT_ID,
-          ok: true,
-          data: {
-            ...result,
-            next_action: "display_current_stop",
-            ...(nextToolCall ? { next_tool_call: nextToolCall } : {}),
-            host_instructions: MCP_FILL_CONTINUE_HOST_INSTRUCTIONS,
-            ...(trip ?? {}),
-          },
-        });
-      } catch (err) {
-        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
-        if (fail) return jsonResult(fail);
-        return jsonResult(
-          errorEnvelope("errors.provider_failed", args.locale ?? "EN", [], {
-            data: { detail: err instanceof Error ? err.message : String(err) },
-          }),
-        );
-      }
-    },
-  );
-
-  server.registerTool(
-    "display_current_stop",
-    {
-      description:
-        "places-agent (MVP-10 fill): Attach the rich stop card (PlaceCard slim + deeplinks), inbound legs, " +
-        "and back-filled slot times (prev end + recommended leg; F42 station-timing adjustment) for ONE stop. " +
-        "Origin stays render without legs (from_origin summary instead). No LLM. " +
-        "Candidates may be omitted. Do not echo the discover pool. " +
-        "Then immediately plan_next_stop for the next skeleton stop. Do not call travel_tips.",
-      inputSchema: {
-        stop: z.object({
-          name: z.string().min(1),
-          kind: z.enum(["stay", "attraction", "meal"]).optional(),
-          meal_slot: z.enum(["lunch", "afternoon_tea", "dinner"]).optional(),
-          lat: z.number().optional(),
-          lng: z.number().optional(),
-        }),
-        candidates: z
-          .object({
-            places: z.array(z.any()),
-            restaurants: z.array(z.any()),
-          })
-          .optional()
-          .default({ places: [], restaurants: [] }),
         previous_stop: z
           .object({
             name: z.string().optional(),
@@ -1213,7 +1125,6 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
         default_duration_min: z.number().int().min(10).max(480).optional(),
         time_from: z.string().optional(),
         stay_role: z.enum(["day_origin", "return", "midday"]).optional(),
-        city: z.string().optional(),
         skeleton: skeletonEchoSchema,
         cursor: cursorSchema,
         ...sharedShape,
@@ -1221,18 +1132,31 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
     },
     async (args) => {
       try {
+        const anchor =
+          args.current_stop &&
+          typeof args.current_stop.lat === "number" &&
+          typeof args.current_stop.lng === "number"
+            ? { lat: args.current_stop.lat, lng: args.current_stop.lng, crs: "WGS84" as const }
+            : undefined;
         const skeleton = args.skeleton as SkeletonEcho | undefined;
         const cursor = args.cursor as FillCursor | undefined;
         const locale = args.locale ?? "EN";
         const stay_role =
           args.stay_role ??
-          (skeleton && cursor ? stayRoleForFillStop(slimStop(args.stop), cursor) : undefined);
-        const result = displayCurrentStop({
-          stop: args.stop,
+          (skeleton && cursor ? stayRoleForFillStop(slimStop(args.next_stop), cursor) : undefined);
+        const result = await planNextStopFill({
+          origin_mode: args.origin_mode,
+          with_stop_display: args.with_stop_display,
+          current_stop: args.current_stop,
+          next_stop: args.next_stop,
           candidates: {
             places: (args.candidates?.places ?? []) as never[],
             restaurants: (args.candidates?.restaurants ?? []) as never[],
           },
+          city: args.city,
+          anchor,
+          transit_preference: args.transit_preference,
+          providers: args.providers,
           previous_stop: args.previous_stop,
           legs_to_here: args.legs_to_here as never,
           default_duration_min: args.default_duration_min,
@@ -1240,48 +1164,54 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
           stay_role,
           locale: args.locale ?? "EN",
         });
+        const display = result.stop_display;
+        const flat = display
+          ? {
+              stop: display.stop,
+              slot: display.slot,
+              legs_to_here: display.legs_to_here,
+              from_origin: display.from_origin,
+              notes: display.notes,
+            }
+          : {};
+        let step: NextFillStep | undefined;
         if (skeleton && cursor) {
-          const step = nextFillStep(skeleton, cursor, locale, result.slot.end, args.city);
-          const tripComplete = step.next_action === "trip_complete";
-          const trip = await dualWriteTripIfPresent({
-            callerKey,
-            tripId: args.trip_id,
-            expectedRevision: args.revision,
-            locale,
-            patch: {
-              filled: { stop: args.stop, slot: result.slot },
-              cursor,
-            },
-          });
-          return jsonResult({
-            agent: AGENT_ID,
-            ok: true,
-            data: {
-              ...result,
-              next_action: step.next_action,
-              ...(step.next_tool_call ? { next_tool_call: step.next_tool_call } : {}),
-              host_instructions: tripComplete
-                ? MCP_TRIP_COMPLETE_HOST_INSTRUCTIONS
-                : MCP_FILL_CONTINUE_HOST_INSTRUCTIONS,
-              ...(trip ?? {}),
-            },
-          });
+          step = nextFillStep(skeleton, cursor, locale, display?.slot.end, args.city);
         }
-        // Backward compat: no skeleton/cursor → prose-only (host may stall).
+        const tripComplete = step?.next_action === "trip_complete";
+        const nextToolCall = step?.next_tool_call;
+        if (nextToolCall && args.trip_id) {
+          nextToolCall.arguments = {
+            ...nextToolCall.arguments,
+            trip_id: args.trip_id,
+            revision: args.revision,
+          };
+        }
         const trip = await dualWriteTripIfPresent({
           callerKey,
           tripId: args.trip_id,
           expectedRevision: args.revision,
           locale,
-          patch: { filled: { stop: args.stop, slot: result.slot } },
+          patch: {
+            filled: {
+              stop: args.next_stop,
+              slot: display?.slot,
+              legs: result.legs,
+            },
+            ...(cursor ? { cursor } : {}),
+          },
         });
         return jsonResult({
           agent: AGENT_ID,
           ok: true,
           data: {
             ...result,
-            next_action: "present_stop_then_continue",
-            host_instructions: MCP_FILL_CONTINUE_HOST_INSTRUCTIONS,
+            ...flat,
+            next_action: step?.next_action ?? "present_stop_then_continue",
+            ...(nextToolCall ? { next_tool_call: nextToolCall } : {}),
+            host_instructions: tripComplete
+              ? MCP_TRIP_COMPLETE_HOST_INSTRUCTIONS
+              : MCP_FILL_CONTINUE_HOST_INSTRUCTIONS,
             ...(trip ?? {}),
           },
         });
@@ -1309,7 +1239,10 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
         trip_id: z.string().min(1),
         fields: z.array(z.string().min(1)).min(1).default(["skeleton"]),
         day_index: z.number().int().positive().optional(),
-        ...sharedShape,
+        providers: sharedShape.providers,
+        locale: sharedShape.locale,
+        locales: sharedShape.locales,
+        revision: sharedShape.revision,
       },
     },
     async (args) => {
@@ -1317,7 +1250,7 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
         const result = await fetchTripDetails({
           callerKey,
           trip_id: args.trip_id,
-          fields: args.fields,
+          fields: args.fields as FetchTripFields,
           day_index: args.day_index,
         });
         return jsonResult({

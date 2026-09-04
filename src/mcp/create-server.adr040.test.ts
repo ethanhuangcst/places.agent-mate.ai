@@ -299,7 +299,7 @@ describe("MCP ADR-040 tools", () => {
     expect(envelope.data.host_instructions).toMatch(/make_itinerary/i);
     expect(envelope.data.host_instructions).toMatch(/candidates/i);
     expect(envelope.data.host_instructions).toMatch(/LEGACY|do NOT call arrange_day/i);
-    expect(envelope.data.host_instructions).toMatch(/IMMEDIATELY call display_current_stop/);
+    expect(envelope.data.host_instructions).toMatch(/IMMEDIATELY call plan_next_stop/);
     expect(envelope.data.host_instructions).toMatch(/travel_tips/);
     expect(tools.discover_places.description).toMatch(/make_itinerary/i);
     expect(tools.discover_places.description).toMatch(/LEGACY|do not use.*arrange_day/i);
@@ -334,8 +334,8 @@ describe("MCP ADR-040 tools", () => {
             location: { lat: 38.69, lng: -9.21, crs: "WGS84" },
             sources: [],
           },
-          "restaurants':[{",
         ],
+        restaurants: [],
       },
     });
     const envelope = JSON.parse(res.content[0].text) as {
@@ -350,11 +350,15 @@ describe("MCP ADR-040 tools", () => {
     };
     expect(envelope.ok).toBe(true);
     expect(envelope.outcome?.key).not.toBe("errors.make_itinerary_failed");
-    expect(envelope.data?.next_action).toBe("display_current_stop");
-    expect(envelope.data?.prefer_tool).toBe("display_current_stop");
+    expect(envelope.data?.next_action).toBe("plan_next_stop");
+    expect(envelope.data?.prefer_tool).toBe("plan_next_stop");
     expect(envelope.data?.next_tool_call).toMatchObject({
-      name: "display_current_stop",
-      arguments: { stop: { name: "Hills Hotel", kind: "stay" }, time_from: "09:00" },
+      name: "plan_next_stop",
+      arguments: {
+        origin_mode: true,
+        next_stop: { name: "Hills Hotel", kind: "stay" },
+        time_from: "09:00",
+      },
     });
     // ADR-045 §fill-chain: the first handoff must carry skeleton + cursor so the
     // agent can drive the whole fill loop with concrete next_tool_call at each step.
@@ -365,7 +369,7 @@ describe("MCP ADR-040 tools", () => {
       (envelope.data?.next_tool_call?.arguments as { cursor?: { day_index?: number; stop_index?: number } }).cursor,
     ).toEqual({ day_index: 1, stop_index: 0 });
     expect(envelope.data?.host_instructions).toMatch(/REQUIRED NEXT TOOL: execute next_tool_call/);
-    expect(envelope.data?.host_instructions).toMatch(/display_current_stop/);
+    expect(envelope.data?.host_instructions).toMatch(/plan_next_stop/);
     expect(envelope.data?.host_instructions).toMatch(/travel_tips/);
     expect(spy).toHaveBeenCalled();
     const input = spy.mock.calls.at(-1)?.[0] as {
@@ -376,7 +380,7 @@ describe("MCP ADR-040 tools", () => {
     spy.mockRestore();
   });
 
-  it("should_redirect_travel_tips_to_display_current_stop_when_skeleton_present", async () => {
+  it("should_redirect_travel_tips_to_plan_next_stop_when_skeleton_present", async () => {
     const tools = registeredTools(createPlacesMcpServer());
     const res = await tools.travel_tips.handler({
       destination: "里斯本",
@@ -408,14 +412,18 @@ describe("MCP ADR-040 tools", () => {
     expect(envelope.ok).toBe(true);
     expect(envelope.data?.fill_redirect).toBe(true);
     expect(envelope.data?.intro).toBeUndefined();
-    expect(envelope.data?.next_action).toBe("display_current_stop");
-    expect(envelope.data?.prefer_tool).toBe("display_current_stop");
+    expect(envelope.data?.next_action).toBe("plan_next_stop");
+    expect(envelope.data?.prefer_tool).toBe("plan_next_stop");
     expect(envelope.data?.next_tool_call).toMatchObject({
-      name: "display_current_stop",
-      arguments: { stop: { name: "Hills Hotel Lisboa", kind: "stay" }, time_from: "09:00" },
+      name: "plan_next_stop",
+      arguments: {
+        origin_mode: true,
+        next_stop: { name: "Hills Hotel Lisboa", kind: "stay" },
+        time_from: "09:00",
+      },
     });
     expect(envelope.data?.host_instructions).toMatch(/REQUIRED NEXT TOOL: execute next_tool_call/);
-    expect(envelope.data?.host_instructions).toMatch(/display_current_stop/);
+    expect(envelope.data?.host_instructions).toMatch(/plan_next_stop/);
   });
 
   it("should_normalize_object_sources_and_pass_must_include", async () => {
@@ -616,9 +624,9 @@ describe("MCP ADR-040 tools", () => {
     expect(planSpy).not.toHaveBeenCalled();
     expect(envelope.ok).toBe(true);
     expect(envelope.data.skeleton?.days).toHaveLength(1);
-    expect(envelope.data.next_action).toBe("display_current_stop");
+    expect(envelope.data.next_action).toBe("plan_next_stop");
     expect(envelope.data.host_instructions).toMatch(/REQUIRED NEXT TOOL: execute next_tool_call/);
-    expect(envelope.data.host_instructions).toMatch(/display_current_stop/);
+    expect(envelope.data.host_instructions).toMatch(/plan_next_stop/);
     discoverSpy.mockRestore();
     makeSpy.mockRestore();
     planSpy.mockRestore();
@@ -656,14 +664,14 @@ describe("MCP ADR-040 tools", () => {
       expect(planSpy).not.toHaveBeenCalled();
       expect(envelope.ok).toBe(true);
       expect(envelope.data.skeleton?.days).toHaveLength(1);
-      expect(envelope.data.next_action).toBe("display_current_stop");
+      expect(envelope.data.next_action).toBe("plan_next_stop");
       discoverSpy.mockRestore();
       makeSpy.mockRestore();
       planSpy.mockRestore();
     }
   });
 
-  it("should_chain_next_tool_call_plan_next_stop_from_display_current_stop_mid_day", async () => {
+  it("should_chain_next_tool_call_plan_next_stop_from_origin_stay_mid_day", async () => {
     const tools = registeredTools(createPlacesMcpServer());
     const skeleton = {
       days: [
@@ -678,8 +686,9 @@ describe("MCP ADR-040 tools", () => {
         },
       ],
     };
-    const res = await tools.display_current_stop.handler({
-      stop: { name: "Hills Hotel Lisboa", kind: "stay" },
+    const res = await tools.plan_next_stop.handler({
+      origin_mode: true,
+      next_stop: { name: "Hills Hotel Lisboa", kind: "stay" },
       time_from: "09:00",
       skeleton,
       cursor: { day_index: 1, stop_index: 0 },
@@ -709,7 +718,21 @@ describe("MCP ADR-040 tools", () => {
     expect(envelope.data?.host_instructions).toMatch(/Execute next_tool_call immediately/);
   });
 
-  it("should_chain_next_tool_call_display_current_stop_for_next_day_from_last_stop_of_day", async () => {
+  it("should_chain_next_tool_call_plan_next_stop_origin_for_next_day_from_last_stop_of_day", async () => {
+    const planNextStopMod = await import("../core/plan-next-stop");
+    vi.spyOn(planNextStopMod, "planNextStopFill").mockResolvedValue({
+      next_stop: { name: "贝伦塔", location: null },
+      legs: [{ mode: "walk", duration_min: 10, recommended: true }] as never,
+      transit_outcome: "heuristic",
+      single_mode: false,
+      stop_display: {
+        stop: { name: "贝伦塔", kind: "attraction", card: null, deeplinks: {} },
+        legs_to_here: [],
+        slot: { start: "11:00", end: "12:30" },
+        transit_outcome: "heuristic",
+        notes: [],
+      },
+    });
     const tools = registeredTools(createPlacesMcpServer());
     const skeleton = {
       days: [
@@ -731,9 +754,9 @@ describe("MCP ADR-040 tools", () => {
         },
       ],
     };
-    const res = await tools.display_current_stop.handler({
-      stop: { name: "贝伦塔", kind: "attraction" },
-      time_from: "09:00",
+    const res = await tools.plan_next_stop.handler({
+      current_stop: { name: "Hills Hotel Lisboa", kind: "stay", end_time: "09:00" },
+      next_stop: { name: "贝伦塔", kind: "attraction" },
       skeleton,
       cursor: { day_index: 1, stop_index: 1 },
       locale: "CN",
@@ -744,19 +767,40 @@ describe("MCP ADR-040 tools", () => {
         next_action?: string;
         next_tool_call?: {
           name?: string;
-          arguments?: { stop?: { name?: string }; time_from?: string; cursor?: { day_index?: number } };
+          arguments?: {
+            origin_mode?: boolean;
+            next_stop?: { name?: string };
+            time_from?: string;
+            cursor?: { day_index?: number };
+          };
         };
       };
     };
     expect(envelope.ok).toBe(true);
-    expect(envelope.data?.next_action).toBe("display_current_stop");
-    expect(envelope.data?.next_tool_call?.name).toBe("display_current_stop");
-    expect(envelope.data?.next_tool_call?.arguments?.stop?.name).toBe("Hills Hotel Lisboa");
+    expect(envelope.data?.next_action).toBe("plan_next_stop");
+    expect(envelope.data?.next_tool_call?.name).toBe("plan_next_stop");
+    expect(envelope.data?.next_tool_call?.arguments?.origin_mode).toBe(true);
+    expect(envelope.data?.next_tool_call?.arguments?.next_stop?.name).toBe("Hills Hotel Lisboa");
     expect(envelope.data?.next_tool_call?.arguments?.time_from).toBe("09:00");
     expect(envelope.data?.next_tool_call?.arguments?.cursor?.day_index).toBe(2);
+    vi.restoreAllMocks();
   });
 
   it("should_return_trip_complete_at_last_stop_of_trip", async () => {
+    const planNextStopMod = await import("../core/plan-next-stop");
+    vi.spyOn(planNextStopMod, "planNextStopFill").mockResolvedValue({
+      next_stop: { name: "贝伦塔", location: null },
+      legs: [],
+      transit_outcome: "heuristic",
+      single_mode: false,
+      stop_display: {
+        stop: { name: "贝伦塔", kind: "attraction", card: null, deeplinks: {} },
+        legs_to_here: [],
+        slot: { start: "11:00", end: "12:30" },
+        transit_outcome: "heuristic",
+        notes: [],
+      },
+    });
     const tools = registeredTools(createPlacesMcpServer());
     const skeleton = {
       days: [
@@ -770,9 +814,9 @@ describe("MCP ADR-040 tools", () => {
         },
       ],
     };
-    const res = await tools.display_current_stop.handler({
-      stop: { name: "贝伦塔", kind: "attraction" },
-      time_from: "09:00",
+    const res = await tools.plan_next_stop.handler({
+      current_stop: { name: "Hills Hotel Lisboa", kind: "stay", end_time: "09:00" },
+      next_stop: { name: "贝伦塔", kind: "attraction" },
       skeleton,
       cursor: { day_index: 1, stop_index: 1 },
       locale: "CN",
@@ -785,16 +829,24 @@ describe("MCP ADR-040 tools", () => {
     expect(envelope.data?.next_action).toBe("trip_complete");
     expect(envelope.data?.next_tool_call).toBeUndefined();
     expect(envelope.data?.host_instructions).toMatch(/All stops are now filled/);
+    vi.restoreAllMocks();
   });
 
-  it("should_chain_next_tool_call_display_current_stop_from_plan_next_stop", async () => {
+  it("should_chain_next_tool_call_plan_next_stop_from_plan_next_stop", async () => {
     const planNextStopMod = await import("../core/plan-next-stop");
     const legs = [{ mode: "walk", duration_min: 10, recommended: true }];
-    vi.spyOn(planNextStopMod, "planNextStop").mockResolvedValue({
-      next_stop: { name: "贝伦塔", location: { lat: 38.69, lng: -9.21, crs: "WGS84" } },
+    vi.spyOn(planNextStopMod, "planNextStopFill").mockResolvedValue({
+      next_stop: { name: "热罗尼莫斯修道院", location: { lat: 38.69, lng: -9.21, crs: "WGS84" } },
       legs: legs as never,
       transit_outcome: "heuristic",
       single_mode: false,
+      stop_display: {
+        stop: { name: "热罗尼莫斯修道院", kind: "attraction", card: null, deeplinks: {} },
+        legs_to_here: legs as never,
+        slot: { start: "10:00", end: "11:30" },
+        transit_outcome: "heuristic",
+        notes: [],
+      },
     });
     const tools = registeredTools(createPlacesMcpServer());
     const skeleton = {
@@ -824,6 +876,8 @@ describe("MCP ADR-040 tools", () => {
         next_tool_call?: {
           name?: string;
           arguments?: {
+            current_stop?: { name?: string };
+            next_stop?: { name?: string };
             stop?: { name?: string };
             legs_to_here?: unknown;
             previous_stop?: { name?: string };
@@ -833,12 +887,11 @@ describe("MCP ADR-040 tools", () => {
       };
     };
     expect(envelope.ok).toBe(true);
-    expect(envelope.data?.next_action).toBe("display_current_stop");
-    expect(envelope.data?.next_tool_call?.name).toBe("display_current_stop");
-    expect(envelope.data?.next_tool_call?.arguments?.stop?.name).toBe("热罗尼莫斯修道院");
-    expect(envelope.data?.next_tool_call?.arguments?.previous_stop?.name).toBe("Hills Hotel Lisboa");
-    expect(envelope.data?.next_tool_call?.arguments?.legs_to_here).toEqual(legs);
-    expect(envelope.data?.next_tool_call?.arguments?.cursor).toEqual({ day_index: 1, stop_index: 1 });
+    expect(envelope.data?.next_action).toBe("plan_next_stop");
+    expect(envelope.data?.next_tool_call?.name).toBe("plan_next_stop");
+    expect(envelope.data?.next_tool_call?.arguments?.current_stop?.name).toBe("热罗尼莫斯修道院");
+    expect(envelope.data?.next_tool_call?.arguments?.next_stop?.name).toBe("贝伦塔");
+    expect(envelope.data?.next_tool_call?.arguments?.cursor).toEqual({ day_index: 1, stop_index: 2 });
     vi.restoreAllMocks();
   });
 
@@ -857,8 +910,9 @@ describe("MCP ADR-040 tools", () => {
         },
       ],
     };
-    const stay = await tools.display_current_stop.handler({
-      stop: { name: "Hills Hotel Lisboa", kind: "stay" },
+    const stay = await tools.plan_next_stop.handler({
+      origin_mode: true,
+      next_stop: { name: "Hills Hotel Lisboa", kind: "stay" },
       time_from: "09:00",
       skeleton,
       cursor: { day_index: 1, stop_index: 0 },
@@ -872,11 +926,18 @@ describe("MCP ADR-040 tools", () => {
 
     const planNextStopMod = await import("../core/plan-next-stop");
     const legs = [{ mode: "walk", duration_min: 44, recommended: true }];
-    vi.spyOn(planNextStopMod, "planNextStop").mockResolvedValue({
+    vi.spyOn(planNextStopMod, "planNextStopFill").mockResolvedValue({
       next_stop: { name: "热罗尼莫斯修道院", location: { lat: 38.69, lng: -9.21, crs: "WGS84" } },
       legs: legs as never,
       transit_outcome: "heuristic",
       single_mode: false,
+      stop_display: {
+        stop: { name: "热罗尼莫斯修道院", kind: "attraction", card: null, deeplinks: {} },
+        legs_to_here: legs as never,
+        slot: { start: "09:44", end: "11:14" },
+        transit_outcome: "heuristic",
+        notes: [],
+      },
     });
     const planRes = await tools.plan_next_stop.handler({
       current_stop: { name: "Hills Hotel Lisboa", kind: "stay", end_time: "09:00" },
@@ -886,16 +947,31 @@ describe("MCP ADR-040 tools", () => {
       locale: "CN",
     });
     const planEnv = JSON.parse(planRes.content[0].text) as {
-      data: { next_tool_call?: { arguments?: { previous_stop?: { end_time?: string } } } };
+      data: { next_tool_call?: { arguments?: { current_stop?: { end_time?: string } } } };
     };
-    expect(planEnv.data.next_tool_call?.arguments?.previous_stop?.end_time).toBe("09:00");
+    expect(planEnv.data.next_tool_call?.arguments?.current_stop?.end_time).toBe("11:14");
     vi.restoreAllMocks();
   });
 
   it("should_advance_slot_start_when_previous_end_time_and_leg_provided (TC-M13-53-02)", async () => {
+    const planNextStopMod = await import("../core/plan-next-stop");
+    vi.spyOn(planNextStopMod, "planNextStopFill").mockResolvedValue({
+      next_stop: { name: "热罗尼莫斯修道院", location: null },
+      legs: [{ mode: "transit", duration_min: 44, recommended: true }] as never,
+      transit_outcome: "heuristic",
+      single_mode: false,
+      stop_display: {
+        stop: { name: "热罗尼莫斯修道院", kind: "attraction", card: null, deeplinks: {} },
+        legs_to_here: [{ mode: "transit", duration_min: 44, recommended: true }] as never,
+        slot: { start: "09:44", end: "11:14" },
+        transit_outcome: "heuristic",
+        notes: [],
+      },
+    });
     const tools = registeredTools(createPlacesMcpServer());
-    const res = await tools.display_current_stop.handler({
-      stop: { name: "热罗尼莫斯修道院", kind: "attraction" },
+    const res = await tools.plan_next_stop.handler({
+      current_stop: { name: "Hills Hotel Lisboa", kind: "stay", end_time: "09:00" },
+      next_stop: { name: "热罗尼莫斯修道院", kind: "attraction" },
       previous_stop: { name: "Hills Hotel Lisboa", kind: "stay", end_time: "09:00" },
       legs_to_here: [{ mode: "transit", duration_min: 44, recommended: true }],
       locale: "CN",
@@ -905,6 +981,7 @@ describe("MCP ADR-040 tools", () => {
     };
     expect(envelope.data.slot?.start).toBe("09:44");
     expect(envelope.data.slot?.end).toBe("11:14");
+    vi.restoreAllMocks();
   });
 
   it("should_include_validation_detail_when_make_itinerary_fails (TC-M13-58-01)", async () => {

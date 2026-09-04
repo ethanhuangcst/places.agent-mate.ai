@@ -1,22 +1,18 @@
 /**
- * TC-M12-49-04 / -06 — discoverPlaces parallel + backfill (ADR-045 §3).
+ * TC-M12-49-04 / TC-M19-79-01 / TC-M20-41-10 — discoverPlaces pool-then-heat.
  *
- * Isolates discoverPlaces by mocking findIconicPlaces, the query assembler
- * (so searchCandidatePools produces a controlled/empty pool), and tools.
+ * Isolates discoverPlaces by mocking the query assembler and vendor search.
+ * Phase B uses real findIconicPlaces (heat on the existing pool).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { findIconicPlacesMock, searchPlacesMock, searchRestaurantsMock } = vi.hoisted(() => ({
-  findIconicPlacesMock: vi.fn(),
+const { searchPlacesMock, searchRestaurantsMock } = vi.hoisted(() => ({
   searchPlacesMock: vi.fn(),
   searchRestaurantsMock: vi.fn(),
 }));
 
-vi.mock("./find-iconic-places", () => ({
-  findIconicPlaces: findIconicPlacesMock,
-}));
 vi.mock("./query-assembler", () => ({
-  assembleDiscoverAttractionJobs: () => [],
+  assembleDiscoverAttractionJobs: () => [{ query: "landmarks", providers: ["GOOGLE_MAPS"] }],
   assembleDiscoverRestaurantJobs: () => [],
   assembleAttractionSearchJobs: () => [],
   assembleRestaurantSearchJobs: () => [],
@@ -24,94 +20,93 @@ vi.mock("./query-assembler", () => ({
 vi.mock("./tools", () => ({
   searchPlaces: searchPlacesMock,
   searchRestaurants: searchRestaurantsMock,
-  geocode: vi.fn(),
+  geocode: vi.fn().mockResolvedValue({ data: { lat: 0, lng: 0, crs: "WGS84" } }),
 }));
 
 import { discoverPlaces } from "./itinerary-planner";
 import { clearIconicCache } from "./iconic-places-cache";
 import type { PlaceCard } from "./types";
 
-function card(name: string, category = "tourist_attraction"): PlaceCard {
+function card(
+  name: string,
+  opts?: { user_ratings_total?: number; category?: string },
+): PlaceCard {
   return {
     provider: "GOOGLE_MAPS",
     name,
-    category,
+    category: opts?.category ?? "tourist_attraction",
     location: { lat: 0, lng: 0, crs: "WGS84" },
+    user_ratings_total: opts?.user_ratings_total,
     sources: [],
   };
 }
 
 beforeEach(() => {
-  findIconicPlacesMock.mockReset();
   searchPlacesMock.mockReset();
   searchRestaurantsMock.mockReset();
   clearIconicCache();
 });
 
-describe("TC-M12-49-04 discoverPlaces parallel (ADR-045 §3)", () => {
-  it("should_invoke_findIconicPlaces_and_reflect_iconic_in_inferred_must_see", async () => {
-    findIconicPlacesMock.mockResolvedValue({
-      names: ["Pena Palace"],
-      grounded: false,
+describe("TC-M20-41-10 discoverPlaces heat-on-pool after Phase A", () => {
+  it("should_mark_must_see_from_existing_pool_heat_and_cap_at_max_number", async () => {
+    searchPlacesMock.mockResolvedValue({
+      data: [
+        card("Low Signal", { user_ratings_total: 200 }),
+        card("Hot Alpha", { user_ratings_total: 45_000 }),
+        card("Hot Beta", { user_ratings_total: 12_000 }),
+        card("Mid Spot", { user_ratings_total: 3_000 }),
+      ],
     });
-    searchPlacesMock.mockResolvedValue({ data: [card("Pena Palace", "palace")] });
 
     const result = await discoverPlaces({
-      city: "Lisbon",
-      bounds: { start: "2026-09-01", end: "2026-09-04" },
+      city: "Sample City",
+      bounds: { start: "2026-09-01", end: "2026-09-02" },
       locale: "EN",
-      numDays: 4,
+      numDays: 1,
+      max_number: 2,
     });
 
-    expect(findIconicPlacesMock).toHaveBeenCalledTimes(1);
-    expect(findIconicPlacesMock).toHaveBeenCalledWith(
-      expect.objectContaining({ city: "Lisbon", limit: 3 }),
-    );
-    // Iconic name grounded via backfill and flagged must_see.
-    const pena = result.candidates.places.find((p) => p.name === "Pena Palace");
-    expect(pena?.must_see).toBe(true);
-    expect(result.inferred_must_see).toEqual(["Pena Palace"]);
-  });
-});
-
-describe("TC-M12-49-06 discoverPlaces backfill drop (ADR-045 §3)", () => {
-  it("should_drop_iconic_names_not_found_by_backfill", async () => {
-    findIconicPlacesMock.mockResolvedValue({
-      names: ["Pena Palace", "Ghost Castle"],
-      grounded: false,
-    });
-    searchPlacesMock.mockImplementation(async (input: { query: string }) =>
-      input.query === "Pena Palace"
-        ? { data: [card("Pena Palace", "palace")] }
-        : { data: [] },
-    );
-
-    const result = await discoverPlaces({
-      city: "Lisbon",
-      bounds: { start: "2026-09-01", end: "2026-09-04" },
-      locale: "EN",
-      numDays: 4,
-    });
-
-    const names = result.candidates.places.map((p) => p.name);
-    expect(names).toContain("Pena Palace");
-    expect(names).not.toContain("Ghost Castle");
-    // Ghost Castle dropped from inferred_must_see (cannot be scheduled).
-    expect(result.inferred_must_see).toEqual(["Pena Palace"]);
+    expect(searchPlacesMock).toHaveBeenCalledTimes(1);
+    expect(result.inferred_must_see).toEqual(["Hot Alpha", "Hot Beta"]);
+    expect(result.candidates.places.find((p) => p.name === "Hot Alpha")?.must_see).toBe(true);
+    expect(result.candidates.places.find((p) => p.name === "Hot Beta")?.must_see).toBe(true);
+    expect(result.candidates.places.find((p) => p.name === "Mid Spot")?.must_see).toBeUndefined();
+    expect(result.candidates.places.filter((p) => p.must_see).length).toBe(2);
   });
 
-  it("should_return_empty_inferred_when_no_iconic_found", async () => {
-    findIconicPlacesMock.mockResolvedValue({ names: ["Nowhere"], grounded: false });
+  it("should_skip_heat_mark_when_pool_empty", async () => {
     searchPlacesMock.mockResolvedValue({ data: [] });
 
     const result = await discoverPlaces({
-      city: "Lisbon",
+      city: "Sample City",
       bounds: { start: "2026-09-01", end: "2026-09-04" },
       locale: "EN",
       numDays: 4,
     });
 
-    expect(result.candidates.places).toEqual([]);
     expect(result.inferred_must_see).toEqual([]);
+  });
+});
+
+describe("TC-M12-49-06 discoverPlaces user must_include supplement", () => {
+  it("should_add_user_requested_without_overwriting_iconic_marks", async () => {
+    searchPlacesMock.mockImplementation(async (input: { query: string }) =>
+      input.query === "User Pick"
+        ? { data: [card("User Pick Spot", { user_ratings_total: 50 })] }
+        : { data: [card("Hot Alpha", { user_ratings_total: 45_000 })] },
+    );
+
+    const result = await discoverPlaces({
+      city: "Sample City",
+      bounds: { start: "2026-09-01", end: "2026-09-04" },
+      locale: "EN",
+      numDays: 4,
+      must_include: ["User Pick"],
+    });
+
+    expect(result.candidates.places.find((p) => p.name === "Hot Alpha")?.must_see).toBe(true);
+    const userPick = result.candidates.places.find((p) => p.name === "User Pick Spot");
+    expect(userPick?.user_requested).toBe(true);
+    expect(userPick?.must_see).toBeUndefined();
   });
 });

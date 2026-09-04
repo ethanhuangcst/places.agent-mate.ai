@@ -8,8 +8,7 @@ follow) over HTTP /v1 for each scenario:
   1. geocode            (only when a hotel/origin name is given)
   2. discover_places    — L1 candidate pool + inferred must-see
   3. make_itinerary     — stop-order skeleton + first next_tool_call
-  4. display_current_stop → plan_next_stop → display_current_stop → …
-                         — follow the concrete next_tool_call chain until trip_complete
+  4. plan_next_stop (origin_mode → plan_next_stop …) — follow the concrete next_tool_call chain until trip_complete
 
 Each scenario simulates a different user: days 2-5, pace tight/medium/relaxed,
 spend 1-3, hotel sometimes given / sometimes omitted, interests sometimes
@@ -42,6 +41,28 @@ OUT_DIR = ROOT / "agent-specs" / "e2e-test-result"
 BASE = os.environ.get("PLACES_AGENT_BASE", "http://localhost:3010")
 CALLER_KEY = os.environ.get("PLACES_AGENT_CALLER_KEY", "")
 PROVIDERS = ["GOOGLE_MAPS", "AMAP", "TRIPADVISOR"]
+
+
+def http_v1(tool: str, body: dict[str, Any], key: str, timeout: float = 60) -> dict[str, Any]:
+    """POST /v1/<tool> — used for travel_tips display-source capture (ADR-045)."""
+    req = urllib.request.Request(
+        BASE.rstrip("/") + f"/v1/{tool}",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} /v1/{tool}: {e.read().decode('utf-8', 'replace')[:1200]}") from e
+    envelope = json.loads(raw)
+    return {"envelope": envelope, "elapsed_s": round(time.time() - t0, 2)}
 
 # 30 scenarios. must_include = simulated user's answer to the must-see prompt;
 # empty list = user declined (destination-agnostic path).
@@ -151,7 +172,8 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
                            "days": sc["days"], "pace": sc["pace"], "spend": sc["spend"],
                            "hotel": sc["hotel"], "must_include": sc["must_include"],
                            "interests": sc["interests"], "steps": [], "days_md": [],
-                           "ok": False, "error": None, "trip_id": None, "revision": None}
+                           "ok": False, "error": None, "trip_id": None, "revision": None,
+                           "iconic_places": []}
     start = "2026-10-10"
     bounds = bounds_for(sc["days"], start)
     locale = "CN"
@@ -170,6 +192,29 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
             return rec
     else:
         rec["steps"].append({"tool": "geocode", "ok": True, "skipped": "no hotel"})
+
+    # Display-source baseline (ADR-045): travel_tips → findIconicPlaces. Does not
+    # block the fill chain; captured for 2play tips/assistant single-source.
+    try:
+        tips_body = {
+            "destination": sc["city"],
+            "bounds": bounds,
+            "locale": locale,
+            "providers": PROVIDERS,
+        }
+        r = http_v1("travel_tips", tips_body, key, timeout=60)
+        env = r["envelope"]
+        data = env.get("data") or {}
+        iconic = data.get("iconic_places") or []
+        rec["iconic_places"] = iconic if isinstance(iconic, list) else []
+        rec["steps"].append({
+            "tool": "travel_tips",
+            "ok": bool(env.get("ok", True)),
+            "elapsed_s": r["elapsed_s"],
+            "iconic_places": rec["iconic_places"],
+        })
+    except Exception as e:
+        rec["steps"].append({"tool": "travel_tips", "ok": False, "error": str(e)})
 
     # Step 2: discover_places
     disc: dict[str, Any] = {"city": sc["city"], "bounds": bounds, "locale": locale,
@@ -263,7 +308,7 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
                                   "stop": d.get("stop"),
                                   "trip_id": rec.get("trip_id"),
                                   "revision": rec.get("revision")})
-            if name == "display_current_stop":
+            if name == "plan_next_stop" and d.get("stop"):
                 rec["days_md"].append(render_stop(d))
             cur = d.get("next_tool_call")
             if d.get("next_action") == "trip_complete":
@@ -336,8 +381,9 @@ def write_scenario_md(rec: dict[str, Any]) -> Path:
     lines.append("")
     lines.append("## places-agent 工具链路")
     lines.append("")
-    lines.append("1. `geocode`（有酒店时）→ 2. `discover_places` → 3. `make_itinerary` → "
-                  "4. `display_current_stop` / `plan_next_stop` 交替直到 `trip_complete`")
+    lines.append("1. `geocode`（有酒店时）→ `travel_tips`（记录 `iconic_places`，ADR-045 展示源）→ "
+                  "2. `discover_places` → 3. `make_itinerary` → "
+                  "4. `plan_next_stop` 链直到 `trip_complete`（F65：无 `display_current_stop`）")
     lines.append("")
     lines.append("## 工具调用记录")
     lines.append("")
@@ -352,6 +398,8 @@ def write_scenario_md(rec: dict[str, Any]) -> Path:
             extra = f"next={st['next_action']}"
         elif st.get("skipped"):
             extra = f"skipped({st['skipped']})"
+        elif st.get("iconic_places") is not None:
+            extra = "iconic=" + "、".join(str(x) for x in st["iconic_places"][:6])
         elif st.get("error"):
             extra = st["error"][:60]
         lines.append(f"| {i} | {st['tool']} | {ok} {extra} | {st.get('elapsed_s','')} |")
@@ -363,6 +411,12 @@ def write_scenario_md(rec: dict[str, Any]) -> Path:
     if sc.get("trip_id"):
         lines.append("")
         lines.append(f"**Trip Store:** `trip_id={sc['trip_id']}` · `revision={sc.get('revision')}`")
+    if sc.get("iconic_places"):
+        lines.append("")
+        lines.append("## travel_tips iconic_places（展示源）")
+        lines.append("")
+        lines.append("、".join(str(x) for x in sc["iconic_places"]))
+        lines.append("")
     lines.append("")
     skel = sc.get("skeleton") or {}
     skel_days = skel.get("days") or []
@@ -424,16 +478,17 @@ def main() -> int:
     lines.append("# E2E places-agent 30 城行程规划测试 · 索引")
     lines.append("")
     lines.append("> 由 `scripts/e2e-places-agent.py` 生成。每个场景模拟一个用户按 8 行表单输入，"
-                  "调用 places-agent 完整工具链路（geocode → discover_places → make_itinerary → "
-                  "display_current_stop / plan_next_stop 链 → trip_complete）。")
+                  "调用 places-agent 完整工具链路（geocode → travel_tips → discover_places → make_itinerary → "
+                  "plan_next_stop 链 → trip_complete）。")
     lines.append("")
     lines.append("## places-agent 完整工具链路")
     lines.append("")
     lines.append("1. **geocode**（可选，有酒店时）— 解析住宿坐标作为 origin。")
-    lines.append("2. **discover_places** — L1 候选池（景点 + 餐厅）+ inferred must-see + host_instructions。")
-    lines.append("3. **make_itinerary** — 生成多日停靠顺序骨架（无时间、无交通），返回首个 `next_tool_call`。")
-    lines.append("4. **display_current_stop** / **plan_next_stop** 交替 — 沿 `next_tool_call` 链逐站填充卡片、"
-                  "交通、时段，直到 `next_action == trip_complete`。")
+    lines.append("2. **travel_tips** — 记录 `iconic_places`（findIconicPlaces 展示源，ADR-045）。")
+    lines.append("3. **discover_places** — L1 候选池（景点 + 餐厅）+ inferred must-see + host_instructions。")
+    lines.append("4. **make_itinerary** — 生成多日停靠顺序骨架（无时间、无交通），返回首个 `next_tool_call`。")
+    lines.append("5. **plan_next_stop** 链 — 沿 `next_tool_call` 逐站填充（F65：无独立 `display_current_stop`），"
+                  "直到 `next_action == trip_complete`。")
     lines.append("")
     lines.append("## 设计要点")
     lines.append("")

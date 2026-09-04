@@ -66,6 +66,23 @@ export type PlanNextStopResult = {
   single_mode: boolean;
 };
 
+/** F65: optional display fields merged into plan_next_stop (replaces display_current_stop tool). */
+export type PlanNextStopFillInput = Omit<PlanNextStopInput, "current_stop"> & {
+  current_stop?: PlanStopPoint;
+  origin_mode?: boolean;
+  /** When false, skip stop_display (legs-only). Default true. */
+  with_stop_display?: boolean;
+  previous_stop?: DisplayStopInput["previous_stop"];
+  legs_to_here?: ItineraryLeg[];
+  time_from?: string;
+  stay_role?: DisplayStopInput["stay_role"];
+  default_duration_min?: number;
+};
+
+export type PlanNextStopFillResult = PlanNextStopResult & {
+  stop_display?: DisplayStopResult;
+};
+
 function cardLocation(card: PlaceCard | undefined): PlaceLocation | null {
   if (!card?.location) return null;
   const { lat, lng } = card.location;
@@ -213,7 +230,69 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
   return { next_stop: { name: input.next_stop.name, location: to }, legs, transit_outcome, single_mode };
 }
 
-// --- display_current_stop ---
+/**
+ * F65: plan transit legs (unless origin_mode) and attach stop_display in one call.
+ * origin_mode renders a stay/origin stop without computing legs (current === next).
+ */
+export async function planNextStopFill(input: PlanNextStopFillInput): Promise<PlanNextStopFillResult> {
+  const withDisplay = input.with_stop_display !== false;
+  const originMode = input.origin_mode === true;
+
+  let planResult: PlanNextStopResult;
+  if (originMode) {
+    const all = [...input.candidates.places, ...input.candidates.restaurants];
+    const loc = await resolvePoint(
+      input.next_stop,
+      all,
+      input.providers,
+      input._testGeocode,
+      input.city,
+      input.anchor,
+    );
+    planResult = {
+      next_stop: { name: input.next_stop.name, location: loc },
+      legs: input.legs_to_here ?? [],
+      transit_outcome: "heuristic",
+      single_mode: false,
+    };
+  } else {
+    const current = input.current_stop ?? input.next_stop;
+    planResult = await planNextStop({
+      ...input,
+      current_stop: current,
+      next_stop: input.next_stop,
+    });
+  }
+
+  if (!withDisplay) {
+    return planResult;
+  }
+
+  const previous_stop =
+    input.previous_stop ??
+    (input.current_stop && !originMode
+      ? {
+          name: input.current_stop.name,
+          end_time: input.current_stop.end_time,
+          kind: input.current_stop.kind,
+        }
+      : undefined);
+
+  const stop_display = displayCurrentStop({
+    stop: input.next_stop,
+    candidates: input.candidates,
+    previous_stop,
+    legs_to_here: planResult.legs,
+    default_duration_min: input.default_duration_min,
+    time_from: input.time_from,
+    stay_role: input.stay_role,
+    locale: input.locale,
+  });
+
+  return { ...planResult, stop_display };
+}
+
+// --- display_current_stop (internal; F65 — not registered as HTTP/MCP tool) ---
 
 export type DisplayStopInput = {
   stop: PlanStopPoint;

@@ -123,7 +123,6 @@ describe("MCP tools", () => {
         "arrange_day",
         "make_itinerary",
         "plan_next_stop",
-        "display_current_stop",
         "travel_tips",
       ]),
     );

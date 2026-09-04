@@ -47,7 +47,6 @@ describe("guide literals", () => {
       "arrange_day",
       "make_itinerary",
       "plan_next_stop",
-      "display_current_stop",
       "fetch_trip_details",
       "Tripadvisor.enrich",
     ]);

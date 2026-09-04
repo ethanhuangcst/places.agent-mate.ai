@@ -51,6 +51,20 @@ describe("TC-M16-64 fetch_trip_details", () => {
     expect(slice.data).not.toHaveProperty("constraints");
   });
 
+  it("TC-M18-76 should_return_artifacts_field_slice", async () => {
+    const written = await applyTripWrite({
+      callerKey: CALLER,
+      locale: "EN",
+      patch: { artifacts: { tips: { iconic_places: ["Alpha"] } } },
+    });
+    const slice = await fetchTripDetails({
+      callerKey: CALLER,
+      trip_id: written.trip_id,
+      fields: ["artifacts"],
+    });
+    expect(slice.data.artifacts).toEqual({ tips: { iconic_places: ["Alpha"] } });
+  });
+
   it("TC-M16-64-02 should_throw_trip_not_found_for_invalid_id", async () => {
     await expect(
       fetchTripDetails({

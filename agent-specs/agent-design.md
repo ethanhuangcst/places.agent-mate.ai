@@ -511,10 +511,10 @@ Chat / tool 的 system prompt 由 [`prompt-assembler.ts`](../src/agent/prompt-as
 
 ---
 
-## 9. 智能体 LLM（OPENAI_CN）
+## 9. 智能体 LLM（Qwen，ADR-047）
 
-- 使用 `openai` SDK，`baseURL` = `OPENAI_BASE_URL`，而非 `api.openai.com`。
-- `max_completion_tokens`。模型：`OPENAI_CHAT_MODEL`。
+- 使用 `openai` SDK，`baseURL` = `QWEN_BASE_URL`（compatible-mode），而非 `api.openai.com`。
+- 模型：`QWEN_CHAT_MODEL`（默认 `qwen-plus`）。`QWEN_API_KEY` 为空时回退 `OPENAI_*`。
 - 上限：最大迭代次数 + 出站 HTTP 超时约 25s；界面软提示约 10s（统一延迟契约）。
 
 **版本（git 即注册表）：**
@@ -789,7 +789,7 @@ CSRF（仅 Cookie 写操作）：`SameSite=Lax` **加上** `Origin` / `Referer` 
 
 **选择器（`data-testid`）：** `admin-home-instructions`、`admin-login`、`register-disabled`、`contact-admin`、`contact-admin-qr`、`login-submit`、`login-error`、`accept-invite-submit`、`accept-invite-done`、`accept-invite-sign-in`、`accept-invite-error`、`landing-instructions`、`admin-hello`、`nav-keys`、`nav-users`、`nav-sign-out`、`issue-key`、`keys-table`、`keys-empty`、`keys-copy-{name}`、`copy-secret`、`users-table`、`delete-admin-confirm`、`locale-EN` … `locale-TW`、`guide-capabilities`、`guide-toc-capabilities`、`guide-capabilities-table`。按行删除：`delete-admin-{id}`。
 
-**不得**出现在客户端静态包 / `NEXT_PUBLIC_*` 中：地图密钥、`OPENAI_*`、`GMAPS_MCP_*`、`RESEND_*`、`SESSION_SECRET`、`OPEN_METEO_API_KEY`。调用方 `secret` 仅经管理会话 API 下发至运营者后台，不写入公开 `/v1` 响应。路由处理器：`import "server-only"`。
+**不得**出现在客户端静态包 / `NEXT_PUBLIC_*` 中：地图密钥、`QWEN_*`、`OPENAI_*`、`GMAPS_MCP_*`、`RESEND_*`、`SESSION_SECRET`、`OPEN_METEO_API_KEY`。调用方 `secret` 仅经管理会话 API 下发至运营者后台，不写入公开 `/v1` 响应。路由处理器：`import "server-only"`。
 
 ```text
 app/
@@ -1218,7 +1218,7 @@ MCP：[`create-server.ts`](../src/mcp/create-server.ts) 注册 `visa_requirement
 
 - **本 MVP-11 agent 切片：** 仅交付工具；where2play **不**在本切片开发查询 UI。
 - **where2play MVP-11（spec）：** 注册/资料页增加 `nationality`（ISO alpha-3，选填）；Prisma `User.nationality String?`。
-- **出行建议页（规划中）：** BFF 读 `User.nationality` + 目的地 → `POST /v1/visa_requirement`；展示签证状态条（Feature **39** 占位，实现待后续立项）。
+- **出行建议页 / Plan 贴士签证卡（规划中）：** BFF 读 `User.nationality` + 目的地 → `POST /v1/visa_requirement` **写入** `artifacts.visa`；**UI 经 `fetch_trip_details` `artifacts` 展示**。禁止把 visa HTTP 响应当 2play 渲染源（Feature **39** 占位，实现待后续立项）。
 
 ---
 
@@ -1233,7 +1233,7 @@ MCP：[`create-server.ts`](../src/mcp/create-server.ts) 注册 `visa_requirement
 - **grounded**（pool 非空）：LLM 从池挑，池校验，可排程。
 - **ungrounded**（pool 空）：LLM 按目的地参数化生成，仅展示。
 
-`travel_tips` 复用 `findIconicPlaces`，可在 discover 之前独立调用。
+`travel_tips` 复用 `findIconicPlaces`。工具本身仍可在无池时独立调用（MCP / 仅贴士场景）。**2play Plan 主路径不在助手问答期调用 `travel_tips`**；贴士四卡在骨架写入之后，见 [§23](#23-宿主生成行程的调用契约2026-09-02)。
 
 ### 20.2 模块布局（目标）
 
@@ -1254,35 +1254,58 @@ MCP：`create-server.ts` 注册 `travel_tips`。`findIconicPlaces` 为 core 内�
 ```ts
 export type FindIconicPlacesInput = {
   destination: string;
+  city?: string;                 // as-built 入参名；与 destination 同义
   pool?: PlaceCard[];
   limit: number;
   locale?: Locale;
+  numDays?: number;              // MVP-17：≥3 时 ungrounded 须含附近一日游地区名
   _testChatCreate?: ItineraryChatCreate;
 };
 export type FindIconicPlacesResult = { names: string[]; grounded: boolean };
 ```
 
 - grounded：prompt 不含目的地名（沿用 ADR-042 现有约定），LLM 从池挑，`normalizeMustIncludeToken` 校验。
-- ungrounded：prompt 含目的地名（不排程，无对账问题），LLM 参数化生成。
+- ungrounded：prompt 含目的地名（不排程，无对账问题），LLM 参数化生成。**`numDays >= 3`：** 须同时列出附近一日游**地区名**与城内地标（知识在 LLM 权重，禁止源码城市表）。
 - 失败返回 `[]`，不阻塞调用方。
+- **展示名单真源（MVP-17 过渡）：** `travel_tips` 响应 `iconic_places`。**MVP-18：** 真源为 Trip `artifacts.tips.iconic_places`，宿主 `fetch_trip_details`。
+- discover 并行调用本方法仅用于补搜/`must_see` 打标，**不得**用 `inferred_must_see` 替换展示名单。
+- **排序质量（Feature 74，MVP-18 P1）：** 见 §20.11。禁止城市 POI 表。
 
 ### 20.4 discover_places 改造流程
 
 ```
-Phase A 并行: findIconicPlaces(destination, limit=3) || searchCandidatePools(类目)
-Phase B: 匹配 iconic ∪ user_must_include → matched / unmatched
-Phase C: unmatched 名补搜 name-search job → 进池
-Phase D: 命中卡片 must_see=true；返回 pool(带 must_see) + inferred_must_see
+Phase A: searchCandidatePools（类目供应商搜；0 LLM）
+Phase B: 2play init（F41 S2）— 内部 `findIconicPlaces({ pool, limit: max_number 默认 5 })` **只对 Phase A 已建池**按热度打 `must_see`（`user_ratings_total`，缺则 `rating`）。**不再**调供应商搜附近热点、**不再** LLM 从池外提名。不升 HTTP。
+Phase C: 用户 must_include（若本次请求带了）只补搜进池 + 可选 user_requested；不得关掉已有 must_see
+Phase D: 双写 candidates（保留评分字段）；inferred_must_see 仅信封、等于 must_see 名列表
 ```
 
-墙钟 ≈ 12-13s（并行 + 补搜），优于现状 ~13-15s。
+**MVP-20 F41 S2：** 2play 起飞 discover **不带** `must_include`。打标 = 池内热度（默认 5）。`travel_tips` **无池**路径仍可 ungrounded LLM。禁止 HTTP `find_iconic_places`。禁止为打标再搜 POI。
+
+禁止：用用户 3 处覆盖池上 8 处 `must_see`。正交规则见 §20.12 / §24。
+
+### 20.11 findIconicPlaces 知名度与近郊日游（MVP-18 Feature 74）
+
+**问题：** 多天行程 ungrounded 名单可能挤满城内地标，近郊日游目的地（供应商池里已有、游客常去）排不进展示列表。补搜（§20.4 C）只保证「被点名的名字能进池」，**不保证**「该被点名」。
+
+**机制（目的地无关，ADR-042）：**
+
+1. **Ungrounded（已有）：** `numDays >= 3` 的 prompt 要求附近一日游**地区名** + 城内地标；limit 随 `iconicLimitForTripDays`。
+2. **入池后再选（本 Feature）：** Phase A 类目搜索结束后，对 **attraction 池** 再跑一次 **grounded** `findIconicPlaces`（或同等排序）：LLM 只从池内挑；并列时用卡片上已有供应商信号（如 `user_ratings_total` / rating，有则用、无则跳过），**不**在源码写城市→POI。
+3. **合并展示名单：** 写入 `artifacts` 的有序列表 = ungrounded 日游名 ∪ grounded 池内热门，去重截断；discover 补搜仍按 unmatched 名执行。
+4. **验收：** 非目录城市与热门城市同一套代码路径。Lisbon live **允许**出现卡斯凯什/辛特拉类地区名；测试 **禁止** assert 源码 CATALOG 或硬编码城市表。
+
+**不在本 Feature：** 注册 HTTP `find_iconic_places`；热度包/外部 publishable pack（仍属 ADR-042 允许的远期替代）。
 
 ### 20.5 PlaceCard.must_see 字段
 
 ```ts
 // core/types.ts
-must_see?: boolean;   // true=必去（LLM iconic ∪ user must_include 合并）
+must_see?: boolean;        // 热门 / iconic（discover 热度打标）。用户名单不得将其改回 false
+user_requested?: boolean;  // 可选：此卡也是 constraints.must_include 命中（只加不减 must_see）
 ```
+
+用户指定名单的权威存放：`Trip.constraints.must_include: string[]`（原始说法）。不新建 POI 表。
 
 非破坏性，只在 discover 流程内赋值。`make_itinerary` / `arrange_day` 直接读，无需独立 `must_include` 对账。展示层可渲染"必去"徽章。
 
@@ -1311,7 +1334,7 @@ must_see?: boolean;   // true=必去（LLM iconic ∪ user must_include 合并�
 ```ts
 {
   intro: string;                  // ≤80 字
-  iconic_places: string[];         // ≤3；附 grounded 标志（ungrounded 供展示层标注「未验证」）
+  iconic_places: string[];         // findIconicPlaces 返回；2play 贴士 01 与助手 g **同一有序数组**；limit 随 numDays 缩放，不再写死 3
   transit: string;
   weather: WeatherSummary;         // open-meteo 聚合；失败降级
   clothing: string;
@@ -1321,7 +1344,9 @@ must_see?: boolean;   // true=必去（LLM iconic ∪ user must_include 合并�
 
 **天气聚合（多日）：** severity 取全段最差值（fair < caution < adverse < severe）；drivers 全段并集去重；temperature 为 `[min(逐日最低), max(逐日最高)]` 区间。单日直接用当日预报。
 
-**20s 超时与并行降级：** geocode+weather 与 findIconicPlaces 并行，tips-prose 在两者完成后执行。外层 `AbortSignal.timeout(20_000)`；分步超时：geocode 3s、weather 3s、findIconicPlaces 12s、tips-prose 10s。weather/findIconicPlaces 超时降级（缺了仍返回其余），tips-prose 超时报 `errors.travel_tips_timeout`。
+**20s 超时与并行降级（MVP-12 as-built）：** geocode+weather 与 findIconicPlaces 并行；tips-prose 若仍在写路径执行，则在两者完成后。外层 `AbortSignal.timeout(20_000)`；分步超时：geocode 3s、weather 3s、findIconicPlaces 12s、tips-prose 10s。weather/findIconicPlaces 超时降级。
+
+**MVP-18 F76 覆盖：** tips-prose 超时或失败 → **HTTP 200**（只要 iconic 分支有 names）；`dualWriteTrip` 仍写入 `artifacts.tips.iconic_places`；intro/transit/clothing/safety 可空。仅 iconic 与工具整体都失败时 502。**2play 不得用本工具响应体渲染贴士**（§22.3）。
 
 **LLM 参数：** findIconicPlaces `max_tokens 300, temperature 0.3`；tips-prose `max_tokens 900, temperature 0.4, stream:false`。均 `AbortSignal` 硬中断。
 
@@ -1436,8 +1461,9 @@ Trip
 
 | 宿主 | 策略 |
 | --- | --- |
-| where2play | 同 schema 本地 hydrate；apply patch |
-| Cursor / ChatBox | 弱镜像（`trip_id` + 摘要）；细节 fetch |
+| **任何 HTTP 客户端** | **硬性：** 写后读行程必须 `POST /v1/fetch_trip_details`（`trip_id` + `fields[]`，可选 `day_index`）。写信封不得当骨架/池/约束/filled/artifacts 真源。不设 `info_id`。 |
+| where2play | **MVP-18：** 每步写工具返回后 `fetch_trip_details`；本地 hydrate 以 fetch 切片为准。写响应里的 patch 可作乐观更新，冲突以 fetch 为准。 |
+| Cursor / ChatBox | 弱镜像（`trip_id` + 摘要）；细节 fetch。MCP 可看写信封，**不**豁免 HTTP。 |
 
 ### 21.7 与 §18 as-built 的关系
 
@@ -1458,5 +1484,204 @@ Trip
 - 真双主无 revision
 - 对外 `patch_skeleton` / 新增 `start_trip`
 - 默认按日并发骨架冒充加速
+- HTTP 客户端用写工具信封渲染行程事实（须 `fetch_trip_details`）
 
 ---
+
+## 22. MVP-18 规划主干读模型 + artifacts（Feature 75–77）
+
+**真源：** `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 18。
+
+### 22.1 写 / 读分工
+
+| 步骤 | 写工具 | 写入字段 | 随后 fetch `fields` |
+| --- | --- | --- | --- |
+| 池 + 热门打标 | `discover_places`（MVP-19：池后热度；内部 iconic 不用于 2play 芯片） | `candidates`（`must_see` + 评分）、`constraints` 片段 | `candidates`（芯片 = `must_see`） |
+| 骨架 | `make_itinerary` | `skeleton` | `skeleton` |
+| 贴士四卡 | `travel_tips`（**make 之后**；优先传 `skeleton`） | `artifacts.tips` | `artifacts` |
+| 填站 | `plan_next_stop` | `filled`, `cursor`；内部可 `patchSkeleton` | `filled`, `cursor` |
+| 签证 | `visa_requirement` | `artifacts.visa` | `artifacts` |
+
+懒创建：无 `trip_id` 的第一次写创建账本。2play 必须保存并回传 `trip_id` + `revision`。
+
+### 22.2 时刻容错（Feature 77，ABC）
+
+| 层 | 位置 | 行为 |
+| --- | --- | --- |
+| A | 2play intake 步骤 c | 解析 `7:00 am`、`7am`、`早上七点`、`七点半` 等 → `HH:MM`；失败 → `09:00` 并可用 i18n 提示已按默认理解 |
+| B | BFF `normalizeAgentTime` | 与 A 同一套函数；发出 `time_from` / `end_time` 前必须已是 `HH:MM` |
+| C | agent `planNextStopBody` preprocess | `9:00` → `09:00`；能解析的口语同样收；不能解析才 `invalid_input` |
+
+### 22.3 artifacts：tips / visa（Feature 76）
+
+**`travel_tips` dispatch：** `dualWriteTrip` patch `artifacts` 合并（不抹掉已有 visa）。写路径可调用 `findIconicPlaces`、open-meteo；tips-prose 若运行，其输出**只入库**，不是 2play 的读 API。载荷建议：
+
+```ts
+artifacts.tips = {
+  iconic_places: string[];
+  iconic_grounded?: boolean;
+  intro?: string;
+  transit?: string;
+  clothing?: string;
+  safety?: string;
+  weather?: unknown;
+}
+```
+
+散文 LLM 超时或失败：仍 **HTTP 200**，`iconic_places` 以 iconic 分支结果写入；intro 等可空。仅当 iconic 与工具整体都失败时 502。
+
+**`visa_requirement` dispatch：** Orizn adapter 结构化结果写入 `artifacts.visa`（label/detail/outcome）。无国籍则降级写入「不可用」类结构化字段，不编造。不经 LLM 拼签证散文。
+
+**HTTP 第三方（强制，含 2play）：** 贴士四卡、签证卡、骨架卡、芯片、约束条 **只读** `fetch_trip_details` 对应 `fields`。步骤 g 芯片 **只读** fetch 的 `candidates` 上 `must_see`。禁止：用写工具 HTTP 体填行程 UI；用 BFF OPENAI_CN 再写介绍/着装/安全。MCP 宿主可检查写信封，HTTP 调用方不可。
+
+完整宿主顺序见 [§23](#23-宿主生成行程的调用契约2026-09-02)。
+
+### 22.4 反模式
+
+- 2play 用 `travel_tips` / `visa_requirement` / 本地 LLM 散文当行程 UI 真源（须 fetch）
+- 2play 在助手步骤 g 用 ungrounded `travel_tips` 当必去芯片（须等 `discover_places` 打标后的池）
+- 2play 用 `travel_tips` 响应体贴士散文且不写库
+- 为通过质量关卡在 AC/测试中点名真实城镇（与 CATALOG 同类欺诈）
+- `plan_next_day` 新工具；对外暴露 `patch_skeleton`
+
+---
+
+## 23. 宿主生成行程的调用契约（2026-09-02）
+
+本节规定 **places-agent 工具怎么串**，以及 **可控宿主（2play）应怎样编排**。工具语义仍以 §18–§22、[ADR-045](../../workspace-specs/adr/ADR-045-iconic-places-unified-acquisition.md)、[ADR-046](../../workspace-specs/adr/ADR-046-trip-store-pg-memory-fetch.md) 为准。`findIconicPlaces` **不是** HTTP/MCP 工具。`patch_skeleton` **不是**对外工具。
+
+### 23.1 对产品命题的评估
+
+| 命题 | 结论 |
+| --- | --- |
+| 起飞栏填完点「规划行程」就应开始 `discover_places`，出 stops 池，并在内部找到必去地 | **采纳（2play）**。**MVP-19：** 先类目池再热度打 `must_see`（F79）；酒店未答则无 `origin`。用户 `must_include` 进 `constraints`，不覆盖热门标（F82）。 |
+| 贴士四卡应在 `make_itinerary` 出骨架之后再写、再展示 | **采纳（2play UI）**。贴士需要骨架站名才能 grounded；与「步骤 g 芯片」拆开。ADR-045 仍允许无行程时单独调 `travel_tips`（MCP / 仅贴士），**不是** 2play Plan 主路径。 |
+| intake 与 `discover_places` 并行；步骤 g 等 discover（含内部 iconic）完成后再展示芯片 | **采纳**。芯片 = 已打标、已补搜进池的 grounded 名。墙钟上 discover ≈ 12s，用户走完 b–f 通常已够；走得快则步骤 g 显示加载，**禁止**用无池 LLM 名单先填芯片。 |
+| `make_itinerary` 必须带池、带必去标志 | **强制**。空 `candidates` 不得覆盖 Trip 已有池（见 dispatch）；宿主更不得在空池上调用 make。 |
+| 循环 `plan_next_stop`（内部可 `patchSkeleton`）+ 每站 `fetch_trip_details` | **采纳读模型**。宿主 **不**调用 `patch_skeleton`。内部 patch 仅限餐时段/微调顺序（ADR-046 D9）；大改仍重跑 `make_itinerary`。 |
+
+### 23.2 工具职责（所有宿主共用）
+
+| 工具 | 宿主何时调 | 内部要点 | 写 Trip | 2play 随后 fetch |
+| --- | --- | --- | --- | --- |
+| `geocode` | 有酒店/区域名时（2play：助手 b 之后、make 之前） | 0 LLM | 否 | — |
+| `discover_places` | 2play：点「规划行程」即发（与问答并行）。MCP：无 UI 则在 make 前必调 | 内部 `findIconicPlaces` + 类目池 + 补搜 + `must_see` | `candidates`、constraints 片段 | `candidates` |
+| `make_itinerary` | 约束收齐且池非空 | LLM 骨架；读卡片 `must_see` | `skeleton`；**非空**才 patch `candidates` | `skeleton` |
+| `travel_tips` | **2play：make + fetch 骨架之后**。MCP：可随时，与 fill 无关 | 有 skeleton → grounded iconic；tips-prose 只入库 | `artifacts.tips` | `artifacts` |
+| `visa_requirement` | 有护照国籍 + 目的地国时，可与贴士同窗 | Orizn，无 LLM | `artifacts.visa` | `artifacts` |
+| `plan_next_stop` | 沿骨架逐站直至 `trip_complete` | 无 LLM 填时刻与交通；写侧含 display | `filled`、`cursor` | `filled`、`cursor` |
+| `fetch_trip_details` | 每次写后按需 | 只读 | — | 即本次读 |
+
+`trip_id` 懒创建：第一次需要账本的写（通常是 `discover_places`）返回 `trip_id` + `revision`；后续一律带上。
+
+### 23.3 推荐顺序（逻辑）
+
+```text
+[城市级] discover_places（池后热度 must_see）──┐
+                                    ├── 步骤 g：fetch candidates（芯片=must_see；用户 3 处→must_include）
+[可选] geocode(酒店)               ──┘
+         ↓
+make_itinerary(candidates 精简 + must_include + origin?)
+         ↓
+fetch skeleton → 主区/助手骨架预览
+         ↓
+travel_tips(skeleton 或 trip 上骨架) + 可选 visa → fetch artifacts → 贴士四卡
+         ↓
+loop: plan_next_stop → fetch filled/cursor → 上屏
+         ↓
+trip_complete
+```
+
+MCP / e2e 脚本无助手 UI：`geocode?` → `discover_places` → `make_itinerary` → `plan_next_stop`*；`travel_tips` 可选、不挡 fill。见 [`e2e-test.md`](./e2e-test.md)。
+
+### 23.4 例子：where2play Plan
+
+实现细节与图：[2play-design.md §4.10](../../3.where2play/2play-specs/2play-design.md)。要点：
+
+1. 用户提交起飞栏（目的地、日期、天数、人数、预算）→ 打开助手（b–h）。
+2. **同一时刻** BFF `POST /v1/discover_places`（`city`、`numDays`、`bounds`、`providers`、`locale`；尚无酒店则无 `origin`）。保存 `trip_id`/`revision`。
+3. 问答 b–f 与 discover **并行**。助手 b 非空酒店：BFF **`search_places`（address=目的地）** 确认起点，禁止无城市酒店 `geocode`（ADR-048）。**不重跑** discover。
+4. 步骤 g：若 discover/fetch 未完成 → 加载文案、无芯片。完成后芯片 = fetch `candidates.places` 中 `must_see===true` 的 `name`（去重、上限与 `iconicLimitForTripDays` 一致）。用户多选或默认「使用推荐必去点」。
+5. 步骤 h 结束 → `make_itinerary`：HTTP body 带 **discover 的精简池**（含 `must_see`、坐标、热度字段），`must_include` = 用户所选（空则用 grounded 推断列表）。禁止空池。
+6. `fetch_trip_details` `skeleton`：助手预览 + 主列表；**仅当 store 站数 ≥ 写包络站数** 才用 store 覆盖。
+7. `travel_tips`（传 skeleton 或等价池）→ fetch `artifacts` → **此时**才展示贴士板块。
+8. `plan_next_stop` 循环；每站 fetch `filled`/`cursor` 再画 slot。
+
+### 23.5 宿主反模式
+
+- 空 `candidates` 调用 `make_itinerary`（会得到仅住宿骨架，并曾把 Trip 池写成空）。
+- 用 fetch 的贫骨架覆盖更完整的 make 包络。
+- 把 `findIconicPlaces` 当成可调工具；把 `patch_skeleton` 当成 HTTP/MCP。
+- 步骤 g 用无池 `travel_tips` 芯片；贴士四卡在骨架之前展示成「已规划」。
+- 用 `discover.inferred_must_see` 或 `make_itinerary` **HTTP 包络直接渲染**且不 fetch（任何 HTTP 客户端）；MCP 可读包络。
+- 用用户 `must_include` 重写池上 `must_see`（把 8 处热门收成 3 处）。
+- make 502 后不 `fetch(skeleton)` 就当「无骨架」；旁路写成功却指望 agent 推送给已断流的 UI。
+
+---
+
+## 24. MVP-19 — 超时可恢复、热度打标正交、骨架硬闸（ToDo）
+
+**真源：** `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 19 · [`e2e-test-results/reproduce.md`](./e2e-test-results/reproduce.md) · Feature **78–82**。2play 编排与助手文案：[2play-design.md §4.10–§4.11](../../3.where2play/2play-specs/2play-design.md)。
+
+### 24.1 复现结论（合同）
+
+- 池不空（例：40/37）。第一次 make ~160s **502**；第二次 ~13s **3 日多站**。
+- 「每天只有酒店」主因是 **make 超时断流** + 行程板只画已 fill 的 stay，不是空池。
+- Agent **无 Trip watch**。当次调用方有信封；已断的 `/api/plan` 不会被通知。
+
+### 24.2 Feature 78 — make 墙钟
+
+- LLM / 工具超时 **必须短于** 反向代理与 2play `maxDuration`。
+- 失败不得写入「成功且仅 stay」的骨架。
+- 宿主：make 非 200 时对同一 `trip_id` **fetch skeleton**；有合法多站骨架则续 fill，否则错误态。
+
+### 24.3 Feature 79 — 池后热度打标
+
+见 §20.4 新顺序。slim **必须**保留 `user_ratings_total` / `rating`。芯片 = fetch `must_see` 按热度序。无城市表。
+
+### 24.4 Feature 80 — 骨架校验
+
+- `must_include` 只对 **stop.name**（可 `stripAreaSuffix`），**不含** `day_theme`。
+- 池 attraction 数 ≥ `min(3, places.length)` 时：每天至少 1 个 `kind !== stay`。
+- 骨架站名用池内官方名；中文必去用 coverage 对齐。
+
+### 24.5 Feature 81 — 观察者只有 fetch
+
+**不新增** SSE、Redis pub/sub、Trip watch 或任何服务端推送。写工具只回当次调用方；断流后宿主须 **主动** `fetch_trip_details` 续读账本。
+
+合同：同一编排流内写 → fetch → 下一步。2play `PlanSessionCache` 必须持久化 `trip_id` + `revision`（`criteriaJson.tripId` / `criteriaJson.revision`）；`GET /api/plan/current` 在有 `trip_id` 时再 fetch skeleton/filled 恢复 UI。
+
+### 24.6 Feature 82 — iconic ≠ 用户必去
+
+| 存放 | 字段 | 谁写 | 谁读 |
+| --- | --- | --- | --- |
+| 池 | `candidates.places[].must_see` | 仅 discover 热度 | 步骤 g 芯片、贴士可对齐 |
+| 意图 | `constraints.must_include` | make / intake 后 patch | make 硬约束、约束条 |
+| 池（可选） | `user_requested` | 补搜/对齐用户名 | 排程提示 |
+
+**禁止**将 8 处 `must_see` 改写成用户 3 处。不新建 POI 实体。
+
+### 24.7 与 2play 同流（摘要）
+
+```text
+CTA → discover（热度 must_see）∥ intake
+  → g：等 fetch candidates（芯片=must_see；用户 3 处另存 mustInclude）
+  → 助手：「现在我了解您的要求了…」→ make → fetch skeleton
+  → 助手用 fetch 骨架打文字（每日多站可见）
+  → 「大致行程已经安排完毕…」
+  → loop plan_next_stop → fetch → 助手一行（含 transit）+ 主区 slot
+  → 「[目的地][天数][人数][类型]行程已规划完毕…」
+```
+
+`filled` 仍为当前一站覆盖。主区累加 NDJSON/`itinerary`；fetch 用于 revision 与诚实读。
+
+### 24.8 Feature 84 — eligible attraction + 内部 `patchTrip`
+
+**谓词** `isEligibleAttraction`（`src/core/eligible-attraction.ts`）：有限 lat/lng；名称非合称模板（十景/名胜区/风景区/旅游区等，**非**城表）；非餐馆信号；若 `sources.length>0` 则至少一个 `native_id`。Slim 入库卡无 sources 时不因缺 id 淘汰。discover / iconic / make 入模共用。零 `get_place_details`。
+
+**Discover：** `filterAttractionPlaces` 之后再 `filterEligibleAttractions`。Phase C / F57 对合称 token **跳过**。
+
+**Make：** `enrichMakeItineraryInput` 滤池；`degradeMustInclude` 后校验。餐站不要求店名在餐厅池。`dropUnknownAttractionStops` 丢掉 LLM 发明的池外景点（如「白堤」），不整单 502。写 Trip 候选用 `commitPatch(..., candidatesWrite: "replace")`，避免 merge 把脏卡合回来。
+
+**内部 `patchTrip`：** `commitPatch` 别名；默认可 merge（F82 保热度）；`replace` 整表替换 `places`/`restaurants`。HTTP `patch_trip` **保持只改 constraints**（既有 2play），不升为修池 API。
+

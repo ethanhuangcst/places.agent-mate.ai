@@ -1,0 +1,386 @@
+{
+  "base": "http://localhost:3010",
+  "city": "里斯本",
+  "hotel": "Hills Hotel Lisboa",
+  "steps": {
+    "geocode_hotel_name_only": {
+      "http": 200,
+      "ok": true,
+      "lat": 22.186785,
+      "lng": 113.549525,
+      "ms": 509
+    },
+    "discover": {
+      "http": 200,
+      "ok": true,
+      "trip_id": "cmtl6zgnz00034ei2y6l56j36",
+      "revision": 2,
+      "n_places": 40,
+      "n_restaurants": 37,
+      "ms": 1194,
+      "outcome": null
+    },
+    "make_origin_name_only": {
+      "http": 200,
+      "ok": true,
+      "outcome": null,
+      "error": null,
+      "trip_id": "cmtl6zgnz00034ei2y6l56j36",
+      "revision": 3,
+      "ms": 17522,
+      "skeleton_summary": {
+        "n_days": 4,
+        "stay_only": false,
+        "days": [
+          {
+            "day_index": 1,
+            "day_theme": "阿尔法玛与历史中心精华",
+            "n_stops": 6,
+            "kinds": [
+              "stay",
+              "attraction",
+              "attraction",
+              "meal",
+              "attraction",
+              "attraction"
+            ],
+            "names": [
+              "Hills Hotel Lisboa",
+              "圣若热城堡",
+              "卡尔莫修道院",
+              "Velha Gaiteira",
+              "里斯本主教座堂",
+              "罗马剧场博物馆"
+            ]
+          },
+          {
+            "day_index": 2,
+            "day_theme": "贝伦文化区",
+            "n_stops": 6,
+            "kinds": [
+              "stay",
+              "attraction",
+              "attraction",
+              "meal",
+              "attraction",
+              "attraction"
+            ],
+            "names": [
+              "Hills Hotel Lisboa",
+              "贝伦塔",
+              "热罗尼莫斯修道院",
+              "Feitoria",
+              "发现者纪念碑",
+              "国家马车博物馆"
+            ]
+          },
+          {
+            "day_index": 3,
+            "day_theme": "西边观景与现代艺术",
+            "n_stops": 6,
+            "kinds": [
+              "stay",
+              "attraction",
+              "attraction",
+              "meal",
+              "attraction",
+              "attraction"
+            ],
+            "names": [
+              "Hills Hotel Lisboa",
+              "Our Lady of the Mount Viewpoint",
+              "MAAT - Museum of Art, Architecture and Technology",
+              "PUT IT ON LISBON",
+              "里斯本海洋水族馆",
+              "Cais das Colunas"
+            ]
+          },
+          {
+            "day_index": 4,
+            "day_theme": "辛特拉日游（远距单日主题）",
+            "n_stops": 5,
+            "kinds": [
+              "stay",
+              "attraction",
+              "attraction",
+              "meal",
+              "attraction"
+            ],
+            "names": [
+              "Hills Hotel Lisboa",
+              "佩纳宫",
+              "雷加莱拉宫",
+              "东方滋味",
+              "克卢什国家宫"
+            ]
+          }
+        ]
+      },
+      "skeleton": {
+        "days": [
+          {
+            "day_index": 1,
+            "date": "2024-06-01",
+            "day_theme": "阿尔法玛与历史中心精华",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              },
+              {
+                "name": "圣若热城堡",
+                "kind": "attraction"
+              },
+              {
+                "name": "卡尔莫修道院",
+                "kind": "attraction"
+              },
+              {
+                "name": "Velha Gaiteira",
+                "kind": "meal",
+                "meal_slot": "lunch"
+              },
+              {
+                "name": "里斯本主教座堂",
+                "kind": "attraction"
+              },
+              {
+                "name": "罗马剧场博物馆",
+                "kind": "attraction"
+              }
+            ]
+          },
+          {
+            "day_index": 2,
+            "date": "2024-06-02",
+            "day_theme": "贝伦文化区",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              },
+              {
+                "name": "贝伦塔",
+                "kind": "attraction"
+              },
+              {
+                "name": "热罗尼莫斯修道院",
+                "kind": "attraction"
+              },
+              {
+                "name": "Feitoria",
+                "kind": "meal",
+                "meal_slot": "lunch"
+              },
+              {
+                "name": "发现者纪念碑",
+                "kind": "attraction"
+              },
+              {
+                "name": "国家马车博物馆",
+                "kind": "attraction"
+              }
+            ]
+          },
+          {
+            "day_index": 3,
+            "date": "2024-06-03",
+            "day_theme": "西边观景与现代艺术",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              },
+              {
+                "name": "Our Lady of the Mount Viewpoint",
+                "kind": "attraction"
+              },
+              {
+                "name": "MAAT - Museum of Art, Architecture and Technology",
+                "kind": "attraction"
+              },
+              {
+                "name": "PUT IT ON LISBON",
+                "kind": "meal",
+                "meal_slot": "lunch"
+              },
+              {
+                "name": "里斯本海洋水族馆",
+                "kind": "attraction"
+              },
+              {
+                "name": "Cais das Colunas",
+                "kind": "attraction"
+              }
+            ]
+          },
+          {
+            "day_index": 4,
+            "date": "2024-06-04",
+            "day_theme": "辛特拉日游（远距单日主题）",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              },
+              {
+                "name": "佩纳宫",
+                "kind": "attraction"
+              },
+              {
+                "name": "雷加莱拉宫",
+                "kind": "attraction"
+              },
+              {
+                "name": "东方滋味",
+                "kind": "meal",
+                "meal_slot": "lunch"
+              },
+              {
+                "name": "克卢什国家宫",
+                "kind": "attraction"
+              }
+            ]
+          }
+        ]
+      },
+      "fetch": {
+        "ok": true,
+        "skeleton_summary": {
+          "n_days": 0,
+          "stay_only": false,
+          "days": []
+        },
+        "origin": null,
+        "n_places": 0,
+        "n_restaurants": 0
+      }
+    },
+    "discover_b": {
+      "http": 200,
+      "ok": true,
+      "trip_id": "cmtl6zv8900044ei2mffochql",
+      "revision": 2,
+      "n_places": 40,
+      "ms": 1334
+    },
+    "make_origin_with_geocode_coords": {
+      "http": 200,
+      "ok": true,
+      "outcome": null,
+      "error": null,
+      "trip_id": "cmtl6zv8900044ei2mffochql",
+      "revision": 3,
+      "ms": 7202,
+      "skeleton_summary": {
+        "n_days": 4,
+        "stay_only": true,
+        "days": [
+          {
+            "day_index": 1,
+            "day_theme": "贝伦经典",
+            "n_stops": 1,
+            "kinds": [
+              "stay"
+            ],
+            "names": [
+              "Hills Hotel Lisboa"
+            ]
+          },
+          {
+            "day_index": 2,
+            "day_theme": "阿尔法玛与城堡",
+            "n_stops": 1,
+            "kinds": [
+              "stay"
+            ],
+            "names": [
+              "Hills Hotel Lisboa"
+            ]
+          },
+          {
+            "day_index": 3,
+            "day_theme": "辛特拉一日游",
+            "n_stops": 1,
+            "kinds": [
+              "stay"
+            ],
+            "names": [
+              "Hills Hotel Lisboa"
+            ]
+          },
+          {
+            "day_index": 4,
+            "day_theme": "里斯本现代文化",
+            "n_stops": 1,
+            "kinds": [
+              "stay"
+            ],
+            "names": [
+              "Hills Hotel Lisboa"
+            ]
+          }
+        ]
+      },
+      "skeleton": {
+        "days": [
+          {
+            "day_index": 1,
+            "date": "2024-06-01",
+            "day_theme": "贝伦经典",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              }
+            ]
+          },
+          {
+            "day_index": 2,
+            "date": "2024-06-02",
+            "day_theme": "阿尔法玛与城堡",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              }
+            ]
+          },
+          {
+            "day_index": 3,
+            "date": "2024-06-03",
+            "day_theme": "辛特拉一日游",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              }
+            ]
+          },
+          {
+            "day_index": 4,
+            "date": "2024-06-04",
+            "day_theme": "里斯本现代文化",
+            "stops": [
+              {
+                "name": "Hills Hotel Lisboa",
+                "kind": "stay"
+              }
+            ]
+          }
+        ]
+      },
+      "fetch": {
+        "ok": true,
+        "skeleton_summary": {
+          "n_days": 0,
+          "stay_only": false,
+          "days": []
+        },
+        "origin": null,
+        "n_places": 0,
+        "n_restaurants": 0
+      }
+    }
+  }
+}

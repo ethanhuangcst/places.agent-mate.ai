@@ -1,3 +1,4 @@
+import { coerceAgentTime } from "../core/coerce-agent-time";
 import { z } from "zod";
 import { normalizeProviderId } from "../core/providers";
 import { ItinerarySkeletonSchema } from "../core/make-itinerary";
@@ -7,6 +8,11 @@ export const localeSchema = z.enum(["EN", "CN", "HK", "TW"]);
 export const providerIdSchema = z.preprocess(
   (val) => (typeof val === "string" ? normalizeProviderId(val) ?? val : val),
   z.enum(["GOOGLE_MAPS", "AMAP", "TRIPADVISOR"]),
+);
+
+const hhmm = z.preprocess(
+  (val) => (typeof val === "string" ? coerceAgentTime(val, "09:00") : val),
+  z.string().regex(/^\d{2}:\d{2}$/),
 );
 
 const shared = {
@@ -123,6 +129,9 @@ export const discoverPlacesBody = z.object({
   origin: originSchema,
   numDays: z.number().int().min(1).max(14).optional(),
   must_include: z.array(z.string()).optional(),
+  max_number: z.number().int().min(1).max(12).optional(),
+  party_size: z.number().int().min(1).max(20).optional(),
+  budget: z.string().optional(),
   ...shared,
 });
 
@@ -253,24 +262,48 @@ const planNextStopPointSchema = z.object({
   meal_slot: z.enum(["lunch", "afternoon_tea", "dinner"]).optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
-  end_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  end_time: hhmm.optional(),
 });
 
-export const planNextStopBody = z.object({
-  current_stop: planNextStopPointSchema,
-  next_stop: planNextStopPointSchema,
-  candidates: z
-    .object({
-      places: z.array(z.object({ name: z.string() }).passthrough()),
-      restaurants: z.array(z.object({ name: z.string() }).passthrough()),
-    })
-    .optional()
-    .default({ places: [], restaurants: [] }),
-  transit_preference: z.string().optional(),
-  city: z.string().optional(),
-  ...shared,
-});
+export const planNextStopBody = z
+  .object({
+    origin_mode: z.boolean().optional(),
+    with_stop_display: z.boolean().optional(),
+    current_stop: planNextStopPointSchema.optional(),
+    next_stop: planNextStopPointSchema,
+    candidates: z
+      .object({
+        places: z.array(z.object({ name: z.string() }).passthrough()),
+        restaurants: z.array(z.object({ name: z.string() }).passthrough()),
+      })
+      .optional()
+      .default({ places: [], restaurants: [] }),
+    transit_preference: z.string().optional(),
+    city: z.string().optional(),
+    previous_stop: z
+      .object({
+        name: z.string().optional(),
+        end_time: hhmm.optional(),
+        kind: z.enum(["stay", "attraction", "meal"]).optional(),
+      })
+      .optional(),
+    legs_to_here: z.array(z.any()).optional(),
+    time_from: hhmm.optional(),
+    stay_role: z.enum(["day_origin", "return", "midday"]).optional(),
+    default_duration_min: z.number().int().min(10).max(480).optional(),
+    ...shared,
+  })
+  .superRefine((data, ctx) => {
+    if (!data.origin_mode && !data.current_stop) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "current_stop required unless origin_mode",
+        path: ["current_stop"],
+      });
+    }
+  });
 
+/** @deprecated F65 — merged into plan_next_stop; kept for schema tests only. */
 export const displayCurrentStopBody = z.object({
   stop: planNextStopPointSchema,
   candidates: z
@@ -283,13 +316,13 @@ export const displayCurrentStopBody = z.object({
   previous_stop: z
     .object({
       name: z.string().optional(),
-      end_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+      end_time: hhmm.optional(),
       kind: z.enum(["stay", "attraction", "meal"]).optional(),
     })
     .optional(),
   legs_to_here: z.array(z.any()).optional(),
   default_duration_min: z.number().int().min(10).max(480).optional(),
-  time_from: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  time_from: hhmm.optional(),
   stay_role: z.enum(["day_origin", "return", "midday"]).optional(),
   ...shared,
 });
@@ -331,3 +364,11 @@ export const fetchTripDetailsBody = z.object({
 });
 
 export type FetchTripDetailsBody = z.infer<typeof fetchTripDetailsBody>;
+
+export const patchTripBody = z.object({
+  ...shared,
+  trip_id: z.string().min(1),
+  constraints: z.record(z.string(), z.unknown()),
+});
+
+export type PatchTripBody = z.infer<typeof patchTripBody>;

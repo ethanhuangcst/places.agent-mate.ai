@@ -277,6 +277,21 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
     expect(JSON.stringify(slim)).not.toMatch(/SECRET/);
   });
 
+  it("TC-M19-79-02 should_keep_user_ratings_total_in_slimArrangeCandidate", () => {
+    const fat: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "Sample Attraction",
+      category: "tourist_attraction",
+      rating: 4.7,
+      user_ratings_total: 18_500,
+      location: { lat: 0, lng: 0, crs: "WGS84" },
+      sources: [],
+    };
+    const slim = slimArrangeCandidate(fat);
+    expect(slim.user_ratings_total).toBe(18_500);
+    expect(slim.rating).toBe(4.7);
+  });
+
   it("should_normalize_sources_object_to_array_without_throwing", () => {
     const card = {
       provider: "GOOGLE_MAPS",
