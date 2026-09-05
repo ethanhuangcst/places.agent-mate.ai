@@ -292,7 +292,7 @@ python3 scripts/e2e-places-agent.py               # 全部 30 个（约 17 分�
 - 回归：01-lisbon Day2。
 
 ### S8 [RC5] Leg 地理/时长闸 — Feature **60**
-- 范围：`resolvePoint` geocode 带 city；距 anchor >80km 丢弃；duration>180 不进时钟；骨架拒区域名单站。
+- 范围：`resolvePoint` geocode 带 city；距 anchor >80km 丢弃；duration>120 不进时钟（F88）；骨架拒区域名单站。
 - 验收：Lisbon 无 39624min；裸 `Belem` 不单独成站。
 - 回归：01-lisbon Day1。
 

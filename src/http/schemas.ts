@@ -19,6 +19,8 @@ const shared = {
   providers: z.array(providerIdSchema).optional(),
   locale: localeSchema.optional(),
   locales: z.array(localeSchema).optional(),
+  /** Google place searchText locationBias radius (max 50000). Ignored for restaurants. */
+  bias_radius_m: z.number().positive().max(50_000).optional(),
   /** ADR-046 — optional trip ledger id (lazy-created when omitted on write tools). */
   trip_id: z.string().min(1).optional(),
   revision: z.number().int().positive().optional(),
@@ -263,6 +265,9 @@ const planNextStopPointSchema = z.object({
   lat: z.number().optional(),
   lng: z.number().optional(),
   end_time: hhmm.optional(),
+  provider: z.string().optional(),
+  native_id: z.string().optional(),
+  visit_part: z.enum(["am", "pm"]).optional(),
 });
 
 export const planNextStopBody = z
@@ -291,6 +296,22 @@ export const planNextStopBody = z
     time_from: hhmm.optional(),
     stay_role: z.enum(["day_origin", "return", "midday"]).optional(),
     default_duration_min: z.number().int().min(10).max(480).optional(),
+    used_restaurant_names: z.array(z.string()).optional(),
+    spend_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+    budget: z.enum(["budget", "premium"]).optional(),
+    pace: z.enum(["tight", "medium", "relaxed"]).optional(),
+    lookahead_stop: planNextStopPointSchema.optional(),
+    day_stops: z
+      .array(
+        z.object({
+          name: z.string().optional(),
+          kind: z.string().optional(),
+          meal_slot: z.enum(["lunch", "afternoon_tea", "dinner"]).optional(),
+        }).passthrough(),
+      )
+      .optional(),
+    arrival_clock: hhmm.optional(),
+    day_index: z.number().int().min(1).max(14).optional(),
     ...shared,
   })
   .superRefine((data, ctx) => {

@@ -7,10 +7,79 @@ export type ChatLlmConfig = {
   model: string;
 };
 
+function parseModelList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split("/")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function firstFallbackModel(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const first = raw.split("/")[0]?.trim();
-  return first || undefined;
+  return parseModelList(raw)[0];
+}
+
+/** Primary + `QWEN_CHAT_MODEL_FALLBACK` (slash-separated). Deduped, order preserved. */
+export function chatLlmModelCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+  const cfg = resolveChatLlmConfig(env);
+  if (!cfg) return [];
+  if (cfg.provider === "qwen") {
+    const listed = [env.QWEN_CHAT_MODEL?.trim(), ...parseModelList(env.QWEN_CHAT_MODEL_FALLBACK)].filter(
+      (s): s is string => Boolean(s),
+    );
+    return [...new Set(listed.length ? listed : [cfg.model])];
+  }
+  return [cfg.model];
+}
+
+function llmErrorField(err: unknown, key: "code" | "status" | "type"): unknown {
+  if (!err || typeof err !== "object") return undefined;
+  const o = err as Record<string, unknown>;
+  if (o[key] != null) return o[key];
+  const nested = o.error;
+  if (nested && typeof nested === "object") return (nested as Record<string, unknown>)[key];
+  return undefined;
+}
+
+/** Qwen 403 Unpurchased / unknown model — retry next model or OPENAI_CN. */
+export function isLlmModelDeniedError(err: unknown): boolean {
+  const extra =
+    err && typeof err === "object" && "error" in err
+      ? String((err as { error?: { message?: string } }).error?.message ?? "")
+      : "";
+  const code = String(llmErrorField(err, "code") ?? "");
+  const status = Number(llmErrorField(err, "status"));
+  const msg = `${err instanceof Error ? err.message : String(err)} ${extra} ${code}`;
+  if (/accessdenied|unpurchased|access to model denied|model_not_found|does not exist|unknown model/i.test(msg)) {
+    return true;
+  }
+  return status === 403;
+}
+
+type ChatCreateParams = {
+  model: string;
+  messages: unknown[];
+  max_completion_tokens: number;
+  temperature: number;
+};
+
+export async function createChatWithModelFallback<T>(
+  create: (params: ChatCreateParams, options: { signal: AbortSignal }) => Promise<T>,
+  params: ChatCreateParams,
+  options: { signal: AbortSignal },
+  models: string[],
+): Promise<T> {
+  const queue = models.length ? models : [params.model];
+  let last: unknown;
+  for (const model of queue) {
+    try {
+      return await create({ ...params, model }, options);
+    } catch (err) {
+      last = err;
+      if (!isLlmModelDeniedError(err)) throw err;
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last));
 }
 
 /** Prefer Qwen (ADR-047). Fall back to OPENAI_CN when QWEN_API_KEY is empty. */
@@ -38,4 +107,16 @@ export function resolveChatLlmConfig(
 
 export function chatLlmConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   return resolveChatLlmConfig(env) != null;
+}
+
+/** Qwen first (ADR-047); OPENAI_CN next when both keys exist (Qwen 403 Unpurchased). */
+export function chatLlmProviderQueue(env: NodeJS.ProcessEnv = process.env): ChatLlmConfig[] {
+  const primary = resolveChatLlmConfig(env);
+  if (!primary) return [];
+  const queue: ChatLlmConfig[] = [primary];
+  if (primary.provider === "qwen") {
+    const openai = resolveChatLlmConfig({ ...env, QWEN_API_KEY: "" });
+    if (openai) queue.push(openai);
+  }
+  return queue;
 }

@@ -1888,7 +1888,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M14-59-02 | Unit | 首站 origin stay 仍 09:00、origin_stop | 同上 | Done |
 | TC-M14-59-03 | Unit | validateSkeleton 拒绝非首 stay | `src/core/make-itinerary.test.ts` | Done |
 | TC-M14-60-01 | Unit | geocode 带 city；距 anchor >80km 丢弃 | `src/core/plan-next-stop.test.ts` | Done |
-| TC-M14-60-02 | Unit | duration_min>180 不进入 earliestFeasibleStart | 同上 | Done |
+| TC-M14-60-02 | Unit | duration_min>120 不进入 earliestFeasibleStart（F88 自 180 下调） | 同上 | Done |
 | TC-M14-60-03 | Unit | 区域名单站骨架剔除/失败 | `src/core/make-itinerary.test.ts` | Done |
 | TC-M14-61-01 | Unit | feasible>14:30 的 lunch → start≥18:00 | `src/core/plan-next-stop.test.ts` | Done |
 | TC-M14-61-02 | Unit | lunch 在末 attraction 后 → 前移或失败 | `src/core/make-itinerary.test.ts` | Done |
@@ -1989,3 +1989,99 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M22-84-03 | Unit | `patchTrip` replace 后脏卡不在 fetch 池 | `src/core/trip-store.test.ts` | **Done** |
 | TC-M22-84-04 | Spec | HTTP `patch_trip` 仍只改 constraints | `src/http/dispatch.ts` | **Done** |
 | TC-M22-84-05 | Unit | 池外景点（白堤）被丢掉后骨架仍可过校验 | `src/core/make-itinerary.test.ts` | **Done** |
+
+## 31. MVP-22 S2 骨架餐档（TC-M22-85-*）
+
+绑定 Feature **85** / ADR-049。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M22-85-01 | Unit | 无 name 的 meal + slot 校验通过 | `src/core/make-itinerary.test.ts` | Done |
+| TC-M22-85-02 | Unit | 店名餐站 normalize 成 slot id | 同上 | Done |
+| TC-M22-85-03 | Unit | user message 不把餐厅当必选 stop | 同上 | Done |
+| TC-M22-85-04 | Unit | 2play `mealSlotLabelKey` 返回 catalog key | where2play `tests/meal-slot-label.test.ts` | Done |
+
+## 32. MVP-22 S3 填站搜餐（TC-M22-86-*）
+
+绑定 Feature **86** / ADR-049。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M22-86-01 | Unit | meal slot 不 geocode；邻站搜到店名 | `src/core/plan-next-stop.test.ts` | Done |
+| TC-M22-86-02 | Unit | 搜餐失败 → `meal_skipped`，不抛 | 同上 | Done |
+| TC-M22-86-03 | Unit | 池内近邻餐馆优先于 live search | 同上 | Done |
+
+## 33. MVP-22 S4 景点库（TC-M22-87-*）
+
+绑定 Feature **87** / ADR-049。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M22-87-01 | Unit | 不合规 / 无 native_id 不 upsert | `src/core/destination-poi-registry.test.ts` | Done |
+| TC-M22-87-02 | Unit | 合规卡可按目的地列出 | 同上 | Done |
+| TC-M22-87-03 | Unit | make 并入库内点仍过 F84 | `src/core/make-itinerary.test.ts` | Done |
+| TC-M22-87-04 | Unit | 库抛错不失败 discover | `src/core/destination-poi-registry.test.ts` | Done |
+| TC-M22-87-05 | Unit | discover 返回早于 details | 同上 | Done |
+| TC-M22-87-06 | Unit | details 不改 trip candidates | 同上 | Done |
+| TC-M22-87-07 | Unit | 未过 TTL 不刷新 | 同上 | Done |
+
+## 34. MVP-22 / 19-P3 签收（TC-M22-SIGN-*）
+
+骨架 only（F41 Story 4）。不要求 fill。禁扩 CATALOG。
+
+| ID | 类型 | 主题 | 文件（目标） | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M22-SIGN-HZ | Live | 杭州 3 日 medium：make 200 或诚实失败；每日 ≥1 attraction；无十景/名胜区 stop；餐档为 slot id | `e2e-test-results/signoff-hangzhou-lisbon-3d.md` | **Done** |
+| TC-M22-SIGN-LX | Live | 里斯本 3 日：同上；远酒店不得掏空城池 | 同上 | **Done** |
+| TC-M22-SIGN-UI | Gate | 2play fetch 后 `plan-thread-skeleton`；stay-only / 无 attraction 日视为失败 | `skeletonIsFillable` | **Done** |
+
+## 35. MVP-23 S2 交通闸（TC-M23-88-*）
+
+绑定 [agent-design §25.2](./agent-design.md) · Feature **F88** · [0.refactor-plan](./0.refactor-plan.md) 23-S2。不含 F89 餐 / F90 审天；打卡串停留时长可另跟。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M23-88-01 | Unit | 「捷运 + 步行」/ metro+walk → dual-mode，`transit_preferred`，非 walk-only | `src/core/plan-next-stop.test.ts` | Done |
+| TC-M23-88-02 | Unit | 步行>45 丢掉；保留 transit；时钟用剩余 max | 同上 | Done |
+| TC-M23-88-03 | Unit | transit/drive >120 丢掉 | 同上 | Done |
+| TC-M23-88-04 | Unit | 时钟预留 = 留下方案 max（再 clamp 120） | 同上 | Done |
+| TC-M23-88-05 | Unit | 2play 并列留下模式（`或` / `or`） | `3.where2play/tests/itinerary-skeleton-map.test.ts` | Done |
+
+## 36. MVP-23 S3 顺路餐（TC-M23-89-*）
+
+绑定 [agent-design §25.3](./agent-design.md) · Feature **F89** · [0.refactor-plan](./0.refactor-plan.md) 23-S3。不含 F90。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M23-89-01 | Unit | 走廊三锚点搜餐；不 geocode `lunch` | `src/core/plan-next-stop.test.ts` · `meal-corridor.test.ts` | Done |
+| TC-M23-89-02 | Unit | `used_restaurant_names` 去重 | 同上 | Done |
+| TC-M23-89-03 | Unit | budget/spend 偏低价优先 | 同上 | Done |
+| TC-M23-89-04 | Unit | relaxed 晚餐窗插入 dinner | `planNextStopFill` | Done |
+| TC-M23-89-05 | Unit | 早于窗 → move later + `skeleton_patched` | 同上 | Done |
+| TC-M23-89-07 | Unit | 走廊空 → `meal_skipped` | 同上 | Done |
+| TC-M23-89-08 | Unit | 2play 传 `used_restaurant_names` / budget / day_stops | `3.where2play/tests/plan-skeleton-fill.test.ts` | Done |
+
+## 37. MVP-23 S4 指针 / 餐窗 / 停留 / F90-1（TC-M23-91-*）
+
+绑定 [agent-design §25](./agent-design.md)（2026-09-04 评审）· [0.refactor-plan](./0.refactor-plan.md) 23-S4。**禁止 meal_skipped。** 不扩 CATALOG。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M23-91-01 | Unit | `native_id` 命中池 → 用卡坐标，不 geocode | `plan-next-stop` | Done |
+| TC-M23-91-02 | Unit | 对不上则 geocode，尺子上一站否则城市；>80km 丢；不 emit >120 fallback | 同上 | Done |
+| TC-M23-91-03 | Unit | 午餐到达>13:30 → 缩停留或破窗仍落店，无 skip | `meal-corridor` / plan-next-stop | Done |
+| TC-M23-91-04 | Unit | 轻松骨架含 dinner；单 attraction 日拆上午/午餐/下午/晚餐 | `make-itinerary` | Done |
+| TC-M23-91-05 | Unit | 孤立 45；rating≥4.6 且评价≥200 → 60 | dwell helper | Done |
+| TC-M23-91-06 | Unit | 搜空复用当天店名 | plan-next-stop | Done |
+| TC-M23-91-07 | Unit | F90-1 不因超时删除未填景点 | 审天 helper | Done |
+| TC-M23-92-01 | Unit | stay 带 hotel/origin 坐标 → 首景点 legs 非空；leg>0 时 start > timeFrom | plan-next-stop / fill | Done |
+| TC-M23-92-02 | Unit | 无 origin → stay 用城市 lat/lng（stub geocode） | plan-skeleton-fill | Done |
+| TC-M23-92-03 | Unit | current=stay 时午餐 `near` ≈ 当天景点池坐标，非酒店 | plan-next-stop meal | Done |
+| TC-M23-92-04 | Unit | 远地店+本地近 POI → 选本地 | meal-corridor | Done |
+| TC-M23-92-05 | Unit | 早到钉窗，不 `move_later` 把午餐挪过剩余景点 | plan-next-stop | Done |
+| TC-M23-92-06 | Unit | `trimThemedDayOutliers` 保留 lunch/dinner 槽 | geo-bounds | Done |
+| TC-M23-S6A-01 | Unit | 无坐标 / 远地 / search 失败 → `not_found`；空发送 skip | plan-resolve-origin / session | Done |
+| TC-M23-S6B-01 | Unit | 罗卡角午餐拒 43km 里斯本店；5km 内本地店 | plan-next-stop | Done |
+| TC-M23-S6B-02 | Unit | 仅远店时不选城里店 | plan-next-stop | Done |
+| TC-M23-S8-01 | Unit | 单景点 reseat 不把 lunch 插景点前；AM-lunch-PM | make-itinerary | Done |
+| TC-M23-S8-02 | Unit | 午餐空→保留 lunch 槽；晚餐可用酒店附近 | plan-next-stop | Done |

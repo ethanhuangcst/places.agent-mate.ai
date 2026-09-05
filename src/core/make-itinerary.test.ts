@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  attachNativeIdsToSkeleton,
   buildFixtureSkeleton,
   buildSkeletonUserMessage,
   dropCityNameStops,
   dropUnknownAttractionStops,
+  normalizeMealSlotStops,
   enrichMakeItineraryInput,
   llmSkeletonTimeoutMs,
   makeItinerary,
@@ -11,6 +13,7 @@ import {
   reseatLateLunchStops,
   reseatStayToDayOrigin,
   remapStopNamesToPool,
+  splitSingleAttractionDays,
   trimAreaAliasStops,
   trimPaceOverages,
   validateSkeleton,
@@ -65,6 +68,7 @@ function skeletonJson(input: MakeItineraryInput): unknown {
           { name: "Hills Hotel Lisboa", kind: "stay" },
           { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
           { name: "Torre de Belém", kind: "attraction" },
+          { kind: "meal", meal_slot: "dinner" },
         ],
       },
       {
@@ -74,6 +78,7 @@ function skeletonJson(input: MakeItineraryInput): unknown {
           { name: "Hills Hotel Lisboa", kind: "stay" },
           { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
           { name: "Castelo de São Jorge", kind: "attraction" },
+          { kind: "meal", meal_slot: "dinner" },
         ],
       },
     ],
@@ -145,6 +150,7 @@ describe("validateSkeleton", () => {
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "A", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "C", kind: "attraction" },
           ],
         },
@@ -154,6 +160,7 @@ describe("validateSkeleton", () => {
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "B", kind: "attraction" },
           ],
         },
@@ -192,6 +199,7 @@ describe("validateSkeleton", () => {
             { name: "E", kind: "attraction" },
             { name: "F", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -221,6 +229,7 @@ describe("validateSkeleton", () => {
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "bukchon hanok village", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "Torre de Belém", kind: "attraction" },
           ],
         },
@@ -325,7 +334,9 @@ describe("validateSkeleton", () => {
           day_theme: "coast",
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
+            { kind: "meal", meal_slot: "lunch" },
             { name: "贝伦塔", kind: "attraction" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -393,7 +404,8 @@ describe("validateSkeleton", () => {
 
   it("should_reject_stop_when_name_is_the_destination_city", () => {
     const bad = JSON.parse(JSON.stringify(skeletonJson(input)));
-    bad.days[0].stops[1].name = "Lisbon";
+    const attr = bad.days[0].stops.find((s: { kind: string }) => s.kind === "attraction");
+    attr.name = "Lisbon";
     const result = validateSkeleton(bad, pool, [], "medium", "Lisbon");
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -401,7 +413,7 @@ describe("validateSkeleton", () => {
     }
   });
 
-  it("should_skip_lunch_requirement_when_restaurant_pool_empty", () => {
+  it("should_require_lunch_slot_when_restaurant_pool_empty", () => {
     const noLunch = JSON.parse(JSON.stringify(skeletonJson(input)));
     noLunch.days[0].stops = noLunch.days[0].stops.filter(
       (s: { meal_slot?: string }) => s.meal_slot !== "lunch",
@@ -415,7 +427,56 @@ describe("validateSkeleton", () => {
       [],
       "medium",
     );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/missing a lunch stop/);
+  });
+
+  it("should_accept_meal_slot_without_venue_name", () => {
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { kind: "meal", meal_slot: "lunch" },
+            { name: "Torre de Belém", kind: "attraction" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+        {
+          day_index: 2,
+          day_theme: "Alfama",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { kind: "meal", meal_slot: "lunch" },
+            { name: "Castelo de São Jorge", kind: "attraction" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const result = validateSkeleton(raw, pool, [], "medium");
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      for (const day of result.skeleton.days) {
+        for (const s of day.stops) {
+          if (s.kind === "meal") {
+            expect(s.name).toBe(s.meal_slot);
+            expect(["lunch", "dinner", "afternoon_tea"]).toContain(s.name);
+          }
+        }
+      }
+    }
+  });
+
+  it("should_normalize_restaurant_named_meals_to_slot_id", () => {
+    const out = normalizeMealSlotStops(skeletonJson(input)) as {
+      days: Array<{ stops: Array<{ kind: string; name?: string; meal_slot?: string }> }>;
+    };
+    const meals = out.days.flatMap((d) => d.stops.filter((s) => s.kind === "meal"));
+    expect(meals.every((m) => m.name === m.meal_slot)).toBe(true);
+    expect(meals.some((m) => m.name === "Pastéis de Belém")).toBe(false);
   });
 
   it("should_accept_must_include_when_area_token_covered_by_place_or_theme", () => {
@@ -432,6 +493,7 @@ describe("validateSkeleton", () => {
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "贝伦塔", kind: "attraction" },
           ],
         },
@@ -441,6 +503,7 @@ describe("validateSkeleton", () => {
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "辛特拉宫", kind: "attraction" },
           ],
         },
@@ -478,6 +541,7 @@ describe("validateSkeleton", () => {
             { name: "Pena Palace", kind: "attraction" },
             { name: "Sintra Garden Hotel", kind: "stay" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -508,6 +572,7 @@ describe("validateSkeleton", () => {
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Sintra", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -535,6 +600,7 @@ describe("validateSkeleton", () => {
             { name: "Sintra", kind: "attraction" },
             { name: "Palace of Sintra", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -558,6 +624,7 @@ describe("validateSkeleton", () => {
             { name: "Torre de Belém", kind: "attraction" },
             { name: "Castelo de São Jorge", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -574,6 +641,7 @@ describe("validateSkeleton", () => {
       { name: "Castelo de São Jorge", kind: "attraction" },
       { name: "Mosteiro dos Jerónimos", kind: "attraction" },
       { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+      { kind: "meal", meal_slot: "dinner" },
     ];
     const extendedPool = {
       ...pool,
@@ -598,6 +666,7 @@ describe("validateSkeleton", () => {
             { name: "Castelo de São Jorge", kind: "attraction" },
             { name: "Mosteiro dos Jerónimos", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -611,7 +680,9 @@ describe("validateSkeleton", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const names = result.skeleton.days[0]!.stops.map((s) => s.name);
-      const lunchIdx = names.indexOf("Pastéis de Belém");
+      const lunchIdx = result.skeleton.days[0]!.stops.findIndex(
+        (s) => s.kind === "meal" && s.meal_slot === "lunch",
+      );
       const lastAttrIdx = names.lastIndexOf("Mosteiro dos Jerónimos");
       expect(lunchIdx).toBeLessThan(lastAttrIdx);
     }
@@ -689,6 +760,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
               stops: [
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
                 { name: "卡斯凯什老城", kind: "attraction" },
                 { name: "Cascais", kind: "attraction" },
               ],
@@ -733,6 +805,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
                 { name: "Pena Palace", kind: "attraction" },
                 { name: "Castelo dos Mouros", kind: "attraction" },
                 { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
               ],
             },
           ],
@@ -765,6 +838,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
               stops: [
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
                 { name: "贝伦塔", kind: "attraction" },
               ],
             },
@@ -774,6 +848,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
               stops: [
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
                 { name: "Castelo de São Jorge", kind: "attraction" },
               ],
             },
@@ -821,6 +896,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
                 { name: "卡斯凯什", kind: "attraction" },
                 { name: "Pink Street", kind: "attraction" },
                 { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
               ],
             },
           ],
@@ -830,7 +906,12 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
     expect(result.skeleton.days[0]?.stops.map((s) => s.name)).toEqual([
       "Hills Hotel Lisboa",
       "卡斯凯什",
+      "lunch",
+      "卡斯凯什",
+      "dinner",
     ]);
+    const attrs = result.skeleton.days[0]?.stops.filter((s) => s.kind === "attraction") ?? [];
+    expect(attrs.map((s) => s.visit_part)).toEqual(["am", "pm"]);
   });
 
   it("TC-M19-82-02 should_mark_user_requested_not_must_see_on_supplementary_backfill", async () => {
@@ -853,6 +934,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
               stops: [
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
                 { name: "卡斯凯什老城", kind: "attraction" },
               ],
             },
@@ -862,6 +944,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
               stops: [
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
                 { name: "Castelo de São Jorge", kind: "attraction" },
               ],
             },
@@ -898,6 +981,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "贝伦塔", kind: "attraction" },
                 { name: "Auto Lunch", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
               ],
             },
             {
@@ -907,6 +991,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
                 { name: "Hills Hotel Lisboa", kind: "stay" },
                 { name: "卡斯凯什老城", kind: "attraction" },
                 { name: "Auto Dinner", kind: "meal", meal_slot: "lunch" },
+                { kind: "meal", meal_slot: "dinner" },
               ],
             },
           ],
@@ -915,7 +1000,8 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
     });
     const names = result.skeleton.days.flatMap((d) => d.stops.map((s) => s.name));
     expect(names).toContain("卡斯凯什老城");
-    expect(names).toContain("Auto Lunch");
+    expect(names).toContain("lunch");
+    expect(names).not.toContain("Auto Lunch");
   });
 
   it("should_hard_fail_when_retry_still_invalid", async () => {
@@ -979,6 +1065,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
                       stops: [
                         { name: "Hills Hotel Lisboa", kind: "stay" },
                         { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+                        { kind: "meal", meal_slot: "dinner" },
                         { name: "Castelo de São Jorge", kind: "attraction" },
                       ],
                     },
@@ -988,6 +1075,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
                       stops: [
                         { name: "Hills Hotel Lisboa", kind: "stay" },
                         { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+                        { kind: "meal", meal_slot: "dinner" },
                         { name: "Mosteiro dos Jerónimos", kind: "attraction" },
                       ],
                     },
@@ -1028,6 +1116,7 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
             { name: "Torre de Belém", kind: "attraction" },
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "Mosteiro dos Jerónimos", kind: "attraction" },
           ],
         },
@@ -1060,6 +1149,7 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
             { name: "Torre de Belém", kind: "attraction" },
             { name: "Sintra Garden Hotel", kind: "stay" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
@@ -1091,6 +1181,7 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Lisbon", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "Torre de Belém", kind: "attraction" },
           ],
         },
@@ -1115,6 +1206,7 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
             { name: "Torre de Belém", kind: "attraction" },
           ],
         },
@@ -1140,14 +1232,20 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
             { name: "Torre de Belém", kind: "attraction" },
             { name: "Lisbon", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
     };
     const mid = dropCityNameStops(reseatLateLunchStops(raw), "Lisbon");
-    expect(validateSkeleton(mid, cityPool, [], "medium", "Lisbon").ok).toBe(false);
+    // S8: sole remaining attraction may keep lunch after it (split later).
+    expect(validateSkeleton(mid, cityPool, [], "medium", "Lisbon").ok).toBe(true);
     const repaired = reseatLateLunchStops(mid);
     expect(validateSkeleton(repaired, cityPool, [], "medium", "Lisbon").ok).toBe(true);
+    const attr = (repaired as { days: Array<{ stops: Array<{ kind?: string }> }> }).days[0]!.stops.filter(
+      (s) => s.kind === "attraction",
+    );
+    expect(attr).toHaveLength(1);
   });
 });
 
@@ -1163,13 +1261,15 @@ describe("buildSkeletonUserMessage", () => {
     expect(msg).toContain('Never schedule the city name "Lisbon"');
   });
 
-  it("should_omit_lunch_rule_in_prompt_when_restaurants_empty", () => {
+  it("should_require_meal_slots_in_prompt_without_restaurant_catalog", () => {
     const input = baseInput({
       candidates: { places: [place("贝伦塔")], restaurants: [] },
     });
     const msg = buildSkeletonUserMessage(input);
-    expect(msg).toMatch(/Restaurant list is empty/);
-    expect(msg).not.toMatch(/Every day needs a lunch stop from the restaurant list/);
+    expect(msg).toMatch(/lunch meal slot/);
+    expect(msg).not.toMatch(/Restaurant list is empty/);
+    expect(msg).not.toMatch(/Restaurant candidates/);
+    expect(msg).not.toMatch(/from the restaurant list/);
   });
 
   it("TC-M12-49-05: should_annotate_must_see_candidates", () => {
@@ -1194,6 +1294,16 @@ describe("buildFixtureSkeleton", () => {
         expect((stop as Record<string, unknown>).duration_min).toBeUndefined();
       }
     }
+  });
+
+  it("should_emit_meal_slots_without_restaurant_names", () => {
+    const skeleton = buildFixtureSkeleton(baseInput());
+    const meals = skeleton.days.flatMap((d) => d.stops.filter((s) => s.kind === "meal"));
+    expect(meals.some((m) => m.meal_slot === "lunch")).toBe(true);
+    expect(meals.every((m) => m.name === m.meal_slot)).toBe(true);
+    expect(meals.every((m) => !baseInput().candidates.restaurants.some((r) => r.name === m.name))).toBe(
+      true,
+    );
   });
 
   it("TC-M12-49-05: should_prefer_must_see_places_first", () => {
@@ -1277,5 +1387,158 @@ describe("buildFixtureSkeleton", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/stay-only/i);
+  });
+});
+
+describe("enrichMakeItineraryInput registry merge (TC-M22-87-03)", () => {
+  it("should_merge_registry_places_into_make_pool_then_still_filter_eligible", async () => {
+    const { createMemoryPoiRegistryStore, setPoiRegistryStore, upsertEligiblePois } =
+      await import("./destination-poi-registry");
+    const store = createMemoryPoiRegistryStore();
+    setPoiRegistryStore(store);
+    await upsertEligiblePois(
+      [
+        {
+          provider: "GOOGLE_MAPS",
+          name: "Mosteiro dos Jerónimos",
+          location: { lat: 38.6979, lng: -9.2067, crs: "WGS84" },
+          sources: [
+            { provider: "GOOGLE_MAPS", native_id: "jer", deeplinks: { google_web: "https://maps.google.com/?q=2" } },
+          ],
+        },
+      ],
+      { city: "Lisbon", lat: 38.722, lng: -9.139 },
+      store,
+    );
+    const enriched = await enrichMakeItineraryInput(
+      baseInput({
+        candidates: { places: [place("Torre de Belém")], restaurants: [] },
+      }),
+      { geocode: async () => ({ lat: 38.722, lng: -9.139 }) },
+    );
+    expect(enriched.candidates.places.map((p) => p.name)).toEqual(
+      expect.arrayContaining(["Torre de Belém", "Mosteiro dos Jerónimos"]),
+    );
+    expect(enriched.candidates.places.every((p) => !/名胜区/.test(p.name))).toBe(true);
+    setPoiRegistryStore(null);
+  });
+});
+
+describe("F91 skeleton dinner + single-attraction split (TC-M23-91-04)", () => {
+  it("should_require_dinner_on_relaxed_skeleton", () => {
+    const skeleton = buildFixtureSkeleton(baseInput({ pace: "relaxed", numDays: 1 }));
+    expect(
+      skeleton.days[0]!.stops.some((s) => s.kind === "meal" && s.meal_slot === "dinner"),
+    ).toBe(true);
+    const result = validateSkeleton(
+      skeleton,
+      {
+        places: baseInput().candidates.places,
+        restaurants: baseInput().candidates.restaurants,
+        stays: ["Hills Hotel Lisboa"],
+      },
+      [],
+      "relaxed",
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("should_not_insert_lunch_before_sole_attraction_on_reseat (S8)", () => {
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Cabo",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "罗卡角", kind: "attraction" },
+            { name: "lunch", kind: "meal", meal_slot: "lunch" },
+            { name: "dinner", kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    // Lunch already after last attraction — reseat must keep it after, not before.
+    const late = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Cabo",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "罗卡角", kind: "attraction" },
+            { name: "dinner", kind: "meal", meal_slot: "dinner" },
+            { name: "lunch", kind: "meal", meal_slot: "lunch" },
+          ],
+        },
+      ],
+    };
+    const reseated = reseatLateLunchStops(late);
+    const names = (reseated as { days: Array<{ stops: Array<{ name?: string; kind?: string; meal_slot?: string }> }> })
+      .days[0]!.stops.map((s) => `${s.kind}:${s.meal_slot ?? s.name}`);
+    expect(names.indexOf("meal:lunch")).toBeGreaterThan(names.indexOf("attraction:罗卡角"));
+    expect(names.indexOf("meal:lunch")).toBeGreaterThan(names.indexOf("stay:Hills Hotel Lisboa"));
+
+    const split = splitSingleAttractionDays(
+      attachNativeIdsToSkeleton(reseatLateLunchStops(raw) as never, [
+        place("罗卡角"),
+      ]),
+    );
+    const kinds = split.days[0]!.stops.map((s) => `${s.kind}:${s.visit_part ?? s.meal_slot ?? ""}`);
+    expect(kinds).toEqual([
+      "stay:",
+      "attraction:am",
+      "meal:lunch",
+      "attraction:pm",
+      "meal:dinner",
+    ]);
+  });
+
+  it("should_split_single_attraction_day_into_am_lunch_pm_dinner", () => {
+    const torre = place("Torre de Belém");
+    torre.sources = [{ provider: "GOOGLE_MAPS", native_id: "ChIJ_torre", deeplinks: {} }];
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "Torre de Belém", kind: "attraction", native_id: "ChIJ_torre", provider: "GOOGLE_MAPS" },
+            { name: "lunch", kind: "meal", meal_slot: "lunch" },
+            { name: "dinner", kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const attached = attachNativeIdsToSkeleton(raw as never, [torre]);
+    const split = splitSingleAttractionDays(attached);
+    const kinds = split.days[0]!.stops.map((s) => `${s.kind}:${s.visit_part ?? s.meal_slot ?? ""}`);
+    expect(kinds).toEqual([
+      "stay:",
+      "attraction:am",
+      "meal:lunch",
+      "attraction:pm",
+      "meal:dinner",
+    ]);
+    const attrs = split.days[0]!.stops.filter((s) => s.kind === "attraction");
+    expect(attrs[0]!.native_id).toBe("ChIJ_torre");
+    expect(attrs[1]!.native_id).toBe("ChIJ_torre");
+    const validated = validateSkeleton(
+      split,
+      {
+        places: [torre, place("Mosteiro dos Jerónimos"), place("Castelo de São Jorge")],
+        restaurants: [],
+        stays: ["Hills Hotel Lisboa"],
+      },
+      [],
+      "relaxed",
+    );
+    expect(validated.ok).toBe(true);
+  });
+
+  it("should_mention_dinner_for_every_pace_in_prompt", () => {
+    const msg = buildSkeletonUserMessage(baseInput({ pace: "relaxed" }));
+    expect(msg).toMatch(/Every day also needs a dinner/i);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DAY_THEME_CLUSTER_KM,
   DISCOVER_GEO_MAX_KM,
+  dropFarOriginCoords,
   filterCardsNearAnchor,
   pickSupplementaryMustIncludeHit,
   trimThemedDayOutliers,
@@ -46,6 +47,24 @@ describe("pickSupplementaryMustIncludeHit", () => {
       { city: "里斯本", existingNorm: new Set() },
     );
     expect(hit).toBeUndefined();
+  });
+});
+
+describe("dropFarOriginCoords (ADR-048 / TC-M22-SIGN-LX)", () => {
+  it("should_drop_macau_hotel_coords_when_city_is_lisbon", () => {
+    const next = dropFarOriginCoords(
+      { name: "Hills Hotel Lisboa", lat: 22.186785, lng: 113.549525 },
+      LISBON,
+    );
+    expect(next?.name).toBe("Hills Hotel Lisboa");
+    expect(next?.lat).toBeUndefined();
+    expect(next?.lng).toBeUndefined();
+  });
+
+  it("should_keep_in_city_hotel_coords", () => {
+    const next = dropFarOriginCoords({ name: "Hotel", lat: HOTEL.lat, lng: HOTEL.lng }, LISBON);
+    expect(next?.lat).toBe(HOTEL.lat);
+    expect(next?.lng).toBe(HOTEL.lng);
   });
 });
 
@@ -166,5 +185,33 @@ describe("trimThemedDayOutliers", () => {
     };
     const trimmed = trimThemedDayOutliers({ days: [day] }, pool, ["卡斯凯什"]);
     expect(trimmed.days[0]?.stops).toEqual(day.stops);
+  });
+
+  it("should_keep_lunch_and_dinner_slots_without_pool_coords (TC-M23-92-06)", () => {
+    const pool = [CASCAIS, SCULPTURE, PINK];
+    const trimmed = trimThemedDayOutliers(
+      {
+        days: [
+          {
+            day_theme: "卡斯凯什海岸一日游",
+            stops: [
+              { name: "Hills Hotel Lisboa", kind: "stay" },
+              { name: "卡斯凯什", kind: "attraction" },
+              { name: "lunch", kind: "meal", meal_slot: "lunch" },
+              { name: "Street Sculpture", kind: "attraction" },
+              { name: "dinner", kind: "meal", meal_slot: "dinner" },
+              { name: "Pink Street", kind: "attraction" },
+            ],
+          },
+        ],
+      },
+      pool,
+      ["贝伦区", "辛特拉", "卡斯凯什"],
+    );
+    const names = trimmed.days[0]?.stops.map((s) => s.name) ?? [];
+    expect(names).toContain("lunch");
+    expect(names).toContain("dinner");
+    expect(names).toContain("卡斯凯什");
+    expect(names).not.toContain("Pink Street");
   });
 });

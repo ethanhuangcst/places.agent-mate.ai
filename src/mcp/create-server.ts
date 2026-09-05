@@ -88,14 +88,31 @@ const MCP_TRIP_COMPLETE_HOST_INSTRUCTIONS =
   "Do not call any more fill tools. Do not invent extra stops or times. " +
   MCP_NO_INVENT_RULE;
 
-type SkeletonEchoStop = { name: string; kind: string; meal_slot?: string };
+type SkeletonEchoStop = {
+  name: string;
+  kind: string;
+  meal_slot?: string;
+  provider?: string;
+  native_id?: string;
+  visit_part?: string;
+};
 type SkeletonEchoDay = { day_index: number; day_theme?: string; stops: SkeletonEchoStop[] };
 type SkeletonEcho = { days: SkeletonEchoDay[] };
 type FillCursor = { day_index: number; stop_index: number };
 
-function slimStop(s: { name: string; kind?: string; meal_slot?: string }): SkeletonEchoStop {
-  const out: SkeletonEchoStop = { name: s.name, kind: s.kind ?? "attraction" };
+function slimStop(s: {
+  name?: string;
+  kind?: string;
+  meal_slot?: string;
+  provider?: string;
+  native_id?: string;
+  visit_part?: string;
+}): SkeletonEchoStop {
+  const out: SkeletonEchoStop = { name: s.name ?? s.meal_slot ?? "stop", kind: s.kind ?? "attraction" };
   if (s.meal_slot) out.meal_slot = s.meal_slot;
+  if (s.provider) out.provider = s.provider;
+  if (s.native_id) out.native_id = s.native_id;
+  if (s.visit_part) out.visit_part = s.visit_part;
   return out;
 }
 
@@ -184,7 +201,20 @@ function nextFillStep(
 }
 
 function skeletonFillHandoff(
-  skeleton: { days?: Array<{ day_index?: number; day_theme?: string; stops?: Array<{ name: string; kind?: string; meal_slot?: string }> }> },
+  skeleton: {
+    days?: Array<{
+      day_index?: number;
+      day_theme?: string;
+      stops?: Array<{
+        name?: string;
+        kind?: string;
+        meal_slot?: string;
+        provider?: string;
+        native_id?: string;
+        visit_part?: string;
+      }>;
+    }>;
+  },
   locale: string,
   city?: string,
   tripMeta?: { trip_id?: string; revision?: number },
@@ -236,7 +266,12 @@ function skeletonFillHandoff(
 
 function skeletonHasStops(
   skeleton: unknown,
-): skeleton is { days: Array<{ day_index?: number; stops?: Array<{ name: string; kind?: string }> }> } {
+): skeleton is {
+  days: Array<{
+    day_index?: number;
+    stops?: Array<{ name?: string; kind?: string; meal_slot?: string; provider?: string; native_id?: string; visit_part?: string }>;
+  }>;
+} {
   if (!skeleton || typeof skeleton !== "object") return false;
   const days = (skeleton as { days?: unknown }).days;
   if (!Array.isArray(days)) return false;

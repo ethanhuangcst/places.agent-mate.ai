@@ -34,6 +34,21 @@ export function pickSupplementaryMustIncludeHit(
   return usable.find((c) => skeletonCoversMustInclude(token, [c.name])) ?? usable[0];
 }
 
+/**
+ * ADR-048 — keep hotel name, drop coords farther than DISCOVER_GEO_MAX_KM from the city.
+ * Discover and make both filter/search `near` against the city, not a far hotel.
+ */
+export function dropFarOriginCoords<T extends { name?: string; lat?: number; lng?: number }>(
+  origin: T | undefined,
+  cityAnchor: { lat: number; lng: number } | null,
+  maxKm = DISCOVER_GEO_MAX_KM,
+): T | undefined {
+  if (!origin || cityAnchor == null) return origin;
+  if (origin.lat == null || origin.lng == null) return origin;
+  if (haversineKm(cityAnchor, { lat: origin.lat, lng: origin.lng }) <= maxKm) return origin;
+  return { ...origin, lat: undefined, lng: undefined };
+}
+
 export function filterCardsNearAnchor(
   cards: PlaceCard[],
   anchor: { lat: number; lng: number },
@@ -89,6 +104,8 @@ export function trimThemedDayOutliers<T extends { days: ThemeDay[] }>(
       ...day,
       stops: day.stops.filter((s) => {
         if (s.kind === "stay") return true;
+        // F92: meal slots have no pool coords — never drop lunch/dinner.
+        if (s.kind === "meal") return true;
         if (s.name === anchorStop.name) return true;
         const loc = locOf(s.name, pool);
         if (!loc) return false;

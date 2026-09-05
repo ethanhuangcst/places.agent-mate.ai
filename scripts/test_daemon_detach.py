@@ -53,6 +53,25 @@ class SpawnDetachedTests(unittest.TestCase):
             )
         self.assertEqual(captured["env"].get("NODE_ENV"), "development")
 
+    def test_spawn_detached_drops_parent_database_url_for_env_file(self) -> None:
+        captured: dict = {}
+
+        def fake_popen(*args, **kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        with patch.dict("os.environ", {"DATABASE_URL": "postgresql://x/where2play", "PORT": "3030"}):
+            with tempfile.TemporaryDirectory() as tmp:
+                dd.spawn_detached(
+                    ["true"],
+                    cwd=Path(tmp),
+                    log_path=Path(tmp) / "a.log",
+                    env={"NODE_ENV": "development"},
+                    popen=fake_popen,
+                )
+        self.assertNotIn("DATABASE_URL", captured["env"])
+        self.assertNotIn("PORT", captured["env"])
+
 
 class IsServerUpTests(unittest.TestCase):
     def test_up_requires_listener_and_health(self) -> None:

@@ -130,6 +130,10 @@ def spawn_detached(
     if env:
         child_env.update(env)
     child_env.setdefault("NODE_ENV", "development")
+    # tsx --env-file does not override existing vars. A parent shell (e.g. 2play)
+    # can leak DATABASE_URL=/where2play and break CallerApiKey auth (P2021).
+    for key in ("DATABASE_URL", "TEST_DATABASE_URL", "DIRECT_URL", "PORT"):
+        child_env.pop(key, None)
     # Open log, pass as stdout/stderr, then close parent copy after Popen dups the fd.
     log_f = open(log_path, "a", buffering=1)  # noqa: SIM115
     try:

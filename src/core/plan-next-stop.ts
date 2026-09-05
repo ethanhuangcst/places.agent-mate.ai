@@ -12,7 +12,7 @@ import { type Locale } from "./locales";
 import { type PlaceCard, type PlaceLocation } from "./types";
 import { getAdapter } from "../adapters";
 import { type ProviderId } from "./providers";
-import { geocode } from "./tools";
+import { geocode, searchRestaurants } from "./tools";
 import {
   buildHeuristicLegs,
   buildLegs,
@@ -22,11 +22,64 @@ import {
 import { slimArrangeCandidate } from "./itinerary-planner";
 import { DISCOVER_GEO_MAX_KM } from "./geo-bounds";
 import { haversineKm } from "./must-include-coverage";
+import {
+  corridorSearchPoints,
+  filterRestaurantsBySpend,
+  hhmmToMinutes,
+  insertMealIntoDayStops,
+  mapSpendLevel,
+  mealTimingAction,
+  mergeRestaurantCards,
+  mealWindowForSlot,
+  moveMealInDayStops,
+  MEAL_CORRIDOR_EXPANDED_KM,
+  MEAL_CORRIDOR_MAX_KM,
+  MEAL_CORRIDOR_RADIUS_KM,
+  pickRestaurantAllowReuse,
+  pickUnusedRestaurant,
+  shouldInsertMeal,
+  type DayStopLike,
+  type MealSlotId,
+  type SpendLevel,
+  withinCorridorRadius,
+} from "./meal-corridor";
+import { attractionDwellMinutes, type ClusterRole } from "./attraction-dwell";
 
 export type TransitOutcome = "directions" | "heuristic" | "partial";
 
-/** Same-city leg duration hard cap (MVP-14 F60). */
-export const LEG_MAX_DURATION_MIN = 180;
+/** Motor/transit leg drop + clock clamp (F88 / §25.2). Was 180 under F60. */
+export const LEG_MAX_DURATION_MIN = 120;
+/** Walk legs longer than this are dropped (F88). */
+export const WALK_DROP_MAX_MIN = 45;
+
+export type TransitPreferenceParsed = {
+  single_mode: boolean;
+  mode: TravelMode | null;
+  transit_preferred: boolean;
+};
+
+/**
+ * Natural-language transit preference (§12.5 / F88).
+ * 「捷运 + 步行」/ metro+walk → dual-mode with transit preferred (not walk-only).
+ */
+export function parseTransitPreference(pref?: string): TransitPreferenceParsed {
+  const p = (pref ?? "").toLowerCase();
+  if (!p.trim()) {
+    return { single_mode: false, mode: null, transit_preferred: false };
+  }
+  const hasWalk = /walk|步行|走路/.test(p);
+  const hasTransit = /transit|metro|subway|bus|tram|捷运|公交|地铁|电车/.test(p);
+  const hasDrive = /drive|taxi|cab|uber|打车|开车/.test(p);
+  const modeCount = [hasWalk, hasTransit, hasDrive].filter(Boolean).length;
+
+  if (modeCount >= 2) {
+    return { single_mode: false, mode: null, transit_preferred: hasTransit };
+  }
+  if (hasTransit) return { single_mode: true, mode: "transit", transit_preferred: true };
+  if (hasDrive) return { single_mode: true, mode: "drive", transit_preferred: false };
+  if (hasWalk) return { single_mode: true, mode: "walk", transit_preferred: false };
+  return { single_mode: false, mode: null, transit_preferred: false };
+}
 
 export type PlanStopPoint = {
   name: string;
@@ -36,6 +89,11 @@ export type PlanStopPoint = {
   lng?: number;
   /** Fill-chain clock: previous stop's slot.end when this point is current_stop. */
   end_time?: string;
+  /** F91: pool pointer — resolve coords from card, not geocode. */
+  provider?: string;
+  native_id?: string;
+  /** F91 single-attraction AM/PM split. */
+  visit_part?: "am" | "pm";
 };
 
 export type PlanNextStopInput = {
@@ -56,6 +114,19 @@ export type PlanNextStopInput = {
     to: PlaceLocation,
   ) => Promise<{ duration_min: number; distance_m?: number } | null>;
   _testGeocode?: (query: string) => Promise<{ lat: number; lng: number } | null>;
+  _testSearchRestaurants?: (near: PlaceLocation, query?: string) => Promise<PlaceCard[]>;
+  used_restaurant_names?: string[];
+  /** F89: next-next attraction for corridor `to`. */
+  lookahead_stop?: PlanStopPoint;
+  spend_level?: SpendLevel;
+  budget?: "budget" | "premium";
+  pace?: "tight" | "medium" | "relaxed";
+  /** F89: day skeleton stops for insert/move decisions. */
+  day_stops?: DayStopLike[];
+  /** Optional clock override (HH:MM) for meal timing / insert. */
+  arrival_clock?: string;
+  /** Test hook: apply skeleton day_stops patch (insert/move). */
+  _testPatchDayStops?: (next: DayStopLike[]) => Promise<void> | void;
 };
 
 export type PlanNextStopResult = {
@@ -64,7 +135,233 @@ export type PlanNextStopResult = {
   transit_outcome: TransitOutcome;
   /** True when a natural-language preference narrowed to a single mode. */
   single_mode: boolean;
+  /**
+   * @deprecated F91 forbids meal_skipped — always resolve or reuse. Kept optional for wire compat.
+   */
+  meal_skipped?: boolean;
+  venue_card?: PlaceCard;
+  /** F89: skeleton day_stops were rewritten (insert/move); host must refetch. */
+  skeleton_patched?: boolean;
+  meal_move?: "later" | "earlier";
+  inserted_meal_slot?: MealSlotId;
+  /** Patched day stop list when skeleton_patched (for internal patchTrip). */
+  patched_day_stops?: DayStopLike[];
 };
+
+const MEAL_SLOT_IDS = new Set(["lunch", "afternoon_tea", "dinner"]);
+
+export function isAnonymousMealStop(stop: PlanStopPoint): boolean {
+  if (stop.kind === "meal" && typeof stop.lat === "number" && typeof stop.lng === "number") {
+    return false;
+  }
+  if (stop.kind === "meal") return true;
+  return MEAL_SLOT_IDS.has(stop.name);
+}
+
+function mealSlotOf(stop: PlanStopPoint): MealSlotId {
+  if (stop.meal_slot === "lunch" || stop.meal_slot === "dinner" || stop.meal_slot === "afternoon_tea") {
+    return stop.meal_slot;
+  }
+  if (stop.name === "dinner" || stop.name === "afternoon_tea") return stop.name;
+  return "lunch";
+}
+
+/**
+ * F92: meal search centroid = day's attraction pool coords, not hotel stay.
+ * Lunch: previous attraction, else lookahead, else first day attraction.
+ * Dinner: last attraction before the meal; optional stay as corridor end (lookahead).
+ */
+export async function resolveMealSearchCentroid(opts: {
+  slot: MealSlotId;
+  currentStop: PlanStopPoint;
+  currentLoc: PlaceLocation | null;
+  lookaheadLoc: PlaceLocation | null;
+  dayStops: DayStopLike[];
+  places: PlaceCard[];
+  resolveAttraction: (stop: PlanStopPoint) => Promise<PlaceLocation | null>;
+}): Promise<{ near: PlaceLocation | null; lookahead: PlaceLocation | null }> {
+  const dayStops = opts.dayStops;
+  const mealIdx = dayStops.findIndex(
+    (s) =>
+      s.kind === "meal" &&
+      (s.meal_slot === opts.slot || s.name === opts.slot),
+  );
+  const attractionStops = dayStops
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.kind === "attraction" && s.name?.trim());
+
+  const resolveNamed = async (name: string): Promise<PlaceLocation | null> => {
+    const card = opts.places.find((c) => c.name === name);
+    const fromCard = cardLocation(card);
+    if (fromCard) return fromCard;
+    return opts.resolveAttraction({ name, kind: "attraction" });
+  };
+
+  let near: PlaceLocation | null = null;
+  let lookahead = opts.lookaheadLoc;
+
+  if (opts.slot === "dinner") {
+    const before =
+      mealIdx >= 0
+        ? [...attractionStops].reverse().find(({ i }) => i < mealIdx)
+        : attractionStops[attractionStops.length - 1];
+    if (before) near = await resolveNamed(before.s.name!);
+    // S8: dinner may center on stay/hotel (return trip) within product rules.
+    if (opts.currentStop.kind === "stay" && opts.currentLoc) {
+      if (!near || haversineKm(near, opts.currentLoc) > MEAL_CORRIDOR_MAX_KM) {
+        near = opts.currentLoc;
+        lookahead = null;
+      } else {
+        lookahead = opts.currentLoc;
+      }
+    }
+  } else {
+    // lunch / afternoon_tea — never use stay as centroid (S6B/S8).
+    const prev =
+      mealIdx >= 0
+        ? [...attractionStops].reverse().find(({ i }) => i < mealIdx)
+        : undefined;
+    const nextAttr =
+      mealIdx >= 0 ? attractionStops.find(({ i }) => i > mealIdx) : undefined;
+    if (prev) {
+      near = await resolveNamed(prev.s.name!);
+    } else if (nextAttr) {
+      // Lunch before the day's attraction(s) — still search at the POI, not the hotel.
+      near = await resolveNamed(nextAttr.s.name!);
+    } else if (opts.currentStop.kind === "attraction" && opts.currentLoc) {
+      near = opts.currentLoc;
+    } else if (attractionStops[0]) {
+      near = await resolveNamed(attractionStops[0].s.name!);
+    } else if (opts.lookaheadLoc && opts.currentStop.kind !== "stay") {
+      near = opts.lookaheadLoc;
+    }
+    // Keep lookahead only if same cluster (≤5km from near); never stay.
+    if (near && lookahead && haversineKm(near, lookahead) > MEAL_CORRIDOR_MAX_KM) {
+      lookahead = null;
+    }
+    if (opts.currentStop.kind === "stay") {
+      lookahead = null;
+    }
+  }
+
+  if (!near && opts.currentStop.kind === "attraction") {
+    near = opts.currentLoc;
+  }
+  // Do not fall back to stay/hotel as meal search near.
+  if (!near && opts.currentStop.kind !== "stay") {
+    near = opts.currentLoc;
+  }
+
+  return { near, lookahead };
+}
+
+/**
+ * F89: corridor search (from → mid → lookahead) within ~800m, spend + used-name filter.
+ * Pool restaurants are last fallback only (ADR-049 pools are usually empty).
+ */
+export async function resolveMealVenue(opts: {
+  near: PlaceLocation | null;
+  lookahead?: PlaceLocation | null;
+  pool: PlaceCard[];
+  usedNames?: string[];
+  spend?: SpendLevel;
+  locale: Locale;
+  providers?: string[];
+  /** S8: lunch must not reuse a city restaurant name when corridor is empty. */
+  allowNameReuse?: boolean;
+  search?: (near: PlaceLocation, query?: string) => Promise<PlaceCard[]>;
+}): Promise<PlaceCard | null> {
+  if (!opts.near) return null;
+  const spend = opts.spend ?? 2;
+  const used = opts.usedNames ?? [];
+  const allowReuse = opts.allowNameReuse !== false;
+
+  const points = corridorSearchPoints(opts.near, opts.lookahead ?? null);
+  const runSearch = async (query: string): Promise<PlaceCard[]> => {
+    const batches: PlaceCard[][] = [];
+    for (const pt of points) {
+      try {
+        const hits = opts.search
+          ? await opts.search(pt, query)
+          : ((await searchRestaurants({
+              query,
+              near: { lat: pt.lat, lng: pt.lng, crs: pt.crs },
+              locale: opts.locale,
+              providers: opts.providers,
+            })).data ?? []);
+        const ringRadii = [MEAL_CORRIDOR_RADIUS_KM, MEAL_CORRIDOR_EXPANDED_KM, MEAL_CORRIDOR_MAX_KM];
+        let ringHits: PlaceCard[] = [];
+        for (const r of ringRadii) {
+          ringHits = hits.filter((c) => withinCorridorRadius(pt, c, r));
+          if (ringHits.length) break;
+        }
+        const localOnly = ringHits.filter((c) => {
+          const loc = cardLocation(c);
+          if (!loc) return false;
+          return haversineKm(opts.near!, loc) <= MEAL_CORRIDOR_MAX_KM;
+        });
+        if (localOnly.length) batches.push(localOnly);
+      } catch {
+        /* try next point */
+      }
+    }
+    return mergeRestaurantCards(batches);
+  };
+
+  let merged = filterRestaurantsBySpend(await runSearch("restaurant"), spend);
+  let fromCorridor = allowReuse
+    ? pickRestaurantAllowReuse(merged, used)
+    : pickUnusedRestaurant(merged, used) ??
+      merged.find((c) => {
+        const loc = cardLocation(c);
+        return loc != null;
+      }) ??
+      null;
+  if (fromCorridor) return fromCorridor;
+
+  // S8: one extra pass with cafe query, still hard-capped at 5km.
+  merged = filterRestaurantsBySpend(await runSearch("cafe"), spend);
+  fromCorridor = allowReuse
+    ? pickRestaurantAllowReuse(merged, used)
+    : pickUnusedRestaurant(merged, used) ??
+      merged.find((c) => {
+        const loc = cardLocation(c);
+        return loc != null;
+      }) ??
+      null;
+  if (fromCorridor) return fromCorridor;
+
+  // Pool fallback (may be empty after ADR-049) — still within 5km of attraction.
+  const nearbyPool = opts.pool.filter((c) => {
+    const loc = cardLocation(c);
+    if (!loc) return false;
+    return haversineKm(opts.near!, loc) <= MEAL_CORRIDOR_MAX_KM;
+  });
+  const fromPool = allowReuse
+    ? pickRestaurantAllowReuse(filterRestaurantsBySpend(nearbyPool, spend), used)
+    : pickUnusedRestaurant(filterRestaurantsBySpend(nearbyPool, spend), used);
+  if (fromPool) return fromPool;
+
+  if (!allowReuse) return null;
+
+  // Dinner / tea: reuse a used same-day name at the corridor origin.
+  const reuseName = used.find((n) => n.trim().length > 0);
+  if (reuseName) {
+    return {
+      provider: "GOOGLE_MAPS",
+      name: reuseName,
+      location: { ...opts.near, crs: opts.near.crs ?? "WGS84" },
+      sources: [
+        {
+          provider: "GOOGLE_MAPS",
+          native_id: `reuse:${reuseName}`,
+          deeplinks: {},
+        },
+      ],
+    };
+  }
+  return null;
+}
 
 /** F65: optional display fields merged into plan_next_stop (replaces display_current_stop tool). */
 export type PlanNextStopFillInput = Omit<PlanNextStopInput, "current_stop"> & {
@@ -90,17 +387,30 @@ function cardLocation(card: PlaceCard | undefined): PlaceLocation | null {
   return { lat, lng, crs: card.location.crs ?? "WGS84" };
 }
 
-/** preference text → single mode, when clearly expressed (§12.5 natural-language contract). */
-function preferenceMode(pref?: string): TravelMode | null {
-  const p = (pref ?? "").toLowerCase();
-  if (!p.trim()) return null;
-  if (/walk|步行|走路/.test(p)) return "walk";
-  if (/transit|metro|subway|bus|tram|公交|地铁|电车/.test(p)) return "transit";
-  if (/drive|taxi|cab|uber|打车|开车/.test(p)) return "drive";
-  return null;
+function cardNativeId(card: PlaceCard): string | undefined {
+  const fromSources = card.sources?.find((s) => s.native_id?.trim())?.native_id?.trim();
+  return fromSources || undefined;
 }
 
-async function resolvePoint(
+function matchCardByPointer(stop: PlanStopPoint, candidates: PlaceCard[]): PlaceCard | undefined {
+  const nid = stop.native_id?.trim();
+  if (nid) {
+    const byId = candidates.find((c) => {
+      if (cardNativeId(c) === nid) return true;
+      return (c.sources ?? []).some((s) => s.native_id === nid);
+    });
+    if (byId) return byId;
+  }
+  return candidates.find((c) => c.name === stop.name);
+}
+
+/**
+ * Resolve stop coordinates (F91):
+ * 1. Explicit lat/lng on the stop
+ * 2. Pool card via native_id then exact name — coords only from card
+ * 3. Geocode; ruler = previous/anchor else city bias; drop if >80km
+ */
+export async function resolvePoint(
   stop: PlanStopPoint,
   candidates: PlaceCard[],
   providers?: string[],
@@ -111,7 +421,7 @@ async function resolvePoint(
   if (typeof stop.lat === "number" && typeof stop.lng === "number") {
     return { lat: stop.lat, lng: stop.lng, crs: "WGS84" };
   }
-  const card = candidates.find((c) => c.name === stop.name);
+  const card = matchCardByPointer(stop, candidates);
   const fromCard = cardLocation(card);
   if (fromCard) return fromCard;
   const query = city?.trim() ? `${stop.name}, ${city.trim()}` : stop.name;
@@ -137,17 +447,23 @@ async function resolvePoint(
   return null;
 }
 
-function sanitizeLegDuration(legs: ItineraryLeg[]): ItineraryLeg[] {
-  return legs.map((leg) =>
-    leg.duration_min > LEG_MAX_DURATION_MIN
-      ? { ...leg, duration_min: LEG_MAX_DURATION_MIN, recommended: false }
-      : leg,
-  );
+/** Drop absurd walk / long motor-transit legs (F88). Replaces cap-and-keep. */
+export function dropAbsurdLegs(legs: ItineraryLeg[]): ItineraryLeg[] {
+  return legs.filter((leg) => {
+    if (leg.mode === "walk") return leg.duration_min <= WALK_DROP_MAX_MIN;
+    return leg.duration_min <= LEG_MAX_DURATION_MIN;
+  });
 }
 
 export function clampLegMinutesForClock(minutes: number | undefined): number | undefined {
   if (minutes == null) return undefined;
   return minutes > LEG_MAX_DURATION_MIN ? LEG_MAX_DURATION_MIN : minutes;
+}
+
+/** Clock reserve = max duration among remaining legs, then clamp (F88). */
+export function maxRemainingLegMinutes(legs: ItineraryLeg[]): number | undefined {
+  if (!legs.length) return undefined;
+  return clampLegMinutesForClock(Math.max(...legs.map((l) => l.duration_min)));
 }
 
 /**
@@ -156,7 +472,8 @@ export function clampLegMinutesForClock(minutes: number | undefined): number | u
  * §12 probe findings (enrich is fast; parallelization is not the win).
  */
 export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextStopResult> {
-  const all = [...input.candidates.places, ...input.candidates.restaurants];
+  const restaurants = [...input.candidates.restaurants];
+  const all = [...input.candidates.places, ...restaurants];
   const from = await resolvePoint(
     input.current_stop,
     all,
@@ -165,22 +482,134 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
     input.city,
     input.anchor,
   );
+
+  const pref = parseTransitPreference(input.transit_preference);
+  const single_mode = pref.single_mode;
+  const prefMode = pref.mode;
+
+  let nextStop = input.next_stop;
+  let mealVenueCard: PlaceCard | undefined;
+  if (isAnonymousMealStop(nextStop)) {
+    const slot = mealSlotOf(nextStop);
+    const clockMin =
+      hhmmToMinutes(input.arrival_clock) ??
+      hhmmToMinutes(input.current_stop.end_time) ??
+      null;
+
+    if (clockMin != null && slot !== "afternoon_tea") {
+      const timing = mealTimingAction(clockMin, slot, input.pace);
+      if (timing === "move_later" || timing === "move_earlier") {
+        const dayStops = input.day_stops ?? [];
+        const moved =
+          dayStops.length > 0
+            ? moveMealInDayStops(dayStops, slot, timing === "move_later" ? "later" : "earlier")
+            : null;
+        if (moved && input._testPatchDayStops) {
+          await input._testPatchDayStops(moved);
+          return {
+            next_stop: { name: slot, location: null },
+            legs: [],
+            transit_outcome: "partial",
+            single_mode,
+            skeleton_patched: true,
+            meal_move: timing === "move_later" ? "later" : "earlier",
+            patched_day_stops: moved,
+          };
+        }
+        if (moved) {
+          return {
+            next_stop: { name: slot, location: null },
+            legs: [],
+            transit_outcome: "partial",
+            single_mode,
+            skeleton_patched: true,
+            meal_move: timing === "move_later" ? "later" : "earlier",
+            patched_day_stops: moved,
+          };
+        }
+      }
+    }
+
+    let lookaheadLoc: PlaceLocation | null = null;
+    if (input.lookahead_stop) {
+      lookaheadLoc = await resolvePoint(
+        input.lookahead_stop,
+        all,
+        input.providers,
+        input._testGeocode,
+        input.city,
+        from ?? input.anchor,
+      );
+    }
+
+    const centroid = await resolveMealSearchCentroid({
+      slot,
+      currentStop: input.current_stop,
+      currentLoc: from,
+      lookaheadLoc,
+      dayStops: input.day_stops ?? [],
+      places: input.candidates.places,
+      resolveAttraction: (stop) =>
+        resolvePoint(
+          stop,
+          all,
+          input.providers,
+          input._testGeocode,
+          input.city,
+          from ?? input.anchor,
+        ),
+    });
+
+    const spend = mapSpendLevel(input.budget, input.spend_level);
+    const venue = await resolveMealVenue({
+      near: centroid.near,
+      lookahead: centroid.lookahead,
+      pool: restaurants,
+      usedNames: input.used_restaurant_names,
+      spend,
+      locale: input.locale,
+      providers: input.providers,
+      allowNameReuse: slot !== "lunch",
+      search: input._testSearchRestaurants,
+    });
+    if (!venue) {
+      // S8 lunch: keep slot id when no local venue; dinner may still fall through unused.
+      const fallbackName =
+        slot === "lunch"
+          ? slot
+          : (input.used_restaurant_names?.find((n) => n.trim()) ?? slot);
+      nextStop = {
+        ...nextStop,
+        name: fallbackName,
+        lat: centroid.near?.lat ?? from?.lat,
+        lng: centroid.near?.lng ?? from?.lng,
+      };
+    } else {
+      const loc = cardLocation(venue);
+      nextStop = {
+        ...nextStop,
+        name: venue.name,
+        lat: loc?.lat,
+        lng: loc?.lng,
+      };
+      restaurants.push(venue);
+      mealVenueCard = venue;
+    }
+  }
+
   const to = await resolvePoint(
-    input.next_stop,
-    all,
+    nextStop,
+    [...input.candidates.places, ...restaurants],
     input.providers,
     input._testGeocode,
     input.city,
     from ?? input.anchor,
   );
 
-  const prefMode = preferenceMode(input.transit_preference);
-  const single_mode = prefMode != null;
-
   if (!from || !to) {
     // No coordinates on either end (geocode failed) — never fabricate durations.
     return {
-      next_stop: { name: input.next_stop.name, location: to },
+      next_stop: { name: nextStop.name, location: to },
       legs: [],
       transit_outcome: "partial",
       single_mode,
@@ -204,17 +633,46 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
       return null;
     });
 
-  const built = await buildLegs(from, to, undefined, { transit_preferred: prefMode === "transit" }, (mode) =>
-    resolveDuration(mode, from, to),
+  const built = await buildLegs(
+    from,
+    to,
+    undefined,
+    { transit_preferred: pref.transit_preferred },
+    (mode) => resolveDuration(mode, from, to),
   );
-  let legs = sanitizeLegDuration(built.legs);
-  let anyDirections = legs.some((l) => l.source === "directions");
+  let legs = dropAbsurdLegs(built.legs);
+  let directionsFailed = built.directionsFailed;
+  let usedHeuristicFallback = false;
 
   if (single_mode && prefMode) {
     const kept = legs.filter((l) => l.mode === prefMode);
     if (kept.length) {
       legs = kept.map((l) => ({ ...l, recommended: true }));
     }
+  }
+
+  if (!legs.length) {
+    // F91: never emit heuristic fallback >120; else empty legs + partial.
+    const heuristics = buildHeuristicLegs(from, to, undefined, {
+      transit_preferred: pref.transit_preferred || true,
+    });
+    const capped = heuristics.filter((l) => l.duration_min <= LEG_MAX_DURATION_MIN);
+    const fallback =
+      capped.find((l) => l.mode === "transit") ??
+      capped.find((l) => l.mode === "drive") ??
+      capped.find((l) => l.mode === "walk") ??
+      capped[0];
+    if (fallback) {
+      legs = [{ ...fallback, recommended: true, source: "heuristic" }];
+      usedHeuristicFallback = true;
+    } else {
+      usedHeuristicFallback = true;
+    }
+  } else if (!legs.some((l) => l.recommended)) {
+    const prefer =
+      (pref.transit_preferred ? legs.find((l) => l.mode === "transit") : undefined) ??
+      [...legs].sort((a, b) => a.duration_min - b.duration_min)[0];
+    legs = legs.map((l) => ({ ...l, recommended: l.mode === prefer?.mode }));
   }
 
   // Secret-scrub deeplinks (same guard as enrich-arrange-transit).
@@ -224,10 +682,22 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
     }
   }
 
-  const transit_outcome: TransitOutcome =
-    anyDirections && !built.directionsFailed ? "directions" : anyDirections ? "partial" : "heuristic";
+  const anyDirections = legs.some((l) => l.source === "directions");
+  const transit_outcome: TransitOutcome = usedHeuristicFallback
+    ? "partial"
+    : anyDirections && !directionsFailed
+      ? "directions"
+      : anyDirections
+        ? "partial"
+        : "heuristic";
 
-  return { next_stop: { name: input.next_stop.name, location: to }, legs, transit_outcome, single_mode };
+  return {
+    next_stop: { name: nextStop.name, location: to },
+    legs,
+    transit_outcome,
+    single_mode,
+    ...(mealVenueCard ? { venue_card: mealVenueCard } : {}),
+  };
 }
 
 /**
@@ -257,11 +727,59 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
     };
   } else {
     const current = input.current_stop ?? input.next_stop;
+
+    // F89: insert lunch/dinner when clock is in window and day lacks that meal (incl. relaxed dinner).
+    if (
+      !isAnonymousMealStop(input.next_stop) &&
+      input.next_stop.kind !== "stay" &&
+      Array.isArray(input.day_stops) &&
+      input.day_stops.length
+    ) {
+      const clockMin =
+        hhmmToMinutes(input.arrival_clock) ??
+        hhmmToMinutes(current.end_time) ??
+        hhmmToMinutes(input.previous_stop?.end_time) ??
+        hhmmToMinutes(input.time_from);
+      if (clockMin != null) {
+        const insertSlot = shouldInsertMeal({
+          clockMin,
+          dayStops: input.day_stops,
+          pace: input.pace,
+        });
+        if (insertSlot) {
+          const nextIdx = input.day_stops.findIndex((s) => s.name === input.next_stop.name);
+          const afterIndex =
+            nextIdx > 0
+              ? nextIdx - 1
+              : (() => {
+                  const curIdx = input.day_stops.findIndex((s) => s.name === current.name);
+                  return curIdx >= 0 ? curIdx : undefined;
+                })();
+          const patched = insertMealIntoDayStops(input.day_stops, insertSlot, afterIndex);
+          if (input._testPatchDayStops) await input._testPatchDayStops(patched);
+          return {
+            next_stop: { name: insertSlot, location: null },
+            legs: [],
+            transit_outcome: "partial",
+            single_mode: false,
+            skeleton_patched: true,
+            inserted_meal_slot: insertSlot,
+            patched_day_stops: patched,
+          };
+        }
+      }
+    }
+
     planResult = await planNextStop({
       ...input,
       current_stop: current,
       next_stop: input.next_stop,
     });
+  }
+
+  if (planResult.skeleton_patched || planResult.meal_skipped) {
+    if (!withDisplay) return planResult;
+    if (planResult.skeleton_patched) return planResult;
   }
 
   if (!withDisplay) {
@@ -278,15 +796,25 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
         }
       : undefined);
 
+  const restaurants = [
+    ...input.candidates.restaurants,
+    ...(planResult.venue_card ? [planResult.venue_card] : []),
+  ];
   const stop_display = displayCurrentStop({
-    stop: input.next_stop,
-    candidates: input.candidates,
+    stop: {
+      ...input.next_stop,
+      name: planResult.next_stop.name,
+      lat: planResult.next_stop.location?.lat,
+      lng: planResult.next_stop.location?.lng,
+    },
+    candidates: { places: input.candidates.places, restaurants },
     previous_stop,
     legs_to_here: planResult.legs,
     default_duration_min: input.default_duration_min,
     time_from: input.time_from,
     stay_role: input.stay_role,
     locale: input.locale,
+    pace: input.pace,
   });
 
   return { ...planResult, stop_display };
@@ -304,6 +832,8 @@ export type DisplayStopInput = {
   /** F59: only day_origin resets the day clock; return/midday stay accumulate. */
   stay_role?: "day_origin" | "return" | "midday";
   locale: Locale;
+  pace?: "tight" | "medium" | "relaxed";
+  cluster_role?: ClusterRole;
 };
 
 export type DisplayStopResult = {
@@ -316,7 +846,6 @@ export type DisplayStopResult = {
   notes: string[];
 };
 
-const DEFAULT_VISIT_MIN = 90;
 const DEFAULT_MEAL_MIN = 60;
 
 function toMinutes(hhmm: string): number | null {
@@ -335,18 +864,33 @@ function fromMinutes(total: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function mealWindowStart(slot?: PlanStopPoint["meal_slot"]): number | null {
-  if (slot === "lunch") return 11 * 60 + 30;
-  if (slot === "afternoon_tea") return 15 * 60;
-  if (slot === "dinner") return 18 * 60;
+function mealWindowStart(
+  slot?: PlanStopPoint["meal_slot"],
+  pace?: "tight" | "medium" | "relaxed" | string | null,
+): number | null {
+  if (!slot) return null;
+  if (slot === "lunch" || slot === "afternoon_tea" || slot === "dinner") {
+    return mealWindowForSlot(slot, pace).start;
+  }
   return null;
 }
 
-function defaultDuration(stop: PlanStopPoint, explicit?: number): number {
+function defaultDuration(
+  stop: PlanStopPoint,
+  explicit?: number,
+  card?: PlaceCard | null,
+  opts?: { pace?: string; cluster_role?: ClusterRole },
+): number {
   if (typeof explicit === "number") return explicit;
-  if (stop.kind === "meal") return DEFAULT_MEAL_MIN;
+  if (stop.kind === "meal") {
+    const slot = stop.meal_slot ?? (stop.name === "dinner" ? "dinner" : "lunch");
+    if (slot === "lunch" || slot === "afternoon_tea" || slot === "dinner") {
+      return mealWindowForSlot(slot, opts?.pace).duration;
+    }
+    return DEFAULT_MEAL_MIN;
+  }
   if (stop.kind === "stay") return 0;
-  return DEFAULT_VISIT_MIN;
+  return attractionDwellMinutes(card, opts?.cluster_role ?? "isolated");
 }
 
 function publicDeeplinks(card: PlaceCard | undefined): Record<string, string> {
@@ -384,13 +928,17 @@ export function earliestFeasibleStart(
 
 export function displayCurrentStop(input: DisplayStopInput): DisplayStopResult {
   const all = [...input.candidates.places, ...input.candidates.restaurants];
-  const card = all.find((c) => c.name === input.stop.name) ?? null;
+  const card =
+    matchCardByPointer(input.stop, all) ??
+    all.find((c) => c.name === input.stop.name) ??
+    null;
   const slim = card ? slimArrangeCandidate(card) : null;
   const notes: string[] = [];
+  const pace = input.pace;
 
   const legs = input.legs_to_here ?? [];
   const recommended = legs.find((l) => l.recommended) ?? legs[0];
-  const recommendedMin = clampLegMinutesForClock(recommended?.duration_min);
+  const recommendedMin = maxRemainingLegMinutes(legs);
 
   if (input.stop.kind === "stay") {
     const role =
@@ -429,27 +977,26 @@ export function displayCurrentStop(input: DisplayStopInput): DisplayStopResult {
 
   let start = feasibleStart;
   if (input.stop.kind === "meal") {
-    const windowStart = mealWindowStart(input.stop.meal_slot);
+    const slot = input.stop.meal_slot ?? mealSlotOf(input.stop);
+    const windowStart = mealWindowStart(slot, pace);
     const feasibleMin = toMinutes(feasibleStart) ?? 0;
-    if (input.stop.meal_slot === "lunch" && feasibleMin > 14 * 60 + 30) {
-      start = fromMinutes(18 * 60);
-      notes.push("meal_promoted_to_dinner");
-    } else if (windowStart != null && feasibleMin < windowStart) {
+    if (windowStart != null && feasibleMin < windowStart) {
       start = fromMinutes(windowStart);
     }
-    if (input.stop.meal_slot === "lunch") {
+    // F91: past latest / end still place at arrival (break window) — do not promote lunch→dinner.
+    if (slot === "lunch") {
+      const w = mealWindowForSlot("lunch", pace);
       const startMin = toMinutes(start);
-      if (
-        startMin != null &&
-        !notes.includes("meal_promoted_to_dinner") &&
-        (startMin < 11 * 60 + 30 || startMin > 14 * 60 + 30)
-      ) {
+      if (startMin != null && (startMin < w.start || startMin > w.end)) {
         notes.push("lunch_window_outside");
       }
     }
   }
 
-  const duration = defaultDuration(input.stop, input.default_duration_min);
+  const duration = defaultDuration(input.stop, input.default_duration_min, card, {
+    pace,
+    cluster_role: input.cluster_role,
+  });
   const end = fromMinutes((toMinutes(start) ?? 10 * 60) + duration);
 
   const from_origin =

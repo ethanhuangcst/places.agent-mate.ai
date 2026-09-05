@@ -26,6 +26,7 @@ import {
 } from "./discover-must-see";
 import { filterAttractionPlaces, filterDiningPlaces } from "./place-filters";
 import { filterEligibleAttractions, isIneligibleMustIncludeToken } from "./eligible-attraction";
+import { safeUpsertEligiblePois, schedulePoiDetailsRefresh } from "./destination-poi-registry";
 import {
   dedupeByCluster,
   dedupeRestaurantsByStem,
@@ -47,7 +48,11 @@ import {
 import { enrichArrangeDayWithTransit } from "./enrich-arrange-transit";
 import { findIconicPlaces } from "./find-iconic-places";
 import { comparePoolHeat } from "./pool-heat-must-see";
-import { filterCardsNearAnchor, pickSupplementaryMustIncludeHit } from "./geo-bounds";
+import {
+  dropFarOriginCoords,
+  filterCardsNearAnchor,
+  pickSupplementaryMustIncludeHit,
+} from "./geo-bounds";
 import { getAdapter } from "../adapters";
 import { type ProviderId, isProviderId } from "./providers";
 import { resolveProviderStrategy } from "../adapters/provider-resolver";
@@ -1086,22 +1091,40 @@ export function slimArrangeDayResultForMcp(result: ArrangeDayResult): unknown {
  */
 export async function discoverPlaces(
   input: DiscoverPlacesInput,
-  opts?: { onEvent?: (e: DiscoverStreamEvent) => void },
+  opts?: {
+    onEvent?: (e: DiscoverStreamEvent) => void;
+    skipPoiRegistry?: boolean;
+  },
 ): Promise<DiscoverPlacesResult> {
   const numDays = Math.max(1, input.numDays ?? 1);
   const locale = parseLocale(input.locale);
 
+  let cityAnchor: { lat: number; lng: number } | null = null;
+  try {
+    const cityGeo = await geocode({
+      query: input.city,
+      locale,
+      providers: input.providers,
+    });
+    if (cityGeo.data?.lat != null && cityGeo.data?.lng != null) {
+      cityAnchor = { lat: cityGeo.data.lat, lng: cityGeo.data.lng };
+    }
+  } catch {
+    cityAnchor = null;
+  }
+  const origin = dropFarOriginCoords(input.origin, cityAnchor);
+
   const near =
-    input.origin?.lat != null && input.origin?.lng != null
-      ? { lat: input.origin.lat, lng: input.origin.lng }
-      : undefined;
+    origin?.lat != null && origin?.lng != null
+      ? { lat: origin.lat, lng: origin.lng }
+      : cityAnchor ?? undefined;
 
   // Phase A: provider candidate search (0 LLM).
   const poolResult = await searchCandidatePools({
     city: input.city,
     locale,
     providers: input.providers,
-    origin: input.origin,
+    origin,
   });
 
   let places = filterEligibleAttractions(
@@ -1165,22 +1188,22 @@ export async function discoverPlaces(
     }
   }
 
-  const anchor =
-    input.origin?.lat != null && input.origin?.lng != null
-      ? { lat: input.origin.lat, lng: input.origin.lng }
-      : (
-          await geocode({
-            query: input.origin?.name?.trim() || input.city,
-            locale,
-            providers: input.providers,
-          })
-        ).data;
+  const anchor = cityAnchor;
   if (anchor?.lat != null && anchor?.lng != null) {
     const point = { lat: anchor.lat, lng: anchor.lng };
     places = filterEligibleAttractions(filterCardsNearAnchor(places, point));
     restaurants = filterCardsNearAnchor(restaurants, point);
   } else {
     places = filterEligibleAttractions(places);
+  }
+
+  if (!opts?.skipPoiRegistry) {
+    const { poiIds } = await safeUpsertEligiblePois(places, {
+      city: input.city,
+      lat: anchor?.lat,
+      lng: anchor?.lng,
+    });
+    void schedulePoiDetailsRefresh(poiIds);
   }
 
   for (const card of places) {

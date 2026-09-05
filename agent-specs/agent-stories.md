@@ -4495,3 +4495,109 @@ Then fetch `candidates` 不再含该卡；`revision` 升。HTTP `patch_trip` 仍
 
 ---
 
+# 骨架餐档无店名 — `skeleton-meal-slots`
+
+**类别：** agent + 2play 预览 · Feature **85** · MVP-22 S2 · 状态：**In Progress**  
+**ADR：** [ADR-049](../../workspace-specs/adr/ADR-049-verified-attraction-and-meal-slots.md) 决策 3  
+**依赖：** F84
+
+**作为** 规划用户  
+**我希望** 框架只排景点顺序和吃饭档，不出现餐馆店名  
+**以便** make 不因店名对不上池而失败，填站再搜餐（F86）
+
+### US1
+
+**AC1** Given LLM 或夹具产出 `kind: meal` + `meal_slot`（可无 `name`，或 `name` 为店名）  
+When `normalizeMealSlotStops` / `make_itinerary`  
+Then 餐站身份为 slot；`name` 规范化为 `lunch` | `dinner` | `afternoon_tea`，**不是**店名。
+
+**AC2** Given 任意节奏  
+When `validateSkeleton`  
+Then 每日须有 lunch；medium/tight 另须 dinner。**不**因 `restaurants` 空而免档。餐站不必出现在餐厅池。
+
+**AC3** Given `buildSkeletonUserMessage`  
+When 组装  
+Then 不要求 LLM 从餐厅列表选店；不把餐厅名单当作必选 stop 名。
+
+**AC4** Given fetch `skeleton`  
+When 2play 骨架预览  
+Then 餐档文案走 i18n 键（`play.plan.meal_slot_*`），不硬编码语言、不展示店名。
+
+**不做：** F86 邻站搜餐；F87 库。
+
+---
+
+# 填站邻站搜餐 — `fill-resolve-meals`
+
+**类别：** agent · Feature **86** · MVP-22 S3 · 状态：**In Progress**  
+**ADR：** [ADR-049](../../workspace-specs/adr/ADR-049-verified-attraction-and-meal-slots.md) 决策 3–4、7  
+**依赖：** F85
+
+**作为** 规划用户  
+**我希望** 填站时按上一站附近搜到具体餐馆，搜不到就空过这餐  
+**以便** 骨架只有餐档也能出可用行程，且不因一餐失败整日失败
+
+### US1
+
+**AC1** Given `next_stop` 为 `kind: meal` 且 `name` 为 slot id（或仅有 `meal_slot`）  
+When `plan_next_stop`  
+Then **不** geocode `lunch`/`dinner`。先按 `current_stop` 坐标在邻域搜餐馆（池内近邻优先，否则 `search_restaurants`）。命中则 `next_stop.name` 为店名并带坐标。
+
+**AC2** Given 搜餐失败或无坐标锚点  
+When `plan_next_stop`  
+Then `meal_skipped: true`，HTTP 仍 200；不抛整日失败。缺电话/营业时间**不**触发 `patchTrip` 修景点池。
+
+**AC3** Given 落点或跳过  
+When 写 Trip  
+Then 只 `patchTrip` `filled`（店名或跳过标记）；不把餐馆 upsert 进景点库（F87）。
+
+**不做：** F87 库；扩 CATALOG；2play 本切片新开 fill 主路径（F41 S4 仍骨架 only）；改 `.env*`。
+
+---
+
+# 目的地景点库 — `destination-poi-registry`
+
+**类别：** agent · Feature **87** · MVP-22 S4 · 状态：**In Progress**  
+**ADR：** [ADR-049](../../workspace-specs/adr/ADR-049-verified-attraction-and-meal-slots.md) 决策 4–6  
+**依赖：** F84 谓词
+
+**作为** 规划用户  
+**我希望** 同一目的地再次规划能复用已验证景点，而不把合称写进源码  
+**以便** 热门城第二次少付搜索，且里斯本与杭州同一机制
+
+### US1（同步登记）
+
+**AC1** Given discover 过滤后的 `PlaceCard`  
+When `upsertEligiblePois`  
+Then 仅入库 `isEligibleAttraction` 且 `sources[].native_id` 非空的卡。合称/无坐标/餐馆/无 native_id **不**入库。
+
+**AC2** Given 目的地 geocode  
+When 解析 Destination  
+Then 有 `place_id` 则 `(provider, placeId)`；否则 `(provider, queryNorm, 圆整 lat/lng)`。不是按城硬编码表。
+
+**AC3** Given `enrichMakeItineraryInput`  
+When 读库  
+Then 将该 Destination 的登记 POI 并入 `candidates.places`，再跑现有补搜 + F84。库空 = 今日路径（Lisbon = Hangzhou）。
+
+**AC4** Given 库 I/O 失败  
+When discover / make  
+Then 不 502；行程仍只写 Trip。无新 HTTP/MCP 库工具。餐馆不入库。
+
+**不做（本 US）：** L1 异步详情（US2）；扩 CATALOG；改 `.env*`。
+
+### US2（异步 L1）
+
+**AC5** Given upsert 成功  
+When `schedulePoiDetailsRefresh`  
+Then 对过期/无 `detailsFetchedAt` 的 POI **脱离** discover/make 请求调用 `getPlaceDetails`；HTTP 在详情落地前返回。
+
+**AC6** Given 详情失败或缺失  
+When 写库  
+Then 只更新该 POI `details`/`detailsFetchedAt`（成功时）；**不** `patchTrip` 改本 trip candidates。Make 仍只靠 L0。
+
+**AC7** Given `detailsFetchedAt` 未过 TTL（7 日）  
+When 调度  
+Then 跳过该 POI。
+
+---
+

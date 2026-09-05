@@ -27,6 +27,8 @@ import {
 import { artifactsTipsPatch, artifactsVisaPatch } from "../core/trip-artifacts";
 import { type PlanItineraryInput, type PlaceCard } from "../core/types";
 import { parseLocale, type Locale } from "../core/locales";
+
+const MEAL_SLOT_NAME = new Set(["lunch", "dinner", "afternoon_tea"]);
 import {
   errorEnvelope,
   okEnvelope,
@@ -319,6 +321,43 @@ export async function dispatchTool(
         cs && typeof cs.lat === "number" && typeof cs.lng === "number"
           ? { lat: cs.lat, lng: cs.lng, crs: "WGS84" as const }
           : undefined;
+
+      let usedNames = [...(parsed.data.used_restaurant_names ?? [])];
+      let dayStops = parsed.data.day_stops;
+      let skeletonDoc: { days?: Array<{ day_index?: number; stops?: unknown[] }> } | null = null;
+
+      if (parsed.data.trip_id) {
+        try {
+          const tripDoc = await getTripOrThrow(auth.keyId, parsed.data.trip_id);
+          skeletonDoc = (tripDoc.skeleton as typeof skeletonDoc) ?? null;
+          const filled = tripDoc.filled as
+            | { stops?: Array<{ name?: string; kind?: string; meal_skipped?: boolean }> }
+            | Array<{ name?: string; kind?: string; meal_skipped?: boolean }>
+            | null;
+          const filledStops = Array.isArray(filled)
+            ? filled
+            : Array.isArray((filled as { stops?: unknown })?.stops)
+              ? (filled as { stops: Array<{ name?: string; kind?: string; meal_skipped?: boolean }> }).stops
+              : [];
+          for (const s of filledStops) {
+            if (
+              s?.kind === "meal" &&
+              s.name &&
+              !MEAL_SLOT_NAME.has(s.name) &&
+              !(s as { meal_skipped?: boolean }).meal_skipped
+            ) {
+              usedNames.push(s.name);
+            }
+          }
+          if (!dayStops?.length && skeletonDoc?.days && parsed.data.day_index) {
+            const day = skeletonDoc.days.find((d) => d.day_index === parsed.data.day_index);
+            if (Array.isArray(day?.stops)) dayStops = day.stops as typeof dayStops;
+          }
+        } catch {
+          /* trip optional for meal fill */
+        }
+      }
+
       const result = await planNextStopFill({
         origin_mode: parsed.data.origin_mode,
         with_stop_display: parsed.data.with_stop_display,
@@ -337,21 +376,48 @@ export async function dispatchTool(
         time_from: parsed.data.time_from,
         stay_role: parsed.data.stay_role,
         default_duration_min: parsed.data.default_duration_min,
+        used_restaurant_names: usedNames,
+        spend_level: parsed.data.spend_level,
+        budget: parsed.data.budget,
+        pace: parsed.data.pace,
+        lookahead_stop: parsed.data.lookahead_stop,
+        day_stops: dayStops,
+        arrival_clock: parsed.data.arrival_clock,
         locale,
       });
+
       const slot = result.stop_display?.slot;
+      const patch: Record<string, unknown> = {};
+      if (!result.skeleton_patched) {
+        patch.filled = {
+          stop: {
+            ...parsed.data.next_stop,
+            name: result.next_stop.name,
+            ...(result.meal_skipped ? { meal_skipped: true } : {}),
+            ...(result.venue_card ? { kind: "meal" } : {}),
+          },
+          slot,
+          legs: result.legs,
+        };
+      }
+      if (result.skeleton_patched && result.patched_day_stops && parsed.data.trip_id) {
+        const days = Array.isArray(skeletonDoc?.days) ? [...skeletonDoc!.days!] : [];
+        const dayIndex = parsed.data.day_index ?? 1;
+        const di = days.findIndex((d) => d.day_index === dayIndex);
+        if (di >= 0) {
+          days[di] = { ...days[di], stops: result.patched_day_stops };
+        } else {
+          days.push({ day_index: dayIndex, stops: result.patched_day_stops });
+        }
+        patch.skeleton = { ...(skeletonDoc ?? {}), days };
+      }
+
       const trip = await dualWriteTripIfPresent({
         callerKey: auth.keyId,
         tripId: parsed.data.trip_id,
         expectedRevision: parsed.data.revision,
         locale,
-        patch: {
-          filled: {
-            stop: parsed.data.next_stop,
-            slot,
-            legs: result.legs,
-          },
-        },
+        patch: patch as never,
       });
       const flat = result.stop_display
         ? {

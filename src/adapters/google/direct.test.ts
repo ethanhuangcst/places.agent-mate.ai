@@ -117,6 +117,49 @@ describe("Google live direct client", () => {
     await client.searchPlaces({ query: "museum" });
   });
 
+  it("should_bias_restaurant_search_with_circle_not_restriction", async () => {
+    let body = "";
+    const { fetchFn } = recordFetch((_url, init) => {
+      body = typeof init?.body === "string" ? init.body : "";
+      return jsonResponse({ places: [] });
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    await client.searchRestaurants({
+      query: "restaurant",
+      near: { lat: 38.796, lng: -9.396 },
+      locale: "EN",
+    });
+    const parsed = JSON.parse(body) as {
+      locationBias?: { circle?: { radius?: number } };
+      locationRestriction?: unknown;
+      rankPreference?: string;
+    };
+    expect(parsed.locationBias?.circle?.radius).toBe(5000);
+    expect(parsed.locationRestriction).toBeUndefined();
+    expect(parsed.rankPreference).toBe("DISTANCE");
+  });
+
+  it("should_bias_place_search_to_caller_radius_when_near_set", async () => {
+    let body = "";
+    const { fetchFn } = recordFetch((_url, init) => {
+      body = typeof init?.body === "string" ? init.body : "";
+      return jsonResponse({ places: [] });
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    await client.searchPlaces({
+      query: "Hyatt",
+      near: { lat: 38.72, lng: -9.14 },
+      bias_radius_m: 50_000,
+      locale: "CN",
+    });
+    const parsed = JSON.parse(body) as {
+      locationBias?: { circle?: { radius?: number } };
+      locationRestriction?: unknown;
+    };
+    expect(parsed.locationBias?.circle?.radius).toBe(50_000);
+    expect(parsed.locationRestriction).toBeUndefined();
+  });
+
   it("should_throw_egress_when_api_key_missing", async () => {
     const client = createGoogleDirectClient(testConfig({ apiKey: undefined }), async () => {
       throw new Error("should not fetch");

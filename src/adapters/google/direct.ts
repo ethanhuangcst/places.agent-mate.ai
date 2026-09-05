@@ -17,9 +17,7 @@ function buildSearchText(input: SearchInput, kind: "restaurant" | "place"): stri
   if (input.query?.trim()) parts.push(input.query.trim());
   else if (kind === "restaurant") parts.push("restaurant");
   if (input.address?.trim()) parts.push(input.address.trim());
-  if (input.near) {
-    parts.push(`near ${input.near.lat}, ${input.near.lng}`);
-  }
+  // S8: do not append "near lat,lng" into textQuery — use locationRestriction / bias instead.
   return parts.join(" ") || (kind === "restaurant" ? "restaurant" : "places");
 }
 
@@ -85,12 +83,16 @@ export function createGoogleDirectClient(
       }
     }
     if (input.near) {
-      body.locationBias = {
-        circle: {
-          center: { latitude: input.near.lat, longitude: input.near.lng },
-          radius: 5000,
-        },
+      const placeRadius = Math.min(input.bias_radius_m ?? 5000, 50_000);
+      const circle = {
+        center: { latitude: input.near.lat, longitude: input.near.lng },
+        radius: kind === "restaurant" ? 5000 : placeRadius,
       };
+      // searchText locationRestriction only accepts rectangle, not circle (400 Unknown name "circle").
+      body.locationBias = { circle };
+      if (kind === "restaurant") {
+        body.rankPreference = "DISTANCE";
+      }
     }
 
     const res = await fetchWithTimeout(

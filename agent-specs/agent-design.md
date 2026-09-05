@@ -1118,13 +1118,14 @@ LLM 重试仍失败时：超节奏日从尾部裁 attraction；站名精确失�
 
 - `resolvePoint` geocode：`${stop.name}, ${city}`（fill 链透传 `city`）。
 - 解析点距 anchor（origin 或上一站）> `DISCOVER_GEO_MAX_KM`（80km）→ 丢弃坐标，legs 空或 heuristic，`transit_outcome: partial`。
-- `duration_min` 硬顶：同城 ≤180min，超则不进入 `earliestFeasibleStart`。
+- `duration_min` 硬顶：同城 ≤120min（F88；原 F60 为 180），超则不进入 `earliestFeasibleStart`；步行 >45 直接丢掉。
 - **骨架**：拒绝与区域 token / 城市名等价的单字 attraction（如裸 `Belem`）。
 
-### 18.15 迟到午餐（MVP-14 F61）
+### 18.15 迟到午餐（MVP-14 F61 / S8）
 
 - `meal_slot=lunch` 且 feasible > 14:30 → 按 dinner 窗口（≥18:00）落位，note=`meal_promoted_to_dinner`。
 - 骨架 prompt + 校验：lunch 不得排在当日最后一个 attraction 之后；可确定性前移到 midday。
+- **S8：** 当天 **仅 1 个** attraction 时，**禁止**把 lunch 插到该景点**之前**（避免 stay→lunch→POI）。应留在景点之后，交给 `splitSingleAttractionDays`（AM→lunch→PM）。
 
 ### 18.16 骨架确定性回退扩展（MVP-15 F62）
 
@@ -1684,4 +1685,119 @@ CTA → discover（热度 must_see）∥ intake
 **Make：** `enrichMakeItineraryInput` 滤池；`degradeMustInclude` 后校验。餐站不要求店名在餐厅池。`dropUnknownAttractionStops` 丢掉 LLM 发明的池外景点（如「白堤」），不整单 502。写 Trip 候选用 `commitPatch(..., candidatesWrite: "replace")`，避免 merge 把脏卡合回来。
 
 **内部 `patchTrip`：** `commitPatch` 别名；默认可 merge（F82 保热度）；`replace` 整表替换 `places`/`restaurants`。HTTP `patch_trip` **保持只改 constraints**（既有 2play），不升为修池 API。
+
+### 24.9 Feature 85 — 骨架餐档（无店名）
+
+**合同：** 餐站 = `{ kind: "meal", meal_slot: "lunch"|"dinner"|"afternoon_tea" }`。`name` 可缺；入账前 `normalizeMealSlotStops` 把 `name` 写成 **slot id**（与 `meal_slot` 相同）。禁止把餐馆店名写入骨架。
+
+**Zod：** `name` 在 `kind=meal` 时可选；校验前先 normalize。
+
+**校验：** 每日 lunch；`pace` 为 medium/tight 时每日 dinner。不看餐厅池是否为空。餐站不进「须在候选名单」检查。午餐仍须在最后一处景点之前（midday）。
+
+**Prompt：** `prompts/overlays/itinerary-skeleton.md` — 餐档无店名；勿从 restaurant list 选店。`buildSkeletonUserMessage` 不列出餐厅作为必选 stop。夹具 `buildFixtureSkeleton` 插 slot，不取 `restaurants[i].name`。
+
+**落库：** 仍 `commitPatch` / `patchTrip`。2play fetch 后预览用 `play.plan.meal_slot_*`。**不**在本故事搜餐馆（F86）。
+
+### 24.10 Feature 86 — 填站邻站搜餐
+
+**入口：** `planNextStop` / `planNextStopFill`。当 `next_stop.kind === meal` 且 `name` 为 slot id（或无店名）时走 `resolveMealVenue`。
+
+**锚点：** `current_stop` 已解析坐标（景点/住宿）。无锚点 → skip。
+
+**选店：** (1) `candidates.restaurants` 中距锚点 ≤ 3km、且不在 `used_restaurant_names`；(2) 否则 `searchRestaurants({ near, query: "restaurant", locale })`。取第一张有坐标的卡。无城表菜名。
+
+**失败：** `meal_skipped: true`，`next_stop.location` null，`legs: []`，`transit_outcome: "partial"`。不 502。
+
+**落库：** `dualWriteTripIfPresent` 的 `filled.stop` 用解析后的店名（或仍为 slot + skip）。禁止因缺 L1 详情改 `candidates`。
+
+**2play：** 若走 fill，`meal_skipped` 仍当成功站，文案用餐档 key。F41 Story 4 骨架默认不 fill；**fill 主路径见 §25 / 批次 23**（池内不再依赖餐馆）。
+
+### 24.11 Feature 87 — 目的地景点库
+
+**表：** Prisma `Destination` + `AttractionPoi`（`@@unique([destinationId, provider, nativeId])`）。`cardSlim` 可还原 L0 `PlaceCard`。`details` / `detailsFetchedAt` 留给 US2。
+
+**Destination 键：** `placeId` 优先；否则 `queryNorm`（城市名 NFKC+小写）+ lat/lng 三位小数。无城表。
+
+**写：** `discoverPlaces` 在 F84 过滤后对**完整卡**调用 `upsertEligiblePois`（非 Trip slim JSON）。失败吞掉。
+
+**读：** `enrichMakeItineraryInput` 开头 `listPoisForDestination` 按名合并，再补搜/geo。
+
+**禁止：** 餐馆行；对外 list API；`patchTrip` 写库；扩 CATALOG。
+
+**US2 L1：** `schedulePoiDetailsRefresh(poiIds)` 用 `setImmediate` 调 `getPlaceDetails`；TTL 7 日。失败只打日志。不挡 make/discover。
+
+## 25. 规划行程细节（MVP-23，零 LLM fill）
+
+**真源：** `[0.refactor-plan.md](./0.refactor-plan.md)` 批次 23。不新开 `plan_day_trip`。写后读仍 `fetch_trip_details`。内部 `patchTrip`；HTTP `patch_trip` 只改 constraints。
+
+### 25.1 合同
+
+宿主按骨架光标调用 `plan_next_stop`（上一站 = 已填或当日 `stay` 出发地）。每站：算腿 → 停留 → 必要时搜/挪/插餐 → 规则审当天已填+本站 → `patchTrip` → 宿主 fetch 再展示。
+
+**R1：打卡串不合并成一站。** 串只影响停留分钟。步行 ≤15min **且** 直线 ≤800m 的连续 attraction 为一串。
+
+**单景点日：** 当天仅 1 个 attraction 时拆成两站（同一 `native_id`）：`名称（上午）` → lunch → `名称（下午）` → dinner。晚餐可在 **景点→酒店** 回程走廊搜店。展示名走 i18n。不是并站。
+
+| 站 | 建议停留 |
+| --- | --- |
+| 串内（下一跳仍在串） | 20 min |
+| 串尾 | 35 min |
+| 孤立 | **45** min |
+| 卡上 category 为博物馆/园林（有才用） | **60** min |
+| 无该类 category，但 `rating ≥ 4.6` 且 `user_ratings_total ≥ 200` | **60** min |
+| 午餐 | 60 min |
+| 晚餐 | 轻松/适中 90 min；紧凑 60 min |
+| stay | 0 |
+
+挤餐窗：按比例缩短当天 **每个** 景点停留；下限串内 15 / 孤立 30 / 博物馆类 45。仍破窗则 **不丢景点**，餐仍安排。
+
+骨架 attraction 必须带 `provider` + `native_id` + `name`（入池时已有）。**禁止**把坐标编进编号字符串。
+
+### 25.2 交通（F88 + F91 指针）
+
+丢掉：步行 >**45** min；公交/地铁或打车 >**120** min。零条留下：**禁止**再 emit >120 的 heuristic。`legs=[]`，`transit_outcome=partial`，时钟 +0。
+
+助手并列**留下的**模式。时钟预留 = 留下方案中 `duration_min` **最大**者（再 `clamp` 到 120）。
+
+**用对 POI（池内卡是好的；72560 是解析错）：**
+
+1. 填站用 `native_id`（否则精确站名）命中 `candidates.places`，坐标 **只读卡上 `location`**，不再 geocode 同名。
+2. 对不上：允许 geocode，尺子 = **上一站坐标**，没有上一站则 **城市**；命中距尺子 >80km 丢掉。
+3. 丢掉或双边无点：本站失败，可见 outcome；**不删池内卡**；**不**把超长腿画进 UI。
+4. 2play 画线前用同一套 45/120 闸再滤一遍。
+
+### 25.3 餐（F89 加严 / F91 / F92）
+
+`candidates.restaurants` **不是**搜餐主源（ADR-049）。
+
+**搜餐圆心（F92 / S6B / S8）：** `near` = **当天景点池卡坐标**，不是酒店 stay（午餐）。午餐：上一 attraction，若午餐在景点前则用**下一** attraction，否则当日第一个 attraction；**禁止 stay 作午餐圆心**。晚餐：餐前最后一个 attraction；**允许** stay/酒店作圆心或走廊端（≤5km）。走廊：午餐仅同簇（≤5km）可带 lookahead；搜环 800m→2km→5km；命中距圆心 >5km 丢掉。空结果时午餐可再搜一次 `cafe`（仍 ≤5km `locationRestriction`）；仍空则保留槽位名 `lunch`，**禁止** reuse 市区店名。
+
+**禁止 `meal_skipped`。** 晚餐走廊无未用店 → 可复用当天已用店；午餐 5km 空 → 不 reuse 远店。
+
+**占用窗**（到达 = 上一站结束 + F88 剩余腿 max）：
+
+| 餐 / 节奏 | 最早开吃 | 最晚吃完 | 预留 | 最晚开吃 |
+| --- | --- | --- | --- | --- |
+| 午餐 | 11:30 | 14:30 | 60 | 13:30 |
+| 晚餐轻松 | 17:30 | 20:00 | 90 | 18:30 |
+| 晚餐适中 | 17:30 | 19:30 | 90 | 18:00 |
+| 晚餐紧凑 | 17:30 | 19:30 | 60 | 18:30 |
+
+早于最早开吃 → **开吃钉在最早**；**不要**为等窗把午餐 `move_later` 挤到所有景点之后。落在最早～最晚开吃 → 到了就开吃。晚于最晚开吃 → 先缩全天景点停留；仍破窗则开吃=到达，**不丢景点**。
+
+**每天**骨架必须有 lunch + dinner（**含轻松、一日游**）。`requireDinner = true`。主题日 `trimThemedDayOutliers` **保留** `kind=meal`（槽位无池坐标也不得删）。下午茶：仅骨架已有；窗 15:00–16:30；不新插。内部 `patchTrip` 挪/插；**禁止** 2play HTTP `patch_trip` 写餐。
+
+### 25.3a 起点 stay（F92）
+
+每日第一站 `stay` = **起点**（UI i18n，非景点）。Intake 有起点 → 名称+目的地内坐标（ADR-048）；无起点 → 仍有 stay，坐标=**城市 geocode**。池内第一个 attraction = 起点**之后**第一站：必须算腿并画 transit；开始时间 = `timeFrom` + F88 剩余腿 max。Stay 停留 0；填第一景点时 `current_stop` 必须带 stay 的 lat/lng（禁止仅店名导致无腿、时钟 +0）。
+
+### 25.4 审天（F90-1）
+
+无 LLM 改 theme。重复店换店（无第二家则允许复用，见 25.3）。单段仍 >120 → 丢掉该模式，过远 `partial`，**不停当天、不砍未填景点**。
+
+旧「超时 >60min 停填余下站」**取消**（F90-1）。绕路 >40%：只对调**尚未展示**的下一站与下下站。
+
+### 25.5 失败
+
+编号对不上且 geocode 超 80km / 无点 → 用户可见 outcome，**该站不填成功**。directions 失败但两点合法 → `partial`。**不再使用 `meal_skipped`。** 不因错解析删除池内卡。
 

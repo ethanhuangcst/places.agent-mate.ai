@@ -55,3 +55,37 @@ model Trip {
 
   @@index([callerKey, expiresAt])
 }
+
+/** F87 / ADR-049 — cross-trip eligible attraction registry (not a source catalog). */
+model Destination {
+  id         String          @id @default(cuid())
+  lookupKey  String          @unique
+  provider   String
+  placeId    String?
+  queryNorm  String
+  lat        Float?
+  lng        Float?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  pois       AttractionPoi[]
+}
+
+model AttractionPoi {
+  id                String      @id @default(cuid())
+  destinationId     String
+  destination       Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  provider          String
+  nativeId          String
+  name              String
+  aliases           Json        @default("[]")
+  lat               Float
+  lng               Float
+  cardSlim          Json
+  details           Json?
+  detailsFetchedAt  DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([destinationId, provider, nativeId])
+  @@index([destinationId])
+}

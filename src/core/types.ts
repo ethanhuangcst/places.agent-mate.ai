@@ -59,6 +59,8 @@ export type SearchInput = {
    * Ignored by other adapters.
    */
   rankPreference?: "RELEVANCE" | "DISTANCE";
+  /** Metres for Google place `locationBias` circle (capped at 50_000). Restaurants stay 5km restriction. */
+  bias_radius_m?: number;
 };
 
 export type ItineraryBounds = {
