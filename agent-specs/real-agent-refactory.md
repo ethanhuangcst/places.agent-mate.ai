@@ -1,7 +1,7 @@
 # places-agent 行程规划真智能体修改方案
 
 **Status:** 方案稿 / 规范真源（2026-09-06）  
-**Related:** [ADR-050](../../workspace-specs/adr/ADR-050-where2play-no-product-llm.md) **Proposed**（where2play 零产品 LLM）；取图 [ADR-051](../../workspace-specs/adr/ADR-051-discover-resolve-display-photo.md)；供应商 [ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md)（含 2026-09-06：废除 discover 扩源 + D9/D10）；起点整卡 [ADR-053](../../workspace-specs/adr/ADR-053-origin-stay-as-stop-card.md)（均 Accepted，050 除外）  
+**Related:** [ADR-050](../../workspace-specs/adr/ADR-050-where2play-no-product-llm.md) **Proposed**（where2play 零产品 LLM）；取图 [ADR-051](../../workspace-specs/adr/ADR-051-discover-resolve-display-photo.md)（含 D6：高德 CDN `http`→`https`；`maxWidthPx=800`）；供应商 [ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md)（含 2026-09-06：废除 discover 扩源 + D9/D10）；起点整卡 [ADR-053](../../workspace-specs/adr/ADR-053-origin-stay-as-stop-card.md)（均 Accepted，050 除外）  
 **漂移课：** [`../../workspace-specs/knowledge/maps/adr-052-discover-expansion-drift.md`](../../workspace-specs/knowledge/maps/adr-052-discover-expansion-drift.md)  
 **对照：** [1-agent-refactory.md](./1-agent-refactory.md) 仅历史 draft/ai-proposed。  
 **细化检查表：** [`../../workspace-specs/knowledge/agent/real-agent-refinement-checklist.md`](../../workspace-specs/knowledge/agent/real-agent-refinement-checklist.md)  
@@ -168,9 +168,9 @@ what2eat **不调用** `discover_places` / `make_itinerary` / `plan_next_stop` /
 
 ## 可展示图（ADR-051，环内写卡）
 
-Google 搜索只给 `photos[].name`，不是 `<img src>`。带 `key` 的 media 入账本会被 sanitize 剥成死链。高德 `photos[].url` 已是直链。
+Google 搜索只给 `photos[].name`，不是 `<img src>`。带 `key` 的 media 入账本会被 sanitize 剥成死链。高德 `photos[].url` 常为直链，但**经常是 `http://store.is.autonavi.com/...`**；https 门 + 浏览器混合内容会剥掉大半大陆景点图。
 
-**原则：** places-agent 在**第一次把展示卡写入账本**时解析 **一张** 无 key 的公开 https → `photos[0]`。宿主不补图。起点：**选定当时**解析（ADR-053）；有 `originStay` 指针则 fill **不**按店名再搜再取图（修订 ADR-051 D1.3）。
+**原则：** places-agent 在**第一次把展示卡写入账本**时解析 **一张** 无 key 的公开 **https** → `photos[0]`。宿主不补图、不升协议。起点：**选定当时**解析（ADR-053）；有 `originStay` 指针则 fill **不**按店名再搜再取图。
 
 | 卡 | 何时解析 | 之后 |
 | --- | --- | --- |
@@ -193,22 +193,22 @@ Google 搜索只给 `photos[].name`，不是 `<img src>`。带 `key` 的 media �
 
 对当时写入的景点 / 餐店 / **stay** 卡各最多一张：
 
-1. 已是可展示 https（高德直链，或本 trip / 库里已解析的 `photoUri`）→ 用。
-2. 否则 Google `photos[].name` → `GET .../media?maxWidthPx=400&skipHttpRedirect=true` → JSON **`photoUri`**。
-3. 否则 Place Details 的 photos，同一把 key，再走 2。
+1. 高德 `photos[].url`（直链）→ 用。若为 `http://` 且主机为高德 CDN（`*.autonavi.com` / `*.amap.com`），**先升 `https://`**（D6 / `upgradeAmapInsecurePhotoUrl`），再过 https 门。
+2. 否则 Google `photos[].name` → `GET .../media?maxWidthPx=800&skipHttpRedirect=true` → JSON **`photoUri`**（CDN，无 key）。**800** = 列表拇指与 place-sheet lightbox **共用**同一张 `photos[0]`（不另存大图 / 第二真源）。
+3. 否则 Place Details 的 photos，同一把 key，同宽度。
 4. 否则 TripAdvisor（已有 `TRIPADVISOR_API_KEY`）。
 5. 都没有 → 不写 `photos`，不编造。
 
-`GOOGLE_PHOTOS_ENABLED=false` 跳过 2–3。写入前 `sanitizePublicUrl`；死 media 丢掉。并发：芯片 3–5；补池 4–8；stay **仅选定一张**。单卡失败不失败整次 `plan_trip`。
+`GOOGLE_PHOTOS_ENABLED=false` 跳过 2–3。写入前：D6 升协议 → `sanitizePublicUrl`；死 media / **非高德 CDN 的 http** 丢掉。挂点：`amapPoiToCard` 与 `resolveDisplayPhoto` / `firstDisplayable`。**不在 2play 升协议。** 并发：芯片 3–5；补池 4–8；stay **仅选定一张**。单卡失败不失败整次 `plan_trip`。不因无图把 Google 当大陆 discover 补图真源（ADR-052）。
 
 ### 落库
 
-- Trip `candidates` / `filled`：`photos[0]` 为 UI 真源。
-- `AttractionPoi.cardSlim`：保留**已解析**的一张 https（现状 slim 会丢 photos，实现时改）。跨行程复用则跳过 media。不存 `photos[].name`、不存带 key URL。
+- Trip `candidates` / `filled`：`photos[0]` 为 UI 真源（列表 + lightbox 同一 URL）。
+- `AttractionPoi.cardSlim`：保留**已解析**的一张 https。跨行程复用则跳过 media。不存 `photos[].name`、不存带 key URL、不存裸 `http://`。
 
 ### 读与旧数据
 
-`fetch_trip_details` 只读（含 `stop-origin`）。2play 映射 `photos[0]` / `nativeId` / `mapUrl`。旧坏链或缺图 / 错绑 stay **不回填**：景点重跑建池；餐重跑 fill；起点须**新开一程或重跑 intake+fill**（ADR-053 D5）。CDN 热链失效再开代理故事。
+`fetch_trip_details` 只读（含 `stop-origin`）。2play 映射 `photos[0]` / `nativeId` / `mapUrl`。旧坏链 / 裸 http / 缺图 / 错绑 stay **不回填**：景点重跑建池；餐重跑 fill；起点须**新开一程或重跑 intake+fill**。CDN 热链失效再开代理故事。
 
 ### 墙钟（相对 LLM 可忽略）
 
@@ -218,6 +218,7 @@ Google 搜索只给 `photos[].name`，不是 `<img src>`。带 `key` 的 media �
 | 补池 20–40 张 | 约 1–4s，可与骨架 LLM 重叠 |
 | 每餐 1 店 | 约 0.1–0.4s，叠在搜店 / Directions |
 | 起点 stay（选定 1 张） | 约 0.1–0.4s **一次**（此后抄卡，不按日、不按 fill 重打） |
+| 高德 D6 升 https | 可忽略（字符串改写，无额外 HTTP） |
 
 不为齐图把一次 HTTP 拖到 `ready`。
 
@@ -289,7 +290,7 @@ where2play / ChatBox / Cursor 都是入口宿主；行程事实只来自 agent�
 | 芯片等 discover；四卡等 make | 城市→芯片；日期→四卡 |
 | 第 6 题可能由 2play 模型列名 | 只 fetch 验真 `must_see` |
 | 骨架可估交通、可锁餐厅 | 分区不锁分钟；餐在填细节搜 |
-| 图：坏 media；起点 fill 再搜成钟楼 | 景点建池解析；餐填站解析；**起点选定建卡+图，fill 只抄**（ADR-051/053） |
+| 图：坏 media；高德 http 被剥；起点 fill 再搜成钟楼 | 写卡解析 https；**D6 仅高德 CDN 升 https**；`maxWidthPx=800` 共用；起点选定建卡+图，fill 只抄 |
 | 2play 汉字双源 / 按名再定位 | 省略 `providers[]`（ADR-052）；入账后禁止按名搜 |
 | discover 门面扩双源；详情变英文 | **废除扩源**；D9 抄卡同身份；D10 详情跟 UI locale（Feature 89） |
 
@@ -313,6 +314,8 @@ where2play / ChatBox / Cursor 都是入口宿主；行程事实只来自 agent�
 - 不把 what2eat 的 `search_restaurants` / `chat` / `geocode` / `get_place_details` 收进 `plan_trip`，不改其超时与 envelope。
 - 不恢复按城 POI 源码表。
 - 不把地图 key 下发 Web；不把带 key 的 Photo media URL 写入 Trip / 写信封 / 2play 可见 JSON。
+- **不在 2play 升协议**；不把任意 `http://` 当可展示图；仅 agent 对 `*.autonavi.com` / `*.amap.com` 做 D6。
+- 不为 lightbox 另存第二套大图 URL；列表与详情共用账本 `photos[0]`（`maxWidthPx=800`）。
 - 不在 `fetch_trip_details` 上解析图、补身份或改 revision。
 - 2play **不**按店名再 `geocode` / `search_places` 已入账起点；不把城市中心盖到有店名的 stay 上。
 - fill **禁止**酒店全名 + `cards[0]`；括号副标不进酒店主 query。
