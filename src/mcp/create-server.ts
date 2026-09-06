@@ -27,6 +27,7 @@ import { toolToEnvelope, errorEnvelope, type Envelope } from "../http/envelope";
 import { localeSchema, providerIdSchema } from "../http/schemas";
 import { makeItinerary, createSkeletonChatCreate } from "../core/make-itinerary";
 import { planNextStopFill } from "../core/plan-next-stop";
+import { planTrip } from "../core/plan-trip";
 import { artifactsTipsPatch, artifactsVisaPatch } from "../core/trip-artifacts";
 import { travelTips, TravelTipsTimeoutError } from "../core/travel-tips";
 import { visaRequirement } from "../core/visa-requirement";
@@ -1288,6 +1289,54 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
           fields: args.fields as FetchTripFields,
           day_index: args.day_index,
         });
+        return jsonResult({
+          agent: AGENT_ID,
+          ok: true,
+          data: result,
+        });
+      } catch (err) {
+        const fail = tripStoreErrorResult(err, args.locale ?? "EN");
+        if (fail) return jsonResult(fail);
+        return jsonResult(
+          errorEnvelope("errors.provider_failed", args.locale ?? "EN", [], {
+            data: { detail: err instanceof Error ? err.message : String(err) },
+          }),
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "plan_trip",
+    {
+      description:
+        "places-agent: True-agent trip intake. Call when the user wants to arrange a trip / N-day itinerary / plan a trip. " +
+        "Pass city (omit providers[]). Returns trip_id, revision, status=needs_input, and questions. " +
+        "Read must-see chips via fetch_trip_details fields=['candidates']. Do not invent place names. " +
+        "Aliases plan_itinerary / trip_plan / trips still run the legacy host pipeline — prefer this tool for new trips.",
+      inputSchema: {
+        city: z.string().min(1),
+        trip_id: sharedShape.trip_id,
+        revision: sharedShape.revision,
+        providers: sharedShape.providers,
+        locale: sharedShape.locale,
+        locales: sharedShape.locales,
+      },
+    },
+    async (args) => {
+      try {
+        const result = await planTrip({
+          callerKey,
+          city: args.city,
+          locale: parseLocale(args.locale),
+          trip_id: args.trip_id,
+          revision: args.revision,
+        });
+        if (result.status === "failed") {
+          return jsonResult(
+            errorEnvelope("errors.provider_failed", args.locale ?? "EN", [], { data: result }),
+          );
+        }
         return jsonResult({
           agent: AGENT_ID,
           ok: true,

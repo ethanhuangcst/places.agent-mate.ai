@@ -377,6 +377,13 @@ export const travelTipsBody = z.object({
 export type VisaRequirementBody = z.infer<typeof visaRequirementBody>;
 export type TravelTipsBody = z.infer<typeof travelTipsBody>;
 
+export const planTripBody = z.object({
+  city: z.string().min(1),
+  ...shared,
+});
+
+export type PlanTripBody = z.infer<typeof planTripBody>;
+
 export const fetchTripDetailsBody = z.object({
   ...shared,
   trip_id: z.string().min(1),

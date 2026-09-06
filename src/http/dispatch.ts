@@ -24,6 +24,7 @@ import {
   fetchTripDetails,
   FETCH_TRIP_HOST_INSTRUCTIONS_ON_MISS,
 } from "../core/fetch-trip-details";
+import { planTrip } from "../core/plan-trip";
 import { artifactsTipsPatch, artifactsVisaPatch } from "../core/trip-artifacts";
 import { type PlanItineraryInput, type PlaceCard } from "../core/types";
 import { parseLocale, type Locale } from "../core/locales";
@@ -51,6 +52,7 @@ import {
   enrichArrangeTransitBody,
   visaRequirementBody,
   travelTipsBody,
+  planTripBody,
 } from "./schemas";
 
 export type ToolName =
@@ -67,7 +69,8 @@ export type ToolName =
   | "fetch_trip_details"
   | "visa_requirement"
   | "travel_tips"
-  | "patch_trip";
+  | "patch_trip"
+  | "plan_trip";
 
 export type DispatchResult = { status: number; envelope: Envelope };
 
@@ -546,6 +549,34 @@ export async function dispatchTool(
       return {
         status: 200,
         envelope: okEnvelope({ ...trip, constraints: merged }, locale, { locales: extra }),
+      };
+    } catch (err) {
+      const tripFail = tripStoreFailure(err, locale, extra);
+      if (tripFail) return tripFail;
+      return {
+        status: 502,
+        envelope: errorEnvelope("errors.provider_failed", locale, extra),
+      };
+    }
+  }
+  if (tool === "plan_trip") {
+    const parsed = planTripBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    try {
+      const result = await planTrip({
+        callerKey: auth.keyId,
+        city: parsed.data.city,
+        locale,
+        trip_id: parsed.data.trip_id,
+        revision: parsed.data.revision,
+      });
+      const status = result.status === "failed" ? 502 : 200;
+      return {
+        status,
+        envelope:
+          result.status === "failed"
+            ? errorEnvelope("errors.provider_failed", locale, extra, { data: result })
+            : okEnvelope(result, locale, { locales: extra }),
       };
     } catch (err) {
       const tripFail = tripStoreFailure(err, locale, extra);

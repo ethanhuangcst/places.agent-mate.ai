@@ -20,6 +20,8 @@ describe("healthEnvelope", () => {
       "fetch_trip_details",
       "visa_requirement",
       "travel_tips",
+      "patch_trip",
+      "plan_trip",
       "chat",
     ]);
   });

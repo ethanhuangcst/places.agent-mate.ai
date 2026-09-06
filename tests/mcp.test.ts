@@ -124,9 +124,11 @@ describe("MCP tools", () => {
         "make_itinerary",
         "plan_next_stop",
         "travel_tips",
+        "plan_trip",
       ]),
     );
     expect(names).toContain("fetch_trip_details");
+    expect(names).toContain("plan_trip");
     expect(names).not.toContain("navigate");
     await client.close();
     await server.close();

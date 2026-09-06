@@ -61,6 +61,7 @@ export function healthEnvelope(): Envelope<{ tools: string[] }> {
         "visa_requirement",
         "travel_tips",
         "patch_trip",
+        "plan_trip",
         "chat",
       ],
     },
