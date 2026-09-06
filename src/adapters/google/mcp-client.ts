@@ -45,7 +45,7 @@ function buildTextQuery(input: SearchInput, kind: "restaurant" | "place"): strin
 export type GoogleMcpClient = {
   searchRestaurants(input: SearchInput): Promise<PlaceCard[]>;
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
-  getDetails(nativeId: string): Promise<PlaceCard | null>;
+  getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
   directions(input: { from: PlaceLocation; to: PlaceLocation; mode: TravelMode }): Promise<DirectionsEta | null>;
@@ -126,7 +126,7 @@ export function createGoogleMcpClient(
     callCount: () => calls,
     searchRestaurants: (input) => callSearchPlaces(buildTextQuery(input, "restaurant"), input),
     searchPlaces: (input) => callSearchPlaces(buildTextQuery(input, "place"), input),
-    async getDetails(nativeId) {
+    async getDetails(nativeId, _locale?: Locale) {
       await ensureToolsListed();
       if (!cachedToolNames!.includes("resolve_names")) {
         return null;

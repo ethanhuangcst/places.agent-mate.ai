@@ -42,7 +42,7 @@ async function fetchWithTimeout(
 export type GoogleDirectClient = {
   searchRestaurants(input: SearchInput): Promise<PlaceCard[]>;
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
-  getDetails(nativeId: string): Promise<PlaceCard | null>;
+  getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
 };
@@ -125,18 +125,21 @@ export function createGoogleDirectClient(
   return {
     searchRestaurants: (input) => searchText(input, "restaurant"),
     searchPlaces: (input) => searchText(input, "place"),
-    async getDetails(nativeId) {
+    async getDetails(nativeId, locale?: Locale) {
       if (!config.apiKey) throw new EgressFailureError("no_api_key");
       if (config.directForceFail) throw new EgressFailureError("force_fail");
 
       const id = nativeId.startsWith("places/") ? nativeId : `places/${nativeId}`;
+      const url = new URL(`${config.placesBaseUrl}/${id}`);
+      url.searchParams.set("languageCode", languageCode(locale));
       const res = await fetchWithTimeout(
         fetchFn,
-        `${config.placesBaseUrl}/${id}`,
+        url.toString(),
         {
           headers: {
             "X-Goog-Api-Key": config.apiKey,
             "X-Goog-FieldMask": fieldMask.replace(/places\./g, ""),
+            "X-Goog-LanguageCode": languageCode(locale),
           },
         },
         config.requestTimeoutMs,

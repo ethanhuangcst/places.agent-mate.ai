@@ -56,7 +56,12 @@ import {
 import { getAdapter } from "../adapters";
 import { type ProviderId, isProviderId } from "./providers";
 import { resolveProviderStrategy } from "../adapters/provider-resolver";
+import { resolvedDirectionProviders } from "./direction-providers";
 import { geocode, searchPlaces, searchRestaurants } from "./tools";
+import {
+  isDisplayablePhotoUrl,
+  resolveDisplayPhotosForCards,
+} from "./resolve-display-photo";
 
 // --- Zod schema for LLM output ---
 
@@ -726,14 +731,11 @@ export async function llmPlanItinerary(
 
 /**
  * Resolve providers the same way search_restaurants / search_places do when
- * callers omit providers[] (ADR-026/030 via resolveProviderStrategy).
+ * callers omit providers[] (ADR-052 via resolveProviderStrategy).
  * Explicit caller providers[] always win.
- *
- * Feature 34 Arm A: mainland default AMAP-only is expanded to dual-source
- * (AMAP + GOOGLE_MAPS) for discover must-see coverage. Caller-forced single
- * provider is respected.
+ * Mainland stays AMAP-only — no dual-source expansion (Feature 89 / D2+D4).
  */
-async function resolveDiscoverProviders(input: {
+export async function resolveDiscoverProviders(input: {
   city: string;
   locale: Locale;
   providers?: string[];
@@ -748,11 +750,7 @@ async function resolveDiscoverProviders(input: {
         : undefined,
     locale: input.locale,
   });
-  const providers = strategy.searchProviders;
-  if (providers.includes("AMAP") && !providers.includes("GOOGLE_MAPS")) {
-    return ["AMAP", "GOOGLE_MAPS"];
-  }
-  return providers;
+  return strategy.searchProviders;
 }
 
 function mergePlaceCardsByName(lists: PlaceCard[][]): PlaceCard[] {
@@ -882,7 +880,14 @@ async function searchCandidatePools(input: {
     localDiningTokensForCity(input.city),
   );
 
-  return { places, restaurants };
+  // ADR-051: resolve displayable photos from search photo names / direct URLs.
+  // Skip per-card getDetails here (N× cost); meal fill uses getDetails fallback.
+  const [resolvedPlaces, resolvedRestaurants] = await Promise.all([
+    resolveDisplayPhotosForCards(places),
+    resolveDisplayPhotosForCards(restaurants),
+  ]);
+
+  return { places: resolvedPlaces, restaurants: resolvedRestaurants };
 }
 
 export async function searchCandidates(input: LlmPlanInput): Promise<{
@@ -949,6 +954,7 @@ function sanitizePublicUrl(url: string): string {
 
 export function slimArrangeCandidate(card: PlaceCard): PlaceCard {
   const sources = normalizePlaceSources(card.sources, card);
+  const photo = card.photos?.find((p) => isDisplayablePhotoUrl(p));
   return {
     provider: card.provider,
     primary_provider: card.primary_provider,
@@ -960,7 +966,7 @@ export function slimArrangeCandidate(card: PlaceCard): PlaceCard {
     category: card.category,
     price_level: card.price_level,
     price_per_person: card.price_per_person,
-    photos: card.photos?.slice(0, 1).map(sanitizePublicUrl),
+    ...(photo ? { photos: [sanitizePublicUrl(photo)] } : {}),
     sources: sources.map((s) => ({
       provider: s.provider,
       native_id: s.native_id,
@@ -1250,7 +1256,7 @@ export type ArrangeDayInput = {
     from: PlaceLocation,
     to: PlaceLocation,
   ) => Promise<{ duration_min: number; distance_m?: number } | null>;
-  /** Providers used for directions (default GOOGLE_MAPS then AMAP). */
+  /** Providers used for directions (omit → resolveProviderStrategy / ADR-052 D7). */
   providers?: string[];
   preferences?: ArrangeSchedulePreferences;
   /** ADR-040 D6: party size 1–20 */
@@ -1874,9 +1880,15 @@ export async function arrangeDay(
     photos_cover: coverPhoto,
   };
 
-  const directionProviders = (
-    input.providers?.length ? input.providers : ["GOOGLE_MAPS", "AMAP"]
-  ) as ProviderId[];
+  const directionProviders = await resolvedDirectionProviders({
+    providers: input.providers,
+    location: input.city,
+    near:
+      input.origin?.lat != null && input.origin?.lng != null
+        ? { lat: input.origin.lat, lng: input.origin.lng }
+        : undefined,
+    locale,
+  });
 
   const origin = await resolvePointForTransit(input.origin, input.providers);
   const destination = await resolvePointForTransit(
@@ -1966,6 +1978,8 @@ export async function enrichArrangeTransit(input: {
   origin?: { name?: string; lat?: number; lng?: number };
   destination?: { name?: string; lat?: number; lng?: number };
   providers?: string[];
+  city?: string;
+  locale?: Locale;
   preferences?: ArrangeSchedulePreferences;
   _testResolveDuration?: (
     mode: TravelMode,
@@ -1974,9 +1988,15 @@ export async function enrichArrangeTransit(input: {
   ) => Promise<{ duration_min: number; distance_m?: number } | null>;
 }): Promise<import("./enrich-arrange-transit").ArrangeDayWithTransit> {
   const allCandidates = [...input.candidates.places, ...input.candidates.restaurants];
-  const directionProviders = (
-    input.providers?.length ? input.providers : ["GOOGLE_MAPS", "AMAP"]
-  ) as ProviderId[];
+  const directionProviders = await resolvedDirectionProviders({
+    providers: input.providers,
+    location: input.city ?? input.origin?.name ?? input.destination?.name,
+    near:
+      input.origin?.lat != null && input.origin?.lng != null
+        ? { lat: input.origin.lat, lng: input.origin.lng }
+        : undefined,
+    locale: input.locale,
+  });
 
   const resolveDuration =
     input._testResolveDuration ??

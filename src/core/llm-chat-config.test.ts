@@ -95,4 +95,30 @@ describe("resolveChatLlmConfig", () => {
     expect(queue.map((c) => c.provider)).toEqual(["qwen", "openai_cn"]);
     expect(queue[1]?.model).toBe("gpt-5.4");
   });
+
+  it("should_queue_openai_cn_first_when_CHAT_LLM_PRIMARY_is_openai_cn", () => {
+    const queue = chatLlmProviderQueue({
+      CHAT_LLM_PRIMARY: "openai_cn",
+      QWEN_API_KEY: "sk-qwen",
+      QWEN_CHAT_MODEL: "qwen-plus",
+      OPENAI_API_KEY: "sk-old",
+      OPENAI_CHAT_MODEL: "gpt-5.4",
+      OPENAI_BASE_URL: "https://legacy.example/v1",
+    });
+    expect(queue.map((c) => c.provider)).toEqual(["openai_cn", "qwen"]);
+    expect(queue[0]?.model).toBe("gpt-5.4");
+  });
+
+  it("should_keep_qwen_first_when_CHAT_LLM_PRIMARY_is_qwen_or_unset", () => {
+    const env = {
+      QWEN_API_KEY: "sk-qwen",
+      QWEN_CHAT_MODEL: "qwen-plus",
+      OPENAI_API_KEY: "sk-old",
+      OPENAI_CHAT_MODEL: "gpt-5.4",
+    };
+    expect(chatLlmProviderQueue(env).map((c) => c.provider)).toEqual(["qwen", "openai_cn"]);
+    expect(
+      chatLlmProviderQueue({ ...env, CHAT_LLM_PRIMARY: "qwen" }).map((c) => c.provider),
+    ).toEqual(["qwen", "openai_cn"]);
+  });
 });

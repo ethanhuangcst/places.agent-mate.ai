@@ -12,6 +12,7 @@ import {
 
 import { cachedGeocode } from "./geocode-cache";
 import { searchCacheKey, getCachedSearch, setCachedSearch } from "./search-cache";
+import { resolveDisplayPhoto } from "./resolve-display-photo";
 
 /**
  * Build a geocode function from the Google live adapter, wrapped with cache.
@@ -225,16 +226,21 @@ export async function getPlaceDetails(input: {
     async (id) => {
       const adapter = getAdapter(id);
       if (!adapter) throw new Error("missing");
-      return adapter.getDetails(input.native_id);
+      return adapter.getDetails(input.native_id, locale);
     },
   );
   const card = values[0] ?? null;
+  const resolved = card
+    ? await resolveDisplayPhoto(card, {
+        getDetails: async () => null,
+      })
+    : null;
   return {
-    data: card,
+    data: resolved,
     skipped,
     locale,
     locales: pair,
-    outcomeKey: card ? undefined : "errors.place_not_found",
+    outcomeKey: resolved ? undefined : "errors.place_not_found",
   };
 }
 

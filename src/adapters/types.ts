@@ -1,6 +1,7 @@
 import { type PlaceCard, type SearchInput, type PlaceLocation } from "../core/types";
 import { type ProviderId } from "../core/providers";
 import { type TravelMode } from "../core/itinerary-timed";
+import { type Locale } from "../core/locales";
 
 export type DirectionsEta = {
   duration_min: number;
@@ -11,7 +12,7 @@ export type PlaceAdapter = {
   id: ProviderId;
   searchRestaurants(input: SearchInput): Promise<PlaceCard[]>;
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
-  getDetails(nativeId: string): Promise<PlaceCard | null>;
+  getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string): Promise<PlaceLocation & { address?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
   deeplinks(card: PlaceCard): Record<string, string>;

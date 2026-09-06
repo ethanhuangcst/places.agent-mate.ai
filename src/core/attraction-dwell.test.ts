@@ -2,18 +2,29 @@ import { describe, expect, it } from "vitest";
 import {
   attractionDwellMinutes,
   clusterRoleForIndex,
+  resolveAttractionClusterRole,
   squeezeAttractionDwells,
 } from "./attraction-dwell";
 import { type PlaceCard } from "./types";
 
 function card(
   name: string,
-  opts?: { rating?: number; user_ratings_total?: number; category?: string },
+  opts?: {
+    rating?: number;
+    user_ratings_total?: number;
+    category?: string;
+    lat?: number;
+    lng?: number;
+  },
 ): PlaceCard {
   return {
     provider: "GOOGLE_MAPS",
     name,
-    location: { lat: 38.7, lng: -9.1, crs: "WGS84" },
+    location: {
+      lat: opts?.lat ?? 38.7,
+      lng: opts?.lng ?? -9.1,
+      crs: "WGS84",
+    },
     rating: opts?.rating,
     user_ratings_total: opts?.user_ratings_total,
     category: opts?.category,
@@ -59,5 +70,60 @@ describe("attractionDwellMinutes (TC-M23-91-05)", () => {
     expect(clusterRoleForIndex(stops, 0)).toBe("in");
     expect(clusterRoleForIndex(stops, 1)).toBe("end");
     expect(clusterRoleForIndex(stops, 2)).toBe("isolated");
+  });
+});
+
+describe("resolveAttractionClusterRole (P0c)", () => {
+  it("should_mark_nearby_pair_in_then_end_from_candidates", () => {
+    const dayStops = [
+      { name: "A", kind: "attraction" },
+      { name: "B", kind: "attraction" },
+    ];
+    const candidates = [
+      card("A", { lat: 38.71, lng: -9.14 }),
+      card("B", { lat: 38.7105, lng: -9.1405 }),
+    ];
+    expect(
+      resolveAttractionClusterRole({ dayStops, stopName: "A", candidates }),
+    ).toBe("in");
+    expect(
+      resolveAttractionClusterRole({ dayStops, stopName: "B", candidates }),
+    ).toBe("end");
+  });
+
+  it("should_keep_far_pair_isolated", () => {
+    const dayStops = [
+      { name: "A", kind: "attraction" },
+      { name: "B", kind: "attraction" },
+    ];
+    const candidates = [
+      card("A", { lat: 38.71, lng: -9.14 }),
+      card("B", { lat: 38.9, lng: -9.4 }),
+    ];
+    expect(
+      resolveAttractionClusterRole({ dayStops, stopName: "A", candidates }),
+    ).toBe("isolated");
+    expect(
+      resolveAttractionClusterRole({ dayStops, stopName: "B", candidates }),
+    ).toBe("isolated");
+  });
+
+  it("should_break_prev_link_when_walk_over_15_min", () => {
+    const dayStops = [
+      { name: "A", kind: "attraction" },
+      { name: "B", kind: "attraction" },
+    ];
+    const candidates = [
+      card("A", { lat: 38.71, lng: -9.14 }),
+      card("B", { lat: 38.7105, lng: -9.1405 }),
+    ];
+    expect(
+      resolveAttractionClusterRole({
+        dayStops,
+        stopName: "B",
+        candidates,
+        walkMinFromPrev: 20,
+      }),
+    ).toBe("isolated");
   });
 });

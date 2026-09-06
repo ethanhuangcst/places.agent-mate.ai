@@ -182,7 +182,7 @@ describe("MCP ADR-040 tools", () => {
     );
     const slimPlaces = (spy.mock.calls[0]?.[0] as { candidates: { places: Array<{ photos?: string[] }> } })
       .candidates.places;
-    expect(slimPlaces[0]?.photos?.length).toBeLessThanOrEqual(1);
+    expect(slimPlaces[0]?.photos?.length ?? 0).toBeLessThanOrEqual(1);
     expect(tools.arrange_day.description).toMatch(/LEGACY/i);
     expect(tools.arrange_day.description).toMatch(/num_days/i);
     expect(tools.arrange_day.description).toMatch(/must_include/i);

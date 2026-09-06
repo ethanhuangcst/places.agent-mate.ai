@@ -46,7 +46,7 @@ export function directPlaceToCard(
   const location: PlaceLocation = { lat, lng, crs: "WGS84" };
   const hours = formatGoogleOpeningHours(place.regularOpeningHours);
   const priceLevel = normalizeGooglePrice(place.priceLevel);
-  const photos = extractGooglePhotos(place.photos, apiKey);
+  const photoNames = extractGooglePhotoNames(place.photos);
   return {
     provider: "GOOGLE_MAPS",
     name,
@@ -55,7 +55,7 @@ export function directPlaceToCard(
     rating: place.rating,
     category: category ?? place.primaryType ?? "place",
     ...(hours ? { hours } : {}),
-    ...(photos ? { photos } : {}),
+    ...(photoNames ? { google_photo_names: photoNames } : {}),
     ...(priceLevel ? { price_level: priceLevel } : {}),
     sources: [
       {
@@ -68,32 +68,30 @@ export function directPlaceToCard(
 }
 
 /**
- * Extract Google photo media URLs from photos array.
- * Returns undefined (not empty array) when no photos available.
- * Limit to 3 photos to control API costs.
+ * Keep Google photo resource names only (ADR-051).
+ * Do not write keyed or skipHttpRedirect media URLs into photos[].
  */
-/**
- * Extract Google photo media URLs from photos array.
- * Returns undefined (not empty array) when no photos available.
- * Limit to 3 photos to control API costs.
- *
- * The generated URL (with key) redirects to the actual image.
- * Without a key, use skipHttpRedirect=true to get JSON metadata instead.
- */
-export function extractGooglePhotos(
+export function extractGooglePhotoNames(
   photos: Array<{ name?: string }> | undefined,
-  apiKey?: string,
 ): string[] | undefined {
   if (!photos?.length) return undefined;
   if (process.env.GOOGLE_PHOTOS_ENABLED === "false") return undefined;
-  const urls = photos
+  const names = photos
     .slice(0, 3)
-    .filter((p) => p.name)
-    .map((p) => {
-      const base = `https://places.googleapis.com/v1/${p.name}/media?maxWidthPx=400`;
-      return apiKey ? `${base}&key=${apiKey}` : `${base}&skipHttpRedirect=true`;
-    });
-  return urls.length ? urls : undefined;
+    .map((p) => p.name?.trim())
+    .filter((n): n is string => !!n);
+  return names.length ? names : undefined;
+}
+
+/** @deprecated Prefer extractGooglePhotoNames + resolveDisplayPhoto (ADR-051). */
+export function extractGooglePhotos(
+  photos: Array<{ name?: string }> | undefined,
+  _apiKey?: string,
+): string[] | undefined {
+  // Intentionally do not emit media URLs (keyed or stripped) — they break <img>.
+  void _apiKey;
+  void photos;
+  return undefined;
 }
 
 type WorkerPlace = {

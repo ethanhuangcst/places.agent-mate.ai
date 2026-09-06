@@ -11,8 +11,7 @@
 import { type Locale } from "./locales";
 import { type PlaceCard, type PlaceLocation } from "./types";
 import { getAdapter } from "../adapters";
-import { type ProviderId } from "./providers";
-import { geocode, searchRestaurants } from "./tools";
+import { geocode, getPlaceDetails, searchPlaces, searchRestaurants } from "./tools";
 import {
   buildHeuristicLegs,
   buildLegs,
@@ -20,6 +19,8 @@ import {
   type TravelMode,
 } from "./itinerary-timed";
 import { slimArrangeCandidate } from "./itinerary-planner";
+import { resolvedDirectionProviders } from "./direction-providers";
+import { isDisplayablePhotoUrl, resolveDisplayPhoto } from "./resolve-display-photo";
 import { DISCOVER_GEO_MAX_KM } from "./geo-bounds";
 import { haversineKm } from "./must-include-coverage";
 import {
@@ -43,7 +44,7 @@ import {
   type SpendLevel,
   withinCorridorRadius,
 } from "./meal-corridor";
-import { attractionDwellMinutes, type ClusterRole } from "./attraction-dwell";
+import { attractionDwellMinutes, resolveAttractionClusterRole, type ClusterRole } from "./attraction-dwell";
 
 export type TransitOutcome = "directions" | "heuristic" | "partial";
 
@@ -374,6 +375,12 @@ export type PlanNextStopFillInput = Omit<PlanNextStopInput, "current_stop"> & {
   time_from?: string;
   stay_role?: DisplayStopInput["stay_role"];
   default_duration_min?: number;
+  /** ADR-051 D1.3 — inject hotel PlaceCards for stay photo resolve (tests / fixtures). */
+  _testSearchPlaces?: (input: {
+    query: string;
+    near?: PlaceLocation;
+    address?: string;
+  }) => Promise<PlaceCard[]>;
 };
 
 export type PlanNextStopFillResult = PlanNextStopResult & {
@@ -402,6 +409,158 @@ function matchCardByPointer(stop: PlanStopPoint, candidates: PlaceCard[]): Place
     if (byId) return byId;
   }
   return candidates.find((c) => c.name === stop.name);
+}
+
+function cardHasDisplayablePhoto(card: PlaceCard | undefined): boolean {
+  return Boolean(card?.photos?.some((p) => isDisplayablePhotoUrl(p)));
+}
+
+/** ADR-053: strip branch labels before stay re-search. */
+export function staySearchCoreName(name: string): string {
+  return name
+    .replace(/（[^）]*）/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function looksLikeLodgingCard(card: PlaceCard): boolean {
+  const cat = (card.category ?? "").toLowerCase();
+  if (/lodging|hotel|住宿|酒店|宾馆|旅馆|resort|inn|客栈/.test(cat)) return true;
+  const name = card.name ?? "";
+  return /酒店|宾馆|旅馆|饭店|客栈|hotel|hyatt|hilton|marriott|sheraton|novotel|ibis|inn|resort|凯悦|希尔顿|万豪|喜来登|洲际|假日/i.test(
+    name,
+  );
+}
+
+function pickLodgingStayCard(query: string, cards: PlaceCard[]): PlaceCard | undefined {
+  const lodging = cards.filter(looksLikeLodgingCard);
+  if (!lodging.length) return undefined;
+  const exact = lodging.find((c) => c.name === query);
+  if (exact) return exact;
+  const core = staySearchCoreName(query);
+  const coreHit = lodging.find((c) => c.name === core || staySearchCoreName(c.name) === core);
+  if (coreHit) return coreHit;
+  const covered = lodging.find((c) => {
+    const n = (c.name ?? "").toLowerCase();
+    return core.length >= 2 && n.includes(core.toLowerCase());
+  });
+  return covered;
+}
+
+/**
+ * ADR-051 D1.3 / ADR-053 — stay / origin display card.
+ * With native_id or displayable photos: copy only (no search).
+ * Without pointer: search core name + lodging filter; never cards[0].
+ */
+export async function resolveStayDisplayCard(input: {
+  stop: PlanStopPoint;
+  pool: PlaceCard[];
+  city?: string;
+  near?: PlaceLocation | null;
+  locale: Locale;
+  providers?: string[];
+  _testSearchPlaces?: PlanNextStopFillInput["_testSearchPlaces"];
+}): Promise<PlaceCard | null> {
+  const existing = matchCardByPointer(input.stop, input.pool);
+  const hasPointer = Boolean(input.stop.native_id?.trim());
+
+  if (existing && (cardHasDisplayablePhoto(existing) || hasPointer)) {
+    return resolveDisplayPhoto(existing, {
+      getDetails: async (nativeId) => {
+        const res = await getPlaceDetails({
+          provider: existing.provider ?? input.stop.provider ?? "GOOGLE_MAPS",
+          native_id: nativeId,
+          locale: input.locale,
+          providers: input.providers,
+        });
+        return res.data ?? null;
+      },
+    });
+  }
+
+  if (hasPointer) {
+    const providerId = (
+      input.stop.provider === "AMAP" ||
+      input.stop.provider === "GOOGLE_MAPS" ||
+      input.stop.provider === "TRIPADVISOR"
+        ? input.stop.provider
+        : "GOOGLE_MAPS"
+    ) as PlaceCard["provider"];
+    const seed: PlaceCard = {
+      provider: providerId,
+      name: input.stop.name,
+      location:
+        typeof input.stop.lat === "number" && typeof input.stop.lng === "number"
+          ? { lat: input.stop.lat, lng: input.stop.lng, crs: "WGS84" }
+          : { lat: 0, lng: 0, crs: "WGS84" },
+      sources: [
+        {
+          provider: providerId,
+          native_id: input.stop.native_id!,
+          deeplinks: {},
+        },
+      ],
+    };
+    return resolveDisplayPhoto(seed, {
+      getDetails: async (nativeId) => {
+        const res = await getPlaceDetails({
+          provider: seed.provider ?? "GOOGLE_MAPS",
+          native_id: nativeId,
+          locale: input.locale,
+          providers: input.providers,
+        });
+        return res.data ?? null;
+      },
+    });
+  }
+
+  const near =
+    input.near ??
+    (typeof input.stop.lat === "number" && typeof input.stop.lng === "number"
+      ? { lat: input.stop.lat, lng: input.stop.lng, crs: "WGS84" as const }
+      : cardLocation(existing));
+  const query = staySearchCoreName(input.stop.name);
+  if (!query) return existing ? resolveDisplayPhoto(existing) : null;
+
+  let found: PlaceCard | undefined;
+  try {
+    if (input._testSearchPlaces) {
+      const cards = await input._testSearchPlaces({
+        query,
+        near: near ?? undefined,
+        address: input.city,
+      });
+      found = pickLodgingStayCard(input.stop.name, cards);
+    } else {
+      const res = await searchPlaces({
+        query,
+        address: input.city,
+        near: near ?? undefined,
+        locale: input.locale,
+        providers: input.providers,
+        bias_radius_m: 50_000,
+      });
+      found = pickLodgingStayCard(input.stop.name, res.data ?? []);
+    }
+  } catch {
+    found = undefined;
+  }
+
+  const seed = found ?? (existing && looksLikeLodgingCard(existing) ? existing : undefined);
+  if (!seed) return null;
+
+  return resolveDisplayPhoto(seed, {
+    getDetails: async (nativeId) => {
+      const res = await getPlaceDetails({
+        provider: seed.provider ?? "GOOGLE_MAPS",
+        native_id: nativeId,
+        locale: input.locale,
+        providers: input.providers,
+      });
+      return res.data ?? null;
+    },
+  });
 }
 
 /**
@@ -586,14 +745,25 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
       };
     } else {
       const loc = cardLocation(venue);
+      const resolvedVenue = await resolveDisplayPhoto(venue, {
+        getDetails: async (nativeId) => {
+          const res = await getPlaceDetails({
+            provider: venue.provider ?? "GOOGLE_MAPS",
+            native_id: nativeId,
+            locale: input.locale,
+            providers: input.providers,
+          });
+          return res.data ?? null;
+        },
+      });
       nextStop = {
         ...nextStop,
-        name: venue.name,
+        name: resolvedVenue.name,
         lat: loc?.lat,
         lng: loc?.lng,
       };
-      restaurants.push(venue);
-      mealVenueCard = venue;
+      restaurants.push(resolvedVenue);
+      mealVenueCard = resolvedVenue;
     }
   }
 
@@ -616,7 +786,12 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
     };
   }
 
-  const providers = (input.providers?.length ? input.providers : ["GOOGLE_MAPS", "AMAP"]) as ProviderId[];
+  const providers = await resolvedDirectionProviders({
+    providers: input.providers,
+    location: input.city,
+    near: from ?? input.anchor,
+    locale: input.locale,
+  });
   const resolveDuration =
     input._testResolveDuration ??
     (async (mode: TravelMode, f: PlaceLocation, t: PlaceLocation) => {
@@ -800,6 +975,39 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
     ...input.candidates.restaurants,
     ...(planResult.venue_card ? [planResult.venue_card] : []),
   ];
+  let places = [...input.candidates.places];
+  const isStayStop = originMode || input.next_stop.kind === "stay";
+  if (isStayStop) {
+    const stayCard = await resolveStayDisplayCard({
+      stop: {
+        ...input.next_stop,
+        name: planResult.next_stop.name,
+        lat: planResult.next_stop.location?.lat ?? input.next_stop.lat,
+        lng: planResult.next_stop.location?.lng ?? input.next_stop.lng,
+      },
+      pool: [...places, ...restaurants],
+      city: input.city,
+      near: planResult.next_stop.location ?? input.anchor ?? null,
+      locale: input.locale,
+      providers: input.providers,
+      _testSearchPlaces: input._testSearchPlaces,
+    });
+    if (stayCard) {
+      places = [stayCard, ...places.filter((c) => c.name !== stayCard.name)];
+    }
+  }
+  const recommendedWalkMin = planResult.legs.find(
+    (l) => l.recommended && l.mode === "walk",
+  )?.duration_min;
+  const cluster_role =
+    input.next_stop.kind === "attraction"
+      ? resolveAttractionClusterRole({
+          dayStops: input.day_stops ?? [],
+          stopName: planResult.next_stop.name,
+          candidates: places,
+          walkMinFromPrev: recommendedWalkMin,
+        })
+      : undefined;
   const stop_display = displayCurrentStop({
     stop: {
       ...input.next_stop,
@@ -807,7 +1015,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
       lat: planResult.next_stop.location?.lat,
       lng: planResult.next_stop.location?.lng,
     },
-    candidates: { places: input.candidates.places, restaurants },
+    candidates: { places, restaurants },
     previous_stop,
     legs_to_here: planResult.legs,
     default_duration_min: input.default_duration_min,
@@ -815,6 +1023,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
     stay_role: input.stay_role,
     locale: input.locale,
     pace: input.pace,
+    ...(cluster_role ? { cluster_role } : {}),
   });
 
   return { ...planResult, stop_display };

@@ -1,5 +1,6 @@
 import { type PlaceCard, type PlaceLocation } from "../../core/types";
 import { normalizeAmapCost } from "../../core/price";
+import { upgradeAmapInsecurePhotoUrl } from "../../core/resolve-display-photo";
 
 export function amapDeeplinks(loc: PlaceLocation, name: string): Record<string, string> {
   const nameQ = encodeURIComponent(name);
@@ -53,7 +54,8 @@ export function amapPoiToCard(poi: AmapPoi, category?: string): PlaceCard | null
   const price = normalizeAmapCost(Number.isFinite(costNum) && costNum > 0 ? costNum : undefined);
   const photoUrls = poi.photos
     ?.map((p) => p.url)
-    .filter((u): u is string => !!u);
+    .filter((u): u is string => !!u)
+    .map(upgradeAmapInsecurePhotoUrl);
 
   return {
     provider: "AMAP",

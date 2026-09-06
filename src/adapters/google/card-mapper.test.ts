@@ -63,4 +63,34 @@ describe("directPlaceToCard hours", () => {
       }),
     ).toBeNull();
   });
+
+  it("should_store_google_photo_names_not_keyed_media_urls (ADR-051)", () => {
+    const card = directPlaceToCard(
+      {
+        id: "places/ChIJphoto",
+        displayName: { text: "Tower" },
+        location: { latitude: 38.7, longitude: -9.2 },
+        photos: [{ name: "places/ChIJphoto/photos/AAA" }],
+      },
+      undefined,
+      "SECRET_KEY",
+    );
+    expect(card?.photos).toBeUndefined();
+    expect(card?.google_photo_names).toEqual(["places/ChIJphoto/photos/AAA"]);
+  });
+
+  it("should_omit_photo_names_when_GOOGLE_PHOTOS_ENABLED_false", () => {
+    process.env.GOOGLE_PHOTOS_ENABLED = "false";
+    try {
+      const card = directPlaceToCard({
+        id: "places/ChIJphoto",
+        displayName: { text: "Tower" },
+        location: { latitude: 38.7, longitude: -9.2 },
+        photos: [{ name: "places/ChIJphoto/photos/AAA" }],
+      });
+      expect(card?.google_photo_names).toBeUndefined();
+    } finally {
+      delete process.env.GOOGLE_PHOTOS_ENABLED;
+    }
+  });
 });

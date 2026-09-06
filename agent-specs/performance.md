@@ -222,7 +222,7 @@ HTTP Mode H handoff **保留**（Feature 35）。
 
 | 项 | 状态 |
 | --- | --- |
-| Arm A merge：双源馆名种子、餐排策、默认 provider | **已实现**（Feature **34**） |
+| Arm A merge：通用模板/餐排策/排序（**大陆双源已废**，ADR-052 / Feature **89**） | **已实现**（Feature **34**）；扩源撤销见 **89** |
 | L2 硬必去 | **已实现**（Feature **36**） |
 | L3 directions 进 2play | **agent 已实现**（Feature **37**）；**2play 消费** `plan-13` **未做** |
 | 城市缓存、叠跑告警、质量抽检 | **未实现** |

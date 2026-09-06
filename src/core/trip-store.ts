@@ -317,7 +317,7 @@ export function mergeCandidatesPreserveMustSee(
   };
 }
 
-/** Slim candidates for PG (name/location/category — avoid full photo blobs). */
+/** Slim candidates for PG — keep pointers + one photo for itinerary thumbs (do not strip sources). */
 export function slimCandidatesForStore(candidates: {
   places?: Array<Record<string, unknown>>;
   restaurants?: Array<Record<string, unknown>>;
@@ -333,6 +333,23 @@ export function slimCandidatesForStore(candidates: {
     if (typeof c.provider === "string") out.provider = c.provider;
     if (typeof c.rating === "number") out.rating = c.rating;
     if (typeof c.user_ratings_total === "number") out.user_ratings_total = c.user_ratings_total;
+    if (typeof c.address === "string") out.address = c.address;
+    // First displayable photo URL only (ADR-051) — drop Google media stubs.
+    if (Array.isArray(c.photos)) {
+      const first = c.photos.find(
+        (p) =>
+          typeof p === "string" &&
+          (p as string).startsWith("https://") &&
+          !/places\.googleapis\.com\/v1\/.+\/media/i.test(p as string) &&
+          !/[?&](?:api_)?key=/i.test(p as string) &&
+          !/skipHttpRedirect=true/i.test(p as string),
+      );
+      if (typeof first === "string") out.photos = [first];
+    }
+    // Keep sources for provider/native_id + deeplinks (place sheet / map).
+    if (Array.isArray(c.sources) && c.sources.length > 0) {
+      out.sources = c.sources.slice(0, 2);
+    }
     return out;
   };
   return {

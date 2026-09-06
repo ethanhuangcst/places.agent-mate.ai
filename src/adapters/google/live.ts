@@ -73,13 +73,13 @@ export function createGoogleLiveAdapter(deps: GoogleLiveAdapterDeps = {}): Place
         (w) => w.searchPlaces(input),
       );
     },
-    getDetails(nativeId: string) {
+    getDetails(nativeId: string, locale?: import("../../core/locales").Locale) {
       return withGoogleTransport(
         config,
         direct,
         worker,
-        (d) => d.getDetails(nativeId),
-        (w) => w.getDetails(nativeId),
+        (d) => d.getDetails(nativeId, locale),
+        (w) => w.getDetails(nativeId, locale),
       );
     },
     geocode(query: string) {

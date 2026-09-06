@@ -144,8 +144,8 @@ export function assembleDiscoverAttractionJobs(input: {
     for (const query of seeds) {
       jobs.push({ providers: ["AMAP"], query });
     }
-    // must_see + museum/historic (skip park/garden-heavy template as early AMAP job)
-    for (const query of getAttractionQueries(city, "CN").slice(0, 3)) {
+    // Short CN templates — AMAP ignores English / Euro compound QLP (ADR-052).
+    for (const query of getAttractionQueries(city, "CN").slice(0, 5)) {
       jobs.push({ providers: ["AMAP"], query });
     }
   }

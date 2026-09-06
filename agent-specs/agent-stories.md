@@ -285,7 +285,7 @@
 **与 where2play：** Progressive §11-P0 已完成。2play **plan-11**（Mode H）跟 **35**；**plan-12**（arrange stream）主要在 2play；**plan-13**（真交通）跟 **37**。
 
 ```text
-Wave A  34 Arm A seed/双源/餐
+Wave A  34 Arm A 质量模板/排序（大陆扩源已废 → Feature 89）
    │
 Wave B  36 硬必去（agent arrange + 契约；2play L2 可随后对齐）
    │
@@ -310,6 +310,7 @@ Wave E  38 SSE session（可与 A/B 并行）
 | **测试**   | `tests/discover-arm-a.test.ts`（通用模板填池 + 零 LLM）；`tests/discover-quality.test.ts`；`src/core/query-assembler.test.ts`；`tests/no-city-hardcode-guard.test.ts` |
 | **DoD**  | AC1–3 绿；knowledge 探针表更新；**33** 回归不破；源码无城市 POI 知识                                                                                            |
 | **非目标**  | LLM 生成 query；专名机翻                                                                                                              |
+| **路由修订** | 2026-09-06：[ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md) **废除**门面内大陆双源扩源。Arm A 的 Google RELEVANCE 仍用于**海外/香港** jobs；大陆只 AMAP + D4。删 `resolveDiscoverProviders` 扩源见 Feature **89**。 |
 
 
 
@@ -807,9 +808,9 @@ Scenario: Tripadvisor 不支持地理编码
 
 ## `places-agent-map-vendors` — 地图供应商选择
 
-调用方传递要查询的**地图供应商**（`providers[]`：`AMAP`、`GOOGLE_MAPS`、`TRIPADVISOR`）。智能体验证凭据和能力矩阵。**不**强制大陆目的地使用 AMAP。这不是 HTTP vs MCP（功能 11），也不是驾车/公交路线。
+调用方可传递要查询的**地图供应商**（`providers[]`：`AMAP`、`GOOGLE_MAPS`、`TRIPADVISOR`）。智能体验证凭据和能力矩阵。**省略 `providers[]` 时** 由 agent 按区域自动选择（[ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md)：大陆 AMAP-only；香港双源；其他 Google）。显式列表覆盖自动选择。~~不强制大陆目的地使用 AMAP~~（已被 ADR-052 取代）。这不是 HTTP vs MCP（功能 11），也不是驾车/公交路线。
 
-`GOOGLE_MAPS` **传输（ADR-017）：** 优先直连 Google Maps Platform REST；仅在出口故障时使用 Cloudflare Worker MCP（`GMAPS_MCP_`*）。卡片保持标记为 `GOOGLE_MAPS`。Worker 不是 `providers[]` id。除非调用方请求了 `AMAP`，否则不回退到 AMAP。如果直连失败后 Worker 未配置，则跳过 Google 并附带原因键。
+`GOOGLE_MAPS` **传输（ADR-052 D5 / 原 ADR-017）：** 优先直连 Google Maps Platform REST；仅在出口故障时使用 Cloudflare Worker MCP（`GMAPS_MCP_`*）。卡片保持标记为 `GOOGLE_MAPS`。Worker 不是 `providers[]` id。除非调用方请求了 `AMAP`，否则不回退到 AMAP。如果直连失败后 Worker 未配置，则跳过 Google 并附带原因键。
 
 ### 用户故事 1 — 调用方按请求选择地图供应商
 
@@ -2697,14 +2698,17 @@ Scenario: 行程叙述不将英语天气粘贴到 CN 中
 
 # 供应商自动选择 — `places-agent-provider-auto`
 
-**类别：** agent
+**类别：** agent · **现行规范** [ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md)
 
-作为**调用方**，当我搜索时不指定 `providers[]`，places-agent 会根据我的目的地和语言环境自动选择最佳供应商：
+作为**调用方**，当我搜索时不指定 `providers[]`，places-agent 会根据目的地**区域**自动选择供应商（**不是** locale）：
 
-- **策略1**（Google + TripAdvisor 丰富化）：目的地在中国大陆以外，或语言环境为 EN/TW/HK
-- **策略2**（AMAP）：目的地在中国大陆或香港
+- **大陆** → `AMAP` only（空结果再一次 Google，见 ADR-052 D4）
+- **香港** → `GOOGLE_MAPS` + `AMAP`（+ Tripadvisor enrich）
+- **其他**（含台湾、海外） → `GOOGLE_MAPS`（+ Tripadvisor enrich）
 
-两种策略可同时适用（例如上海 + EN 语言环境 → Google + AMAP + TripAdvisor）。
+**禁止**调用方按汉字占比或「大陆双源」表拼 `providers[]`。上海 + EN locale 仍走大陆 AMAP-only（locale 不决定供应商）。
+
+**Discover / 骨架 / fill / stop 详情** 同一套（ADR-052 D9/D10）：禁止 `resolveDiscoverProviders` 把 AMAP-only 扩成双源；列表抄卡；`get_place_details` 只用槽位 `provider`+`native_id` 且传 UI locale。
 
 ### US1 — 中文地址自动选择 AMAP
 
@@ -2726,14 +2730,15 @@ When search_places
 Then 结果中 provider 为 GOOGLE_MAPS
 And enrichProviders 包含 TRIPADVISOR
 
-### US3 — 中文地址 + EN 语言环境同时使用两者
+### US3 — 大陆 + EN 语言环境仍 AMAP-only（locale 不路由）
 
 **AC3**
 
 Given caller 未传 providers[]
 And location 为 "上海市南京西路", locale 为 "EN"
 When search_restaurants
-Then 同时使用 GOOGLE_MAPS 和 AMAP
+Then searchProviders 为 AMAP only（不因 EN 注入 GOOGLE_MAPS 并行）
+And 若 AMAP 返回 0 卡 Then 可触发一次 Google 回退（ADR-052 D4）
 
 ### US4 — 显式 providers 覆盖自动选择
 
@@ -2742,7 +2747,7 @@ Then 同时使用 GOOGLE_MAPS 和 AMAP
 Given caller 传 providers: ["AMAP"]
 And location 为 "Tokyo Tower"
 When search_restaurants
-Then 仅使用 AMAP（自动选择不触发）
+Then 仅使用 AMAP（自动选择不触发；空结果不回退 Google）
 
 ### US5 — 香港同时使用两者
 
@@ -2833,7 +2838,7 @@ And 不可用时省略字段，不编造
 
 # Geocode-first 与 Directions fallback — `places-agent-geocode-directions`
 
-**类别：** agent · **MVP-3c** · Feature **25**
+**类别：** agent · **MVP-3c** · Feature **25** · **现行** [ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md) D3 / D5
 
 **作为** 调用方  
 **我希望** provider 选择基于可靠地理编码，且 Google Directions 在直连失败时可走 Worker  
@@ -2846,7 +2851,8 @@ And 不可用时省略字段，不编造
 Given caller 未显式传 `providers[]`  
 When 解析目的地  
 Then 使用 Geocode 结果（地址文本优先于粗坐标）决定 provider 策略  
-And 不再使用「CJK 字符占比」作为主规则
+And 不再使用「CJK 字符占比」作为主规则  
+And 调用方不得用汉字双源覆盖本策略（ADR-052 D1）
 
 ### US2 — Directions Worker fallback
 
@@ -4598,6 +4604,92 @@ Then 只更新该 POI `details`/`detailsFetchedAt`（成功时）；**不** `pat
 **AC7** Given `detailsFetchedAt` 未过 TTL（7 日）  
 When 调度  
 Then 跳过该 POI。
+
+---
+
+# 起点 stay 整卡 — `places-agent-origin-stay-card`
+
+**类别：** agent + 2play · Feature **88** · 状态：**Done**（2026-09-06）  
+**ADR：** [ADR-053](../../workspace-specs/adr/ADR-053-origin-stay-as-stop-card.md)、[ADR-051](../../workspace-specs/adr/ADR-051-discover-resolve-display-photo.md)、[ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md)
+
+**作为** 规划用户  
+**我希望** 选定酒店时身份钉死（name / 坐标 / provider / native_id / 可展示图），填站只抄卡  
+**以便** 列表、详情、图不会变成别的景点（如钟楼）
+
+### US1 — fill 有指针不重搜
+
+**AC1**
+
+Given stay / `origin_mode` 停点已有 `native_id` 或可展示 `photos[0]`  
+When `plan_next_stop` / `resolveStayDisplayCard`  
+Then **不**调用 `search_places`  
+And 展示卡与指针为同一身份（slim / `resolveDisplayPhoto` 可跑）
+
+### US2 — 无指针才搜；禁 cards[0]
+
+**AC2**
+
+Given 无 `native_id` 且无可展示图（skip / 仅 name）  
+When 现搜 stay  
+Then 主 query = **去括号**核心名（括号副标只作 address/near）  
+And 仅接受住宿类或名称覆盖合格卡  
+And **禁止** `cards[0]` 回退到景点  
+And 无合格卡 → 诚实空图，不编造
+
+### US3 — 配图宽度 800
+
+**AC3**
+
+Given Google 卡需解析 `google_photo_names`  
+When `resolveDisplayPhoto`  
+Then media 请求含 `maxWidthPx=800`  
+And 账本 `photos[0]` 为无 key 的 CDN `photoUri`  
+And lightbox / 列表共用该 URL
+
+**不做：** 城市酒店百科；2play Photo 代理；fetch 写图；旧行程回填。
+
+---
+
+# 大陆 discover 禁扩源 + 详情同身份 — `places-agent-mainland-discover-amap`
+
+**类别：** agent + 2play · Feature **89** · 状态：**Done**（2026-09-06）  
+**ADR：** [ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md) D2/D4/D7/D9/D10（修订）  
+**知识：** [adr-052-discover-expansion-drift.md](../../workspace-specs/knowledge/maps/adr-052-discover-expansion-drift.md)
+
+**作为** 规划用户  
+**我希望** 杭州/西安等大陆行程的景点来自高德，列表与详情语言一致  
+**以便** 不再出现「列表中文、详情半秒变 Google 英文」
+
+### US1 — discover 不扩源
+
+**AC1**
+
+Given caller 省略 `providers[]` 且目的地为大陆（杭州 / 西安）  
+When `discover_places` / `searchCandidatePools`  
+Then `resolveDiscoverProviders`（或其后继）返回 **仅** `AMAP`  
+And attraction / restaurant jobs **不含** `GOOGLE_MAPS`  
+And 除非单次搜索 0 卡走 D4，候选卡 `provider` 为 `AMAP`
+
+### US2 — Directions 用已解析列表
+
+**AC2**
+
+Given `plan_next_stop` / arrange 省略 `providers[]` 且区域为大陆  
+When 算路  
+Then **不**默认 `["GOOGLE_MAPS","AMAP"]`  
+And 先 `resolveProviderStrategy`（大陆 AMAP）
+
+### US3 — 详情同身份 + locale
+
+**AC3**
+
+Given 槽位 `provider=AMAP`（或 Google 仅因 D4）  
+When `get_place_details`  
+Then 只 fan-out **该** provider  
+And Google 路径请求带 UI `languageCode`  
+And place sheet 不用拉丁文 `details.name` 覆盖槽位 CJK `name`
+
+**不做：** 按城写 POI 表；回填旧 trip；2play 再拼 `providers[]`。
 
 ---
 

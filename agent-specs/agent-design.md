@@ -6,6 +6,16 @@
 
 **状态：** 草稿 — 每次只实现一个用户故事。
 
+### Target 2026-09-05（行程编排）
+
+| 项 | Target | 说明 |
+| --- | --- | --- |
+| where2play LLM | **零产品 LLM** | [ADR-050](../../workspace-specs/adr/ADR-050-where2play-no-product-llm.md) Proposed |
+| 对外编排 | `plan_trip` + `fetch_trip_details` | [`real-agent-refactory.md`](./real-agent-refactory.md) |
+| 问卷 / 芯片 / 四卡 / 排程 | places-agent 环内 | 2play BFF 只渲染 `need_input` 与 fetch |
+
+下文大量 as-built（Mode H、2play OPENAI_CN/Qwen L2、`discover_places`→`make_itinerary`→`plan_next_stop`）在切片落地前仍可能描述现行代码；**排障与新故事以 Target 框 + real-agent-refactory 为准**。
+
 ---
 
 ## 1. 目标与非目标
@@ -251,6 +261,8 @@ HTTP `/v1` 和 MCP 调用**相同的函数**。传输层负责认证、解析与
 **实时探测（2026-08-20，`PLACES_VENDOR_MODE=live`）：** Clerkenwell Google **11/20** 张卡片有 `price_level`；上海 AMAP **12/20** 张有 `price_level` + `price_per_person`；香港中环合并结果 **6/21** 张有 `price_level`，**5/21** 张有 `price_per_person`。参见 [`workspace-specs/knowledge/maps/price-level-live.md`](../../workspace-specs/knowledge/maps/price-level-live.md)。
 
 #### `get_place_details`
+
+只请求调用方给出的 `provider` + `native_id`；传入 UI `locale`（Google Details 必须带 `languageCode`）。不 fan-out 第二家供应商（[ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md) D9/D10）。
 
 返回与搜索相同的字段，另加：
 
@@ -560,7 +572,7 @@ function assembleSystemPrompt(ctx: PromptContext): string;
 
 ### 9.2 行程规划：MCP 工具拆分 + Token 优化 (MVP-6)
 
-**性能与 MCP 路由：** 见 [`performance.md`](./performance.md) **v2.4** + [ADR-036](../../workspace-specs/adr/ADR-036-where2play-assistant-quanzil.md) + [ADR-037](../../workspace-specs/adr/ADR-037-where2play-plan-l2-quanzil.md) + [ADR-040](../../workspace-specs/adr/ADR-040-plan-itinerary-align-split-tools.md) — 形成行程 **必须 LLM**；**Mode H**（`execution=host`）已交付（Feature **35**）；**MCP 缺省 `execution=agent`**（ADR-040 D4'：不要求改客户端 system prompt）；**2play 初排 L2 + 助手 = 本应用 OPENAI_CN**（as-built：本地拼 prompt；目标 `plan-11` 拉 host）；禁叠跑。
+**性能与 MCP 路由：** 见 [`performance.md`](./performance.md) **v2.4** + [ADR-036](../../workspace-specs/adr/ADR-036-where2play-assistant-quanzil.md) + [ADR-037](../../workspace-specs/adr/ADR-037-where2play-plan-l2-quanzil.md) + [ADR-040](../../workspace-specs/adr/ADR-040-plan-itinerary-align-split-tools.md) — 形成行程 **必须 LLM**；**Mode H**（`execution=host`）已交付（Feature **35**）；**MCP 缺省 `execution=agent`**（ADR-040 D4'：不要求改客户端 system prompt）；**2play 初排 L2 + 助手 = 本应用 OPENAI_CN**（**as-built**；**Target 见 [ADR-050](../../workspace-specs/adr/ADR-050-where2play-no-product-llm.md) / [`real-agent-refactory.md`](./real-agent-refactory.md)**）；禁叠跑。
 
 **MCP 工具拆分：** 将行程规划拆为可逐步返回的工具；`plan_itinerary` 仍为一站式 HTTP/MCP 入口。
 
@@ -577,7 +589,7 @@ function assembleSystemPrompt(ctx: PromptContext): string;
 - **HTTP Mode H：** 仅 2play / 显式 host；MCP 忽略 host  
 - **一站式整包：** `plan_itinerary` / `trip_plan` / `trips`  
 - **一站式：** `plan_itinerary`（内部搜索 + LLM/legacy）  
-- **2play 主路径（ADR-037）：** `discover_places` only；L2 在 BFF OPENAI_CN（不默认 `execution=agent`）
+- **2play 主路径（ADR-037 as-built）：** `discover_places` only；L2 在 BFF OPENAI_CN（不默认 `execution=agent`）。**Target：** [ADR-050](../../workspace-specs/adr/ADR-050-where2play-no-product-llm.md) — 零产品 LLM，改走 `plan_trip`
 
 **HTTP progressive（ADR-032 #5，where2play L1）：** 当请求头 `Accept: application/x-ndjson` 时：
 

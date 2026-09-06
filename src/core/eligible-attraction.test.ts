@@ -46,6 +46,18 @@ describe("TC-M22-84-01 isEligibleAttraction", () => {
     ).toBe(false);
   });
 
+  it("should_accept_amap_scenic_child_and_unwrap_name", () => {
+    const kept = filterEligibleAttractions([
+      card({
+        name: "杭州西湖风景名胜区-集贤亭",
+        provider: "AMAP",
+        sources: [{ provider: "AMAP", native_id: "B1", deeplinks: {} }],
+      }),
+      card({ name: "杭州西湖风景名胜区" }),
+    ]);
+    expect(kept.map((p) => p.name)).toEqual(["集贤亭"]);
+  });
+
   it("should_accept_when_slim_card_has_coords_and_venue_name", () => {
     expect(
       isEligibleAttraction({

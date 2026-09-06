@@ -344,6 +344,38 @@ describe("planNextStop (TC-M10-44-01/02)", () => {
     expect(result.next_stop.name).toBe("Fresh Kitchen");
   });
 
+  it("should_resolve_meal_venue_photo_to_displayable_cdn (ADR-051)", async () => {
+    const cafe = place("Photo Cafe", 38.692, -9.215);
+    cafe.google_photo_names = ["places/ChIJcafe/photos/PIC"];
+    const prevFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/media") && url.includes("skipHttpRedirect=true")) {
+        return new Response(
+          JSON.stringify({ photoUri: "https://lh3.googleusercontent.com/p/meal" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    try {
+      process.env.GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "test-key-for-photo";
+      const result = await planNextStop(
+        baseInput({
+          next_stop: { name: "lunch", kind: "meal", meal_slot: "lunch" },
+          candidates: { places: CANDIDATES.places, restaurants: [] },
+          _testSearchRestaurants: async () => [cafe],
+          _testResolveDuration: fakeDirections,
+        }),
+      );
+      expect(result.next_stop.name).toBe("Photo Cafe");
+      expect(result.venue_card?.photos).toEqual(["https://lh3.googleusercontent.com/p/meal"]);
+      expect(result.venue_card?.google_photo_names).toBeUndefined();
+    } finally {
+      globalThis.fetch = prevFetch;
+    }
+  });
+
   it("should_prefer_budget_price_in_plan_next_stop (TC-M23-89-03)", async () => {
     const cheap = place("Cheap Eats", 38.692, -9.215);
     cheap.price_level = "$";
@@ -975,5 +1007,76 @@ describe("earliestFeasibleStart", () => {
     const bad = earliestFeasibleStart("09:40", 40, "10:00");
     expect(bad.timing_violation).toBe(true);
     expect(bad.start).toBe("10:20");
+  });
+});
+
+function slotDurationMin(slot: { start: string; end: string }): number {
+  const [sh, sm] = slot.start.split(":").map(Number);
+  const [eh, em] = slot.end.split(":").map(Number);
+  return (eh! * 60 + em!) - (sh! * 60 + sm!);
+}
+
+describe("planNextStopFill cluster dwell (P0c)", () => {
+  it("should_use_20_then_35_when_nearby_attractions_in_day_stops", async () => {
+    const a = place("A", 38.71, -9.14);
+    const b = place("B", 38.7105, -9.1405);
+    const day_stops = [
+      { name: "A", kind: "attraction" as const },
+      { name: "B", kind: "attraction" as const },
+    ];
+    const first = await planNextStopFill({
+      locale: "EN",
+      current_stop: {
+        name: "Hotel",
+        kind: "stay",
+        lat: 38.71,
+        lng: -9.139,
+        end_time: "09:00",
+      },
+      next_stop: { name: "A", kind: "attraction", lat: 38.71, lng: -9.14 },
+      candidates: { places: [a, b], restaurants: [] },
+      day_stops,
+      _testResolveDuration: fakeDirections,
+    });
+    const second = await planNextStopFill({
+      locale: "EN",
+      current_stop: {
+        name: "A",
+        kind: "attraction",
+        lat: 38.71,
+        lng: -9.14,
+        end_time: "10:00",
+      },
+      next_stop: { name: "B", kind: "attraction", lat: 38.7105, lng: -9.1405 },
+      candidates: { places: [a, b], restaurants: [] },
+      day_stops,
+      _testResolveDuration: fakeDirections,
+    });
+    expect(slotDurationMin(first.stop_display!.slot)).toBe(20);
+    expect(slotDurationMin(second.stop_display!.slot)).toBe(35);
+  });
+
+  it("should_use_45_when_attractions_far_apart", async () => {
+    const a = place("FarA", 38.71, -9.14);
+    const b = place("FarB", 38.9, -9.4);
+    const day_stops = [
+      { name: "FarA", kind: "attraction" as const },
+      { name: "FarB", kind: "attraction" as const },
+    ];
+    const out = await planNextStopFill({
+      locale: "EN",
+      current_stop: {
+        name: "Hotel",
+        kind: "stay",
+        lat: 38.71,
+        lng: -9.139,
+        end_time: "09:00",
+      },
+      next_stop: { name: "FarA", kind: "attraction", lat: 38.71, lng: -9.14 },
+      candidates: { places: [a, b], restaurants: [] },
+      day_stops,
+      _testResolveDuration: fakeDirections,
+    });
+    expect(slotDurationMin(out.stop_display!.slot)).toBe(45);
   });
 });

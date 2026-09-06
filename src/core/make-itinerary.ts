@@ -608,6 +608,8 @@ export type SkeletonChatCreate = (
 export function createSkeletonChatCreate(): SkeletonChatCreate | null {
   const queue = chatLlmProviderQueue();
   if (!queue.length) return null;
+  const head = queue[0]!;
+  console.info(`make_itinerary llm provider=${head.provider} model=${head.model}`);
   return async (params, options) => {
     let last: unknown;
     for (const cfg of queue) {

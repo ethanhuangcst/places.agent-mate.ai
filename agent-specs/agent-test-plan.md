@@ -246,7 +246,7 @@ Google Worker MCP 测试使用 **fixture MCP**（或录制的 Streamable HTTP）
 | `make verify-tripadvisor-live` | 可选加入 | `scripts/verify-tripadvisor-live.sh` — 附带 `GOOGLE_DIRECT_FORCE_FAIL=0` 的辅助进程（不复用仅 Worker 的守护进程）；在 HK 标记上实时 Terra 增强；断言数字 `tripadvisor.rating` 且无 fixture Ichiran URL |
 | `make verify-open-meteo-live` | 可选加入 | `scripts/verify-open-meteo-live.sh` — 在 HK 标记行程上实时预报；断言数字 `weather_code` 0–99 且非 fixture 特征值（80 + 24/18 °C） |
 | 运维 UAT 定时行程 | 每个故事 A/B/C | HTTP `POST /v1/plan_itinerary`，`detail:"timed"`；运维人员提供起点/边界；Agent 输出 JSON；运维人员判断。故事 A 套件：Hyatt Lisbon，`2026-08-25`→`2026-08-30`，relaxed/premium，`GOOGLE_MAPS` |
-| `make test-e2e-caller` | 可选加入 | `scripts/test-e2e-caller.sh` 中的 TC-E2E-01~12 — 实时供应商调用方模拟；含 where2play `discover_places` QLP（哈尔滨）与西安 Arm A（TC-E2E-12） |
+| `make test-e2e-caller` | 可选加入 | `scripts/test-e2e-caller.sh` 中的 TC-E2E-01~12 — 实时供应商调用方模拟；含 where2play `discover_places` QLP（哈尔滨）与西安大陆 AMAP + D4（TC-E2E-12） |
 | 覆盖率 | 技术栈支持时 | 关键路径 **100%**；总体 **≥ 80%** |
 
 ### 覆盖率测量（Vitest v8）
@@ -1336,7 +1336,7 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-E2E-09 | | 调用方 E2E | where2play — 哈尔滨 discover（CN + QLP） | `make test-e2e-caller` | |
 | TC-E2E-10 | | 调用方 E2E | where2play — 哈尔滨 discover（EN UI + AMAP CN） | `make test-e2e-caller` | |
 | TC-E2E-11 | | 调用方 E2E | where2play — discover→arrange 含景点 | `make test-e2e-caller` | |
-| TC-E2E-12 | | 调用方 E2E | where2play — 西安 discover Arm A | `make test-e2e-caller` | 8 |
+| TC-E2E-12 | | 调用方 E2E | where2play — 西安 discover 大陆 AMAP + D4 | `make test-e2e-caller` | 8 |
 | TC-M8-U34-01 | ✓ | 单元 | Discover 通用模板填池 + 零 LLM（ADR-042：无城市种子） | `tests/discover-arm-a.test.ts` | 8 |
 | TC-M8-H35-01 | ✓ | HTTP | Mode H execution=host 零 LLM | `tests/http-arrange-host.test.ts` | 8 |
 | TC-M8-M35-01 | ✓ | MCP | ADR-043: MCP advertise always-agent (not host default) | `tests/mcp.test.ts` | 8 |
@@ -1544,13 +1544,14 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 - `data.blocks`（或 `data.days[0].blocks`）长度 ≥ 1
 - 至少有一个 block `type === "attraction"`（当候选景点非空时）
 
-### TC-E2E-12: where2play — 西安 discover Arm A（Feature 34）
+### TC-E2E-12: where2play — 西安 discover 大陆 AMAP + D4（Feature 34/89）
 
-**Given** 有效调用方 key；`PLACES_VENDOR_MODE=live`；AMAP 与/或 Google 可用  
-**When** POST `/v1/discover_places`：`city=西安`，`numDays=3`，`locale=CN`，`providers=["AMAP","GOOGLE_MAPS"]`  
+**Given** 有效调用方 key；`PLACES_VENDOR_MODE=live`；AMAP 可用（Google 仅作 D4 空结果回退）  
+**When** POST `/v1/discover_places`：`city=西安`，`numDays=3`，`locale=CN`，**省略** `providers[]`（或勿传双源）  
 **Then**：
 - `ok === true`；`places`/`restaurants` 均 ≥ 1
-- 名称集合命中 `/兵马俑|秦始皇/` **且** `/大雁塔/`
+- 景点卡 `provider` 以 `AMAP` 为主（除非该次搜索走了 D4）
+- 名称集合命中 `/兵马俑|秦始皇/` **且** `/大雁塔/`（质量门仍有效；不再依赖并行 Google）
 - `native_id` 不以 `fixture_` 开头；样本 location 在大陆 bbox
 
 ---
@@ -2085,3 +2086,27 @@ ChatBox ★ 项（C01–C08、C15、C17、C19）在对应 HTTP ★ 用例在 CI 
 | TC-M23-S6B-02 | Unit | 仅远店时不选城里店 | plan-next-stop | Done |
 | TC-M23-S8-01 | Unit | 单景点 reseat 不把 lunch 插景点前；AM-lunch-PM | make-itinerary | Done |
 | TC-M23-S8-02 | Unit | 午餐空→保留 lunch 槽；晚餐可用酒店附近 | plan-next-stop | Done |
+
+## 38. ADR-052/053 + 配图 800（TC-M24-origin-*）
+
+绑定 [ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md) · [ADR-053](../../workspace-specs/adr/ADR-053-origin-stay-as-stop-card.md) · [ADR-051](../../workspace-specs/adr/ADR-051-discover-resolve-display-photo.md) · agent Feature **88** · 2play Feature 37/41 AC。
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M24-88-01 | Unit | stay 有 native_id / 可展示图 → 不 search_places | `plan-next-stop-stay-photo.test.ts` | Done |
+| TC-M24-88-02 | Unit | 无指针：去括号 query；禁 cards[0]；景点不得当 stay | 同上 | Done |
+| TC-M24-88-03 | Unit | `resolveDisplayPhoto` media URL 含 `maxWidthPx=800` | `resolve-display-photo.test.ts` | Done |
+| TC-M24-88-04 | Unit | `originSearchQuery` 剥括号；hit 带 provider/native_id | `3.where2play` plan-resolve-origin / plan-origin-name-match | Done |
+| TC-M24-88-05 | Unit | `providersForDestinationText("西安")` / 大陆 pin **不**返回双源；默认省略 providers | `3.where2play` client / plan-start-discover | Done |
+| TC-M24-88-06 | Unit | place-sheet lightbox 与 sheet 共用同一 photo src | `3.where2play/tests/place-sheet.test.tsx` | Done |
+
+## 39. ADR-052 D9/D10 禁 discover 扩源（TC-M25-89-*）
+
+绑定 [ADR-052](../../workspace-specs/adr/ADR-052-map-provider-routing.md) D9/D10 · Feature **89**。**未实现前保持 Red。**
+
+| ID | 类型 | 主题 | 文件 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-M25-89-01 | Unit | 大陆省略 providers → discover jobs 仅 AMAP | `resolve-discover-providers.test.ts` | Done |
+| TC-M25-89-02 | Unit | 大陆 plan_next_stop Directions 不默认 Google+AMAP | `direction-providers.test.ts` | Done |
+| TC-M25-89-03 | Unit | Google getDetails 带 languageCode(locale) | `adapters/google/direct.test.ts` | Done |
+| TC-M25-89-04 | Unit | place-sheet：CJK slot.name 不被 Latin details.name 覆盖 | `3.where2play` place-sheet / place-display-prefer | Done |

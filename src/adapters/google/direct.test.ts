@@ -199,6 +199,24 @@ describe("Google live direct client", () => {
     expect(urls[0]?.pathname).toContain("/places/ChIJ_test");
   });
 
+  it("should_pass_languageCode_on_getDetails_when_locale_cn", async () => {
+    let capturedInit: RequestInit | undefined;
+    const { fetchFn, urls } = recordFetch((url, init) => {
+      capturedInit = init;
+      if (url.pathname.includes("/places/ChIJ_test")) {
+        return jsonResponse(PLACE);
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    await client.getDetails("ChIJ_test", "CN");
+    const fromQuery = urls[0]?.searchParams.get("languageCode");
+    const headers = capturedInit?.headers as Record<string, string> | undefined;
+    const headerLang =
+      headers?.["X-Goog-LanguageCode"] ?? headers?.["x-goog-languagecode"];
+    expect(fromQuery === "zh-CN" || headerLang === "zh-CN").toBe(true);
+  });
+
   it("should_return_null_on_details_404", async () => {
     const { fetchFn } = recordFetch(() => jsonResponse({}, 404));
     const client = createGoogleDirectClient(testConfig(), fetchFn);

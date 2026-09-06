@@ -27,6 +27,12 @@ export type PlaceCard = {
   category?: string;
   phone?: string;
   photos?: string[];
+  /**
+   * Google Places photo resource names (e.g. places/{id}/photos/{ref}).
+   * In-memory only until ADR-051 resolve writes a displayable photos[0].
+   * Never persist keyed media URLs here.
+   */
+  google_photo_names?: string[];
   price_level?: string;
   price_per_person?: number;
   sources: PlaceSource[];

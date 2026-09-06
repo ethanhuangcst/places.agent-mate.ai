@@ -32,6 +32,18 @@ export function getKeyword(key: string, locale: Locale): string {
 /** Generate attraction search queries for an area in the given locale. */
 export function getAttractionQueries(area: string, locale: Locale): string[] {
   const k = (key: string) => getKeyword(key, locale);
+  // CN/HK/TW: short AMAP-friendly keywords (ADR-052 mainland). Avoid Euro
+  // compound templates ("城堡 宫殿…") that return empty on Gaode.
+  if (locale === "CN" || locale === "HK" || locale === "TW") {
+    return [
+      `${area} ${k("viewpoint")}`,
+      `${area} ${k("park")}`,
+      `${area} ${k("museum")}`,
+      `${area} ${k("temple")}`,
+      `${area} ${k("historic")}`,
+      `${area} ${k("must_see")}`,
+    ];
+  }
   return [
     `${area} ${k("must_see")}`,
     `${area} ${k("museum")} ${k("historic")}`,

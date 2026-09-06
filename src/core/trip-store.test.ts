@@ -148,6 +148,9 @@ describe("slim candidates for Trip patch", () => {
           provider: "GOOGLE_MAPS",
           rating: 4.7,
           user_ratings_total: 12000,
+          photos: ["https://cdn.example/tower.jpg", "https://cdn.example/tower2.jpg"],
+          sources: [{ provider: "GOOGLE_MAPS", native_id: "ChIJtower", deeplinks: {} }],
+          address: "Lisbon",
         },
       ],
       [],
@@ -157,7 +160,28 @@ describe("slim candidates for Trip patch", () => {
       provider: "GOOGLE_MAPS",
       rating: 4.7,
       user_ratings_total: 12000,
+      photos: ["https://cdn.example/tower.jpg"],
+      address: "Lisbon",
     });
+    expect(patch.candidates?.places[0]?.sources).toEqual([
+      { provider: "GOOGLE_MAPS", native_id: "ChIJtower", deeplinks: {} },
+    ]);
+  });
+
+  it("should_drop_google_media_urls_from_slim_photos (ADR-051)", () => {
+    const slim = slimCandidatesForStore({
+      places: [
+        {
+          name: "Tower",
+          photos: [
+            "https://places.googleapis.com/v1/places/ChIJ/photos/A/media?maxWidthPx=400",
+            "https://lh3.googleusercontent.com/p/ok",
+          ],
+        },
+      ],
+      restaurants: [],
+    });
+    expect(slim.places[0]?.photos).toEqual(["https://lh3.googleusercontent.com/p/ok"]);
   });
 
   it("should_keep_user_requested_in_slimCandidatesForStore", () => {

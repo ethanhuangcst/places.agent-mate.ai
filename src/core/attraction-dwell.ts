@@ -129,3 +129,66 @@ export function clusterRoleForIndex(
   if (linkedPrev) return "end";
   return "isolated";
 }
+
+const WALK_CLUSTER_MAX_MIN = 15;
+
+/**
+ * Cluster role for the stop being filled: distance ≤800m plus optional walk gate.
+ * If walk minutes to previous attraction exceed 15, do not link with previous.
+ */
+export function resolveAttractionClusterRole(opts: {
+  dayStops: Array<{
+    name?: string;
+    kind?: string;
+    lat?: number;
+    lng?: number;
+    location?: { lat?: number; lng?: number } | null;
+  }>;
+  stopName: string;
+  candidates?: Array<{
+    name: string;
+    location?: { lat?: number; lng?: number } | null;
+  }>;
+  /** Recommended walk duration from previous stop (minutes), if known. */
+  walkMinFromPrev?: number | null;
+}): ClusterRole {
+  const cardLoc = (name: string | undefined) => {
+    if (!name) return null;
+    const card = opts.candidates?.find((c) => c.name === name);
+    const lat = card?.location?.lat;
+    const lng = card?.location?.lng;
+    if (typeof lat === "number" && typeof lng === "number") return { lat, lng };
+    return null;
+  };
+
+  const enriched = opts.dayStops.map((s) => {
+    const fromStop =
+      typeof s.lat === "number" && typeof s.lng === "number"
+        ? { lat: s.lat, lng: s.lng }
+        : s.location && typeof s.location.lat === "number" && typeof s.location.lng === "number"
+          ? { lat: s.location.lat, lng: s.location.lng }
+          : null;
+    return {
+      kind: s.kind,
+      location: fromStop ?? cardLoc(s.name),
+    };
+  });
+
+  const index = opts.dayStops.findIndex((s) => s.name === opts.stopName);
+  if (index < 0) return "isolated";
+
+  let role = clusterRoleForIndex(enriched, index);
+  if (
+    typeof opts.walkMinFromPrev === "number" &&
+    opts.walkMinFromPrev > WALK_CLUSTER_MAX_MIN
+  ) {
+    // Walk too long to previous: drop prev location so only next-link can keep "in".
+    role = clusterRoleForIndex(
+      enriched.map((s, i) =>
+        i < index && s.kind === "attraction" ? { kind: s.kind, location: null } : s,
+      ),
+      index,
+    );
+  }
+  return role;
+}
