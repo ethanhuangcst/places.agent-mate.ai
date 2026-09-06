@@ -3,7 +3,7 @@ import { validateStationTiming, validateItinerary, type LlmItineraryOutput } fro
 
 /**
  * TC-M9-U42-05: Lisbon 4D sample regression.
- * Fixture extracted from agent-specs/sample_lisbon_4d.md — the known data
+ * Fixture extracted from ../specs/agent-specs/sample_lisbon_4d.md — the known data
  * quality issues that F42 validations should catch.
  */
 describe("TC-M9-U42-05: Lisbon 4D fixture regression", () => {

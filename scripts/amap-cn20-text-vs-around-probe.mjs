@@ -253,7 +253,7 @@ const out = {
   rows,
 };
 
-const dest = resolve(import.meta.dirname, "../../workspace-specs/knowledge/maps/amap-cn20-probe.json");
+const dest = resolve(import.meta.dirname, "../../specs/knowledge/maps/amap-cn20-probe.json");
 writeFileSync(dest, JSON.stringify(out, null, 2));
 console.log(JSON.stringify({ ...out, rows: undefined, hangzhou: out.hangzhou }, null, 2));
 console.log("wrote", dest);

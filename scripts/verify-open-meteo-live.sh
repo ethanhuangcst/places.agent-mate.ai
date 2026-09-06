@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Opt-in live Open-Meteo forecast on plan_itinerary. Free host needs no key.
-# Usage: from 1.places-agent/ — make verify-open-meteo-live
+# Usage: from places-agent/ — make verify-open-meteo-live
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -6,7 +6,7 @@
  * transit are attached later by plan_next_stop / display_current_stop
  * with zero LLM (performance.md §12).
  *
- * NDJSON events (§16.2 contract, agent-specs):
+ * NDJSON events (§16.2 contract, ../specs/agent-specs):
  *   skeleton_start → skeleton_day × N → skeleton_done
  */
 

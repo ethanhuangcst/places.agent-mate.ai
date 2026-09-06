@@ -124,9 +124,9 @@ class StaleLockTests(unittest.TestCase):
 
 class RepoPkillPatternsTests(unittest.TestCase):
     def test_patterns_include_repo_root(self) -> None:
-        root = Path("/Users/me/code/places-workspace/1.places-agent")
+        root = Path("/Users/me/code/places-workspace/places-agent")
         patterns = dd.repo_pkill_patterns(root)
-        self.assertTrue(any("1.places-agent" in p for p in patterns))
+        self.assertTrue(any("places-agent" in p for p in patterns))
         self.assertFalse(any(p == "tsx.*server.ts" for p in patterns))
 
 

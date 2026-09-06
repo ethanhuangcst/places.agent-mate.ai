@@ -16,7 +16,7 @@ given, and must_include sometimes provided / sometimes left empty (the
 "prompt for must-see, but user declines" case). must_include tokens are area /
 day-trip style names (user input), not a per-city POI catalog — ADR-042 compliant.
 
-Output: agent-specs/e2e-test-result/<id>-<city>.md per scenario + INDEX.md
+Output: ../specs/agent-specs/e2e-test-result/<id>-<city>.md per scenario + INDEX.md
 
 Usage:
   python3 scripts/e2e-places-agent.py --only 1
@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "agent-specs" / "e2e-test-result"
+OUT_DIR = ROOT.parent / "specs" / "agent-specs" / "e2e-test-result"
 BASE = os.environ.get("PLACES_AGENT_BASE", "http://localhost:3010")
 CALLER_KEY = os.environ.get("PLACES_AGENT_CALLER_KEY", "")
 PROVIDERS = ["GOOGLE_MAPS", "AMAP", "TRIPADVISOR"]

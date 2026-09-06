@@ -1,5 +1,5 @@
 # Local Postgres for places-agent only. Started by `make db-up`.
-# Port registry: ../workspace-specs/6.deployment-plan.md §0
+# Port registry: ../specs/6.deployment-plan.md §0
 # ADR-025 — do not reuse what2eat :5435 or other apps' Postgres DB names.
 
 name: places-agent-dev

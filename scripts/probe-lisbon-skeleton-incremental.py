@@ -4,7 +4,7 @@ Lisbon 4-day skeleton+incremental performance probe.
 
 Measures current architecture (arrange_day x 4 + enrich x 4) component costs
 to validate the section 12 light-skeleton + LLM-free fill estimates in
-agent-specs/performance.md.
+../specs/agent-specs/performance.md.
 
 Steps timed:
   1. discover_places              candidate pool + LLM must-see inference
@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-W2P = ROOT.parent / "3.where2play"
+W2P = ROOT.parent / "where2play"
 OUT_JSON = ROOT / "tmp" / "probe-lisbon-skeleton-incremental.json"
 
 CITY = "Lisbon"

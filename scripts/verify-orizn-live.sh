@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Opt-in live Orizn visa probes (TC-M11-48-LIVE). Needs ORIZN_API_KEY in .env.local.
-# Usage: from 1.places-agent/ — make verify-orizn-live
+# Usage: from places-agent/ — make verify-orizn-live
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

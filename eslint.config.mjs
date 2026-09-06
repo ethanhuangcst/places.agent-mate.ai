@@ -35,7 +35,6 @@ export default defineConfig([
     ".next-e2e/**",
     "out/**",
     "node_modules/**",
-    "agent-specs/**",
     "e2e/**",
     "coverage/**",
     "scripts/run-tc-c07.ts",

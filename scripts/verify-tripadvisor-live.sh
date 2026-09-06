@@ -2,7 +2,7 @@
 # Opt-in live Tripadvisor Terra enrich. Needs TRIPADVISOR_API_KEY (e.g. in .env.local).
 # Starts a sidecar on VERIFY_TRIPADVISOR_PORT so the operator daemon (often
 # GOOGLE_DIRECT_FORCE_FAIL=1) is not reused. Does not edit env files.
-# Usage: from 1.places-agent/ — make verify-tripadvisor-live
+# Usage: from places-agent/ — make verify-tripadvisor-live
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

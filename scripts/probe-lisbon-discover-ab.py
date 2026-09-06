@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-W2P = ROOT.parent / "3.where2play"
+W2P = ROOT.parent / "where2play"
 OUT_JSON = ROOT / "tmp" / "probe-lisbon-discover-ab.json"
 
 CITY = "Lisbon"

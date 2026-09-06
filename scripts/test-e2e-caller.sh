@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TC-E2E-01~11: Caller simulation E2E tests.
 # Opt-in — requires live vendor keys (AMAP_API_KEY, GOOGLE_MAPS_API_KEY or GMAPS_MCP_*).
-# Usage: from 1.places-agent/ — make test-e2e-caller
+# Usage: from places-agent/ — make test-e2e-caller
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

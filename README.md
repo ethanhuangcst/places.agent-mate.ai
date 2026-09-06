@@ -8,7 +8,7 @@ Callers (what2eat / where2play / MCP hosts) use machine id **`places-agent`**. T
 - **MCP** tools (same core functions)
 - **Admin app** for operators (login, API keys, invites, i18n)
 
-Specs live in [`agent-specs/`](./agent-specs/). Product refactor progress: [`agent-specs/0.refactor-plan.md`](./agent-specs/0.refactor-plan.md). MVP-6 design source: Claude Code Plan `~/.claude/plans/flickering-humming-gizmo.md`.
+Specs live in the umbrella repo: [`../specs/agent-specs/`](../specs/agent-specs/). Product refactor progress: [`../specs/agent-specs/0.refactor-plan.md`](../specs/agent-specs/0.refactor-plan.md). True-agent redesign: [`../specs/agent-specs/real-agent-refactory.md`](../specs/agent-specs/real-agent-refactory.md). MVP-6 design source: Claude Code Plan `~/.claude/plans/flickering-humming-gizmo.md`.
 
 ---
 
@@ -122,8 +122,9 @@ Compose env includes `ITINERARY_MODE` (default `llm`). After deploy, smoke **H3c
 
 | Doc | Purpose |
 |-----|---------|
-| [`agent-specs/agent-stories.md`](./agent-specs/agent-stories.md) | User stories / AC (incl. F24–31) |
-| [`agent-specs/agent-design.md`](./agent-specs/agent-design.md) | Design (§9 prompt + itinerary) |
-| [`agent-specs/agent-test-plan.md`](./agent-specs/agent-test-plan.md) | Test matrices (TC-M5, TC-M6…) |
-| [`agent-specs/0.refactor-plan.md`](./agent-specs/0.refactor-plan.md) | Batch status (MVP-1…MVP-7 ✅; MVP-8 F34–38 ✅ ADR-040/043 D9) |
+| [`../specs/agent-specs/agent-stories.md`](../specs/agent-specs/agent-stories.md) | User stories / AC (incl. F24–31) |
+| [`../specs/agent-specs/agent-design.md`](../specs/agent-specs/agent-design.md) | Design (§9 prompt + itinerary) |
+| [`../specs/agent-specs/agent-test-plan.md`](../specs/agent-specs/agent-test-plan.md) | Test matrices (TC-M5, TC-M6…) |
+| [`../specs/agent-specs/0.refactor-plan.md`](../specs/agent-specs/0.refactor-plan.md) | Batch status (MVP-1…MVP-7 ✅; MVP-8 F34–38 ✅ ADR-040/043 D9) |
+| [`../specs/agent-specs/real-agent-refactory.md`](../specs/agent-specs/real-agent-refactory.md) | True-agent refactor (`plan_trip` + fetch) |
 | [places-agent-instruction.md](../0.2.release-bot/svr_hk_vps_3/places.family/places-agent-instruction.md) | Production deploy checklist |

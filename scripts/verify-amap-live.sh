@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Opt-in live AMAP Web 服务 search. Needs AMAP_API_KEY (e.g. in .env.local).
-# Usage: from 1.places-agent/ — make verify-amap-live
+# Usage: from places-agent/ — make verify-amap-live
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

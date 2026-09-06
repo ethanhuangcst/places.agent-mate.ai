@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verify ADR-017 Worker fallback (TC-H15) without toggling VPN.
-# Usage: from 1.places-agent/ with GMAPS_MCP_* in .env.local
+# Usage: from places-agent/ with GMAPS_MCP_* in .env.local
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

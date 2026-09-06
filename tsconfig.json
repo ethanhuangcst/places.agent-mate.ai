@@ -39,7 +39,6 @@
   ],
   "exclude": [
     "node_modules",
-    "agent-specs",
     "scripts/run-tc-c07.ts",
     "scripts/run-tc-c08.ts"
   ]

@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-W2P = ROOT.parent / "3.where2play"
+W2P = ROOT.parent / "where2play"
 OUT_DIR = ROOT / "tmp"
 OUT_JSON = OUT_DIR / "probe-xian-discover-ab.json"
 
