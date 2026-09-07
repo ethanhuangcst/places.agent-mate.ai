@@ -180,6 +180,11 @@ export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<Pl
   const callerForcedProviders = Boolean(rawInput.providers?.length);
   const input = await applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
+  const cKey = searchCacheKey(input.query ?? "", input.near, input.providers);
+  const cached = getCachedSearch(cKey);
+  if (cached) {
+    return { data: cached, skipped: [], locale, locales: pair };
+  }
   const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
     const adapter = getAdapter(id);
     if (!adapter) throw new Error("missing");
@@ -208,6 +213,7 @@ export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<Pl
     cards = enriched.cards;
     skipped.push(...enriched.skipped);
   }
+  if (cards.length > 0) setCachedSearch(cKey, cards);
   const outcomeKey = cards.length === 0 ? "errors.empty_results" : undefined;
   return { data: cards, skipped, locale, locales: pair, outcomeKey };
 }
@@ -255,6 +261,21 @@ export async function geocode(input: {
   ToolResult<{ lat: number; lng: number; crs: string; address?: string } | null>
 > {
   const { locale, pair } = localesFrom(input);
+  const geoKey = `geo|${(input.query ?? "").trim().toLowerCase()}|${input.lat ?? ""}|${input.lng ?? ""}`;
+  const cached = getCachedSearch(geoKey);
+  if (cached && cached[0]?.location) {
+    return {
+      data: {
+        lat: cached[0].location!.lat,
+        lng: cached[0].location!.lng,
+        crs: cached[0].location!.crs,
+        address: cached[0].address,
+      },
+      skipped: [],
+      locale,
+      locales: pair,
+    };
+  }
   let providers = input.providers;
   if (!providers?.length) {
     const strategy = await resolveProviderStrategy(
@@ -280,7 +301,19 @@ export async function geocode(input: {
     }
     throw new Error("missing_input");
   });
-  return { data: values[0] ?? null, skipped, locale, locales: pair };
+  const result = values[0] ?? null;
+  if (result) {
+    setCachedSearch(geoKey, [
+      {
+        provider: "GOOGLE_MAPS",
+        name: input.query ?? "",
+        location: { lat: result.lat, lng: result.lng, crs: result.crs },
+        address: result.address,
+        sources: [],
+      } as PlaceCard,
+    ]);
+  }
+  return { data: result, skipped, locale, locales: pair };
 }
 
 export { mergeCards };

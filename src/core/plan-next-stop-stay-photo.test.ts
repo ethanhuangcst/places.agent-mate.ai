@@ -2,7 +2,7 @@
  * ADR-051 D1.3 — stay / origin photos resolved in plan_next_stop fill.
  */
 import { describe, expect, it, vi } from "vitest";
-import { planNextStopFill } from "./plan-next-stop";
+import { pickLodgingStayCard, planNextStopFill } from "./plan-next-stop";
 import { type PlaceCard } from "./types";
 import { isDisplayablePhotoUrl } from "./resolve-display-photo";
 
@@ -182,5 +182,32 @@ describe("planNextStopFill stay photo (ADR-051 D1.3)", () => {
     expect(result.stop_display?.stop.card?.photos?.[0]).toBe(
       "https://lh3.googleusercontent.com/day-origin-photo",
     );
+  });
+});
+
+describe("pickLodgingStayCard", () => {
+  it("should_match_amap_core_name_when_query_has_district_prefix", () => {
+    const cards: PlaceCard[] = [
+      {
+        provider: "AMAP",
+        name: "大华饭店",
+        location: { lat: 30.25, lng: 120.15, crs: "WGS84" },
+        sources: [{ provider: "AMAP", native_id: "hz-dahua", deeplinks: {} }],
+      },
+      {
+        provider: "AMAP",
+        name: "大华饭店地面停车场",
+        location: { lat: 30.25, lng: 120.15, crs: "WGS84" },
+        sources: [{ provider: "AMAP", native_id: "hz-park", deeplinks: {} }],
+      },
+      {
+        provider: "AMAP",
+        name: "杭州大华饭店北楼",
+        location: { lat: 30.25, lng: 120.15, crs: "WGS84" },
+        sources: [{ provider: "AMAP", native_id: "hz-north", deeplinks: {} }],
+      },
+    ];
+    const picked = pickLodgingStayCard("西湖大华饭店", cards);
+    expect(picked?.name).toBe("大华饭店");
   });
 });

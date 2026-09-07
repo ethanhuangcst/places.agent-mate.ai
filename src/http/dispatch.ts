@@ -569,6 +569,14 @@ export async function dispatchTool(
         locale,
         trip_id: parsed.data.trip_id,
         revision: parsed.data.revision,
+        numDays: parsed.data.numDays,
+        origin: parsed.data.origin,
+        pace: parsed.data.pace,
+        budget: parsed.data.budget,
+        transit_preference: parsed.data.transit_preference,
+        trip_type: parsed.data.trip_type,
+        bounds: parsed.data.bounds,
+        must_include: parsed.data.must_include,
       });
       const status = result.status === "failed" ? 502 : 200;
       return {

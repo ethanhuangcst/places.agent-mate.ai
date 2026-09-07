@@ -14,3 +14,4 @@ dist/
 coverage/
 *.db
 *.db-journal
+tmp/

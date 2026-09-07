@@ -4,12 +4,14 @@
  *   npx tsx --env-file=.env.local scripts/probe-plan-trip.ts lisbon
  *   npx tsx --env-file=.env.local scripts/probe-plan-trip.ts hangzhou
  *   npx tsx --env-file=.env.local scripts/probe-plan-trip.ts hongkong
+ *   npx tsx --env-file=.env.local scripts/probe-plan-trip.ts taipei
  */
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { budgetFetch } from "./probe-budget";
 
-type CityKey = "lisbon" | "hangzhou" | "hongkong";
+type CityKey = "lisbon" | "hangzhou" | "hongkong" | "taipei";
 
 const CITIES: Record<
   CityKey,
@@ -23,6 +25,7 @@ const CITIES: Record<
   lisbon: { city: "Lisbon", locale: "EN", expected: "GOOGLE_ONLY", slug: "lisbon" },
   hangzhou: { city: "杭州", locale: "CN", expected: "AMAP_ONLY", slug: "hangzhou" },
   hongkong: { city: "Hong Kong", locale: "HK", expected: "DUAL", slug: "hongkong" },
+  taipei: { city: "Taipei", locale: "EN", expected: "GOOGLE_ONLY", slug: "taipei" },
 };
 
 type Envelope<T> = {
@@ -68,7 +71,7 @@ function issueKey(): string {
 }
 
 async function postJson<T>(path: string, secret: string, body: unknown): Promise<Envelope<T>> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await budgetFetch(`${BASE}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${secret}`,

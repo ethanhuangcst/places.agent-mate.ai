@@ -379,6 +379,25 @@ export type TravelTipsBody = z.infer<typeof travelTipsBody>;
 
 export const planTripBody = z.object({
   city: z.string().min(1),
+  numDays: z.number().int().positive().max(14).optional(),
+  origin: z
+    .object({
+      name: z.string().min(1),
+      lat: z.number().optional(),
+      lng: z.number().optional(),
+    })
+    .optional(),
+  pace: z.enum(["tight", "medium", "relaxed"]).optional(),
+  budget: z.enum(["budget", "premium"]).optional(),
+  transit_preference: z.string().min(1).optional(),
+  trip_type: z.string().min(1).optional(),
+  bounds: z
+    .object({
+      start: z.string().min(1),
+      end: z.string().min(1),
+    })
+    .optional(),
+  must_include: z.array(z.string().min(1)).optional(),
   ...shared,
 });
 

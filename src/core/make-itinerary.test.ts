@@ -5,6 +5,7 @@ import {
   buildSkeletonUserMessage,
   dropCityNameStops,
   dropUnknownAttractionStops,
+  isAreaAliasStop,
   normalizeMealSlotStops,
   enrichMakeItineraryInput,
   llmSkeletonTimeoutMs,
@@ -611,6 +612,39 @@ describe("validateSkeleton", () => {
     if (result.ok) {
       expect(result.skeleton.days[0]!.stops.map((s) => s.name)).not.toContain("Sintra");
     }
+  });
+
+  it("should_keep_scenic_area_poi_names_ending_in_景区", () => {
+    expect(isAreaAliasStop("雷峰塔景区", ["雷峰塔景区"], "杭州")).toBe(false);
+    expect(isAreaAliasStop("西湖区", ["西湖区"], "杭州")).toBe(true);
+    const poolHz = {
+      places: [place("雷峰塔景区", 30.23, 120.14), place("西溪公园", 30.27, 120.06)],
+      restaurants: [] as PlaceCard[],
+      stays: ["大华饭店"],
+    };
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "西湖",
+          stops: [
+            { name: "大华饭店", kind: "stay" },
+            { name: "雷峰塔景区", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { name: "西溪公园", kind: "attraction" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const trimmed = trimAreaAliasStops(raw, ["雷峰塔景区"], "杭州");
+    expect(
+      (trimmed as { days: Array<{ stops: Array<{ name?: string }> }> }).days[0]!.stops.map(
+        (s) => s.name,
+      ),
+    ).toContain("雷峰塔景区");
+    const result = validateSkeleton(trimmed, poolHz, ["雷峰塔景区"], "relaxed", "杭州");
+    expect(result.ok).toBe(true);
   });
 
   it("should_reject_lunch_after_last_attraction (TC-M14-61-02)", () => {

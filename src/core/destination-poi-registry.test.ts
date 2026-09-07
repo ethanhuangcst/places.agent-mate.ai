@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   canRegisterAttraction,
+  cardSlimFromPlace,
   createMemoryPoiRegistryStore,
   destinationLookupKey,
   listPoisForDestination,
@@ -10,7 +11,18 @@ import {
 } from "./destination-poi-registry";
 import { type PlaceCard } from "./types";
 
-function card(name: string, opts?: { nativeId?: string | null; collection?: boolean }): PlaceCard {
+function card(
+  name: string,
+  opts?: {
+    nativeId?: string | null;
+    collection?: boolean;
+    photos?: string[];
+    must_see?: boolean;
+    rating?: number;
+    lat?: number;
+    lng?: number;
+  },
+): PlaceCard {
   const n = opts?.collection ? `${name}名胜区` : name;
   const sources =
     opts?.nativeId === null
@@ -25,8 +37,11 @@ function card(name: string, opts?: { nativeId?: string | null; collection?: bool
   return {
     provider: "GOOGLE_MAPS",
     name: n,
-    location: { lat: 38.7, lng: -9.1, crs: "WGS84" },
+    location: { lat: opts?.lat ?? 38.7, lng: opts?.lng ?? -9.1, crs: "WGS84" },
     sources,
+    ...(opts?.photos ? { photos: opts.photos } : {}),
+    ...(opts?.must_see != null ? { must_see: opts.must_see } : {}),
+    ...(opts?.rating != null ? { rating: opts.rating } : {}),
   };
 }
 
@@ -148,5 +163,74 @@ describe("destination-poi-registry (TC-M22-87)", () => {
     const b = card("城堡", { nativeId: "b" });
     const merged = mergeRegistryPlaces([a], [a, b]);
     expect(merged.map((p) => p.name)).toEqual(["贝伦塔", "城堡"]);
+  });
+
+  it("should_skip_upsert_when_cardSlim_unchanged", async () => {
+    const store = createMemoryPoiRegistryStore();
+    const anchor = { city: "Lisbon", lat: 38.722, lng: -9.139 };
+    const torre = card("Torre de Belém", {
+      nativeId: "ChIJlisbon",
+      photos: ["https://cdn.example.com/belem.jpg"],
+      rating: 4.7,
+    });
+    const { destinationId, poiIds } = await upsertEligiblePois([torre], anchor, store);
+    expect(poiIds).toHaveLength(1);
+    const before = (await store.listPois(destinationId))[0]!;
+    const { poiIds: again } = await upsertEligiblePois([torre], anchor, store);
+    expect(again).toEqual(poiIds);
+    const after = (await store.listPois(destinationId))[0]!;
+    // Same object → no bag.set rewrite (diff-skip).
+    expect(after).toBe(before);
+    expect(after.aliases).toEqual([]);
+  });
+
+  it("should_update_when_name_changed_and_keep_old_name_as_alias", async () => {
+    const store = createMemoryPoiRegistryStore();
+    const anchor = { city: "Lisbon", lat: 38.722, lng: -9.139 };
+    await upsertEligiblePois(
+      [card("Belém Tower", { nativeId: "ChIJlisbon", photos: ["https://cdn.example.com/a.jpg"] })],
+      anchor,
+      store,
+    );
+    const { destinationId, poiIds } = await upsertEligiblePois(
+      [
+        card("Torre de Belém", {
+          nativeId: "ChIJlisbon",
+          photos: ["https://cdn.example.com/a.jpg"],
+        }),
+      ],
+      anchor,
+      store,
+    );
+    const row = (await store.listPois(destinationId))[0]!;
+    expect(row.id).toBe(poiIds[0]);
+    expect(row.name).toBe("Torre de Belém");
+    expect(row.aliases).toContain("Belém Tower");
+  });
+
+  it("should_store_photos_first_displayable_in_cardSlim", () => {
+    const slim = cardSlimFromPlace(
+      card("Torre de Belém", {
+        nativeId: "ChIJlisbon",
+        photos: [
+          "http://insecure.example.com/x.jpg",
+          "https://places.googleapis.com/v1/places/x/media?maxWidthPx=400",
+          "https://cdn.example.com/belem.jpg",
+        ],
+      }),
+    );
+    expect(slim.photos).toEqual(["https://cdn.example.com/belem.jpg"]);
+  });
+
+  it("should_not_store_must_see_in_cardSlim", () => {
+    const slim = cardSlimFromPlace(
+      card("Torre de Belém", {
+        nativeId: "ChIJlisbon",
+        must_see: true,
+        photos: ["https://cdn.example.com/belem.jpg"],
+      }),
+    );
+    expect(slim.must_see).toBeUndefined();
+    expect(slim.photos?.[0]).toBe("https://cdn.example.com/belem.jpg");
   });
 });

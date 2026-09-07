@@ -6,7 +6,9 @@ import {
   type AttractionPoiRow,
   type DestinationAnchor,
   type PoiRegistryStore,
+  cardSlimEquals,
   cardSlimFromPlace,
+  mergeAliasesOnRename,
 } from "./destination-poi-registry";
 
 function asCard(raw: unknown): PlaceCard {
@@ -41,7 +43,7 @@ export function createPrismaPoiRegistryStore(client: PrismaClient): PoiRegistryS
     },
     async upsertPoi(destinationId, card, native) {
       const slim = cardSlimFromPlace(card);
-      const row = await client.attractionPoi.upsert({
+      const existing = await client.attractionPoi.findUnique({
         where: {
           destinationId_provider_nativeId: {
             destinationId,
@@ -49,18 +51,48 @@ export function createPrismaPoiRegistryStore(client: PrismaClient): PoiRegistryS
             nativeId: native.nativeId,
           },
         },
-        create: {
+      });
+      if (existing) {
+        const prevRow: AttractionPoiRow = {
+          id: existing.id,
+          destinationId: existing.destinationId,
+          provider: existing.provider,
+          nativeId: existing.nativeId,
+          name: existing.name,
+          aliases: asAliases(existing.aliases),
+          lat: existing.lat,
+          lng: existing.lng,
+          cardSlim: asCard(existing.cardSlim),
+          details:
+            existing.details && typeof existing.details === "object"
+              ? (existing.details as Record<string, unknown>)
+              : null,
+          detailsFetchedAt: existing.detailsFetchedAt,
+        };
+        // Match + no diff → skip write (ADR-056).
+        if (cardSlimEquals(prevRow, card)) {
+          return { id: existing.id };
+        }
+        const aliases = mergeAliasesOnRename(existing.name, card.name, asAliases(existing.aliases));
+        const row = await client.attractionPoi.update({
+          where: { id: existing.id },
+          data: {
+            name: card.name,
+            aliases,
+            lat: card.location.lat,
+            lng: card.location.lng,
+            cardSlim: slim as object,
+          },
+        });
+        return { id: row.id };
+      }
+      const row = await client.attractionPoi.create({
+        data: {
           destinationId,
           provider: native.provider,
           nativeId: native.nativeId,
           name: card.name,
           aliases: [],
-          lat: card.location.lat,
-          lng: card.location.lng,
-          cardSlim: slim as object,
-        },
-        update: {
-          name: card.name,
           lat: card.location.lat,
           lng: card.location.lng,
           cardSlim: slim as object,

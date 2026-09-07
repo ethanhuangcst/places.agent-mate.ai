@@ -424,16 +424,22 @@ export function staySearchCoreName(name: string): string {
     .trim();
 }
 
+function isLodgingAncillaryName(name: string): boolean {
+  return /停车|停车场|出口|入口|服务亭|充电|门岗|门卫/.test(name);
+}
+
 function looksLikeLodgingCard(card: PlaceCard): boolean {
+  const name = card.name ?? "";
+  if (isLodgingAncillaryName(name)) return false;
   const cat = (card.category ?? "").toLowerCase();
   if (/lodging|hotel|住宿|酒店|宾馆|旅馆|resort|inn|客栈/.test(cat)) return true;
-  const name = card.name ?? "";
   return /酒店|宾馆|旅馆|饭店|客栈|hotel|hyatt|hilton|marriott|sheraton|novotel|ibis|inn|resort|凯悦|希尔顿|万豪|喜来登|洲际|假日/i.test(
     name,
   );
 }
 
-function pickLodgingStayCard(query: string, cards: PlaceCard[]): PlaceCard | undefined {
+/** Exported for unit tests — pick lodging from search hits (never bare cards[0]). */
+export function pickLodgingStayCard(query: string, cards: PlaceCard[]): PlaceCard | undefined {
   const lodging = cards.filter(looksLikeLodgingCard);
   if (!lodging.length) return undefined;
   const exact = lodging.find((c) => c.name === query);
@@ -445,7 +451,15 @@ function pickLodgingStayCard(query: string, cards: PlaceCard[]): PlaceCard | und
     const n = (c.name ?? "").toLowerCase();
     return core.length >= 2 && n.includes(core.toLowerCase());
   });
-  return covered;
+  if (covered) return covered;
+  // AMAP often drops a district/landmark prefix (e.g. 西湖大华饭店 → 大华饭店).
+  const reverse = lodging
+    .filter((c) => {
+      const n = staySearchCoreName(c.name);
+      return n.length >= 2 && core.toLowerCase().includes(n.toLowerCase());
+    })
+    .sort((a, b) => (a.name?.length ?? 99) - (b.name?.length ?? 99));
+  return reverse[0];
 }
 
 /**

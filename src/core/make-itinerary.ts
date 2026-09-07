@@ -213,7 +213,9 @@ export function isAreaAliasStop(
   if (cityNorm && norm === cityNorm) return true;
   const isAreaStyle = (token: string) => {
     const t = token.trim();
-    if (/(区|一带|一日游|day[\s-]?trip|district|area)$/iu.test(t)) return true;
+    if (/(一带|一日游|day[\s-]?trip|district|area)$/iu.test(t)) return true;
+    // Administrative “…区” (e.g. 西湖区), but not scenic/POI “…景区/园区”.
+    if (/区$/u.test(t) && !/(景|园|園)区$/u.test(t)) return true;
     // Bare Latin district names (Belém, Sintra) — not CJK day-trip town names.
     if (!/\s/u.test(t) && /^[A-Za-zÀ-ÿ]+$/u.test(t)) return true;
     return false;

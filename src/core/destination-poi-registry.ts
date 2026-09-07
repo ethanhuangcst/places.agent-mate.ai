@@ -107,16 +107,68 @@ export function canRegisterAttraction(card: PlaceCard): boolean {
   return isEligibleAttraction(card) && registrableNative(card) != null;
 }
 
+/** First https displayable photo URL (ADR-051 / ADR-056) — drop media stubs and keyed URLs. */
+export function firstDisplayablePhoto(photos: unknown): string | undefined {
+  if (!Array.isArray(photos)) return undefined;
+  const first = photos.find(
+    (p) =>
+      typeof p === "string" &&
+      p.startsWith("https://") &&
+      !/places\.googleapis\.com\/v1\/.+\/media/i.test(p) &&
+      !/[?&](?:api_)?key=/i.test(p) &&
+      !/skipHttpRedirect=true/i.test(p),
+  );
+  return typeof first === "string" ? first : undefined;
+}
+
+/**
+ * Registry cardSlim: identity + facts only (ADR-056).
+ * Stores photos[0] when displayable; never stores per-trip must_see.
+ */
 export function cardSlimFromPlace(card: PlaceCard): PlaceCard {
   const sources: PlaceSource[] = (card.sources ?? []).filter((s) => s.native_id?.trim());
+  const photo = firstDisplayablePhoto(card.photos);
   return {
     provider: card.provider,
     name: card.name,
     location: card.location,
     sources,
     ...(card.rating != null ? { rating: card.rating } : {}),
-    ...(card.must_see != null ? { must_see: card.must_see } : {}),
+    ...(photo ? { photos: [photo] } : {}),
   };
+}
+
+const COORD_EPS = 1e-6;
+
+function normalizeNameKey(name: string): string {
+  return name.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+}
+
+function sameCoord(a: number, b: number): boolean {
+  return Math.abs(a - b) < COORD_EPS;
+}
+
+/**
+ * True when existing registry row matches incoming cardSlim facts (ADR-056 diff-skip).
+ * Compare: name, lat/lng, photos[0], rating. Ignore must_see / aliases / details.
+ */
+export function cardSlimEquals(existing: AttractionPoiRow, incoming: PlaceCard): boolean {
+  const slim = cardSlimFromPlace(incoming);
+  if (normalizeNameKey(existing.name) !== normalizeNameKey(slim.name)) return false;
+  if (!sameCoord(existing.lat, slim.location.lat)) return false;
+  if (!sameCoord(existing.lng, slim.location.lng)) return false;
+  const prevPhoto = firstDisplayablePhoto(existing.cardSlim.photos) ?? "";
+  const nextPhoto = firstDisplayablePhoto(slim.photos) ?? "";
+  if (prevPhoto !== nextPhoto) return false;
+  const prevRating = existing.cardSlim.rating ?? null;
+  const nextRating = slim.rating ?? null;
+  if (prevRating !== nextRating) return false;
+  return true;
+}
+
+export function mergeAliasesOnRename(prevName: string, nextName: string, aliases: string[]): string[] {
+  if (prevName === nextName) return aliases;
+  return [...new Set([...aliases, prevName])];
 }
 
 export function createMemoryPoiRegistryStore(): PoiRegistryStore {
@@ -140,13 +192,19 @@ export function createMemoryPoiRegistryStore(): PoiRegistryStore {
       poisByDest.set(destinationId, bag);
       const uniq = `${native.provider}:${native.nativeId}`;
       const prev = bag.get(uniq);
+      // Match + no diff → skip write (ADR-056).
+      if (prev && cardSlimEquals(prev, card)) {
+        return { id: prev.id };
+      }
       const row: AttractionPoiRow = {
         id: prev?.id ?? id("poi"),
         destinationId,
         provider: native.provider,
         nativeId: native.nativeId,
         name: card.name,
-        aliases: prev && prev.name !== card.name ? [...new Set([...prev.aliases, prev.name])] : (prev?.aliases ?? []),
+        aliases: prev
+          ? mergeAliasesOnRename(prev.name, card.name, prev.aliases)
+          : [],
         lat: card.location.lat,
         lng: card.location.lng,
         cardSlim: cardSlimFromPlace(card),
