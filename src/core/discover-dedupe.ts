@@ -11,12 +11,50 @@
 import { type PlaceCard } from "./types";
 import { normalizeVenueName } from "./place-filters";
 
-/** Destination-agnostic cluster key: normalized venue name (no city landmarks). */
+/** Destination-agnostic cluster key: normalized name + prefix-family clustering.
+ * ADR-042 compliant: no city-specific logic, just generic suffix stripping. */
 export type AttractionCluster = string;
 
-/** Coarse cluster key — normalized name only (ADR-042 Update: no city branches). */
+/** Common scenic-area / sub-POI suffixes that indicate a satellite of a parent landmark.
+ * Stripping these collapses 雷峰塔景区 / 雷峰塔景区售票处 / 雷峰塔重建记 → 雷峰塔. */
+const SATELLITE_SUFFIXES = [
+  "景区售票处",
+  "景区游客中心",
+  "景区管理处",
+  "景区",
+  "风景区",
+  "旅游区",
+  "售票处",
+  "游客中心",
+  "管理处",
+  "重建记",
+  "入口",
+  "出口",
+  "停车场",
+  "南门",
+  "北门",
+  "东门",
+  "西门",
+  "正门",
+  "侧门",
+  "检票口",
+  "观景台",
+  "瞭望台",
+];
+
+/** Coarse cluster key — normalized name with satellite-suffix stripping (ADR-042: no city branches). */
 export function attractionClusterKey(name: string): AttractionCluster {
-  return normalizeVenueName(name) || "unknown";
+  const normalized = normalizeVenueName(name);
+  if (!normalized) return "unknown";
+  // Try stripping known satellite suffixes to find the parent landmark name.
+  // This is a generic, destination-agnostic rule (not a city encyclopedia).
+  for (const suffix of SATELLITE_SUFFIXES) {
+    const suffixNorm = normalizeVenueName(suffix);
+    if (suffixNorm && normalized.endsWith(suffixNorm) && normalized.length > suffixNorm.length) {
+      return normalized.slice(0, -suffixNorm.length);
+    }
+  }
+  return normalized;
 }
 
 function isPrimaryLandmarkName(name: string): boolean {
@@ -44,6 +82,30 @@ export function dedupeByCluster(cards: PlaceCard[]): PlaceCard[] {
     }
   }
   return [...best.values()];
+}
+
+/**
+ * After dedupe, keep at most `maxPerCluster` cards per coarse cluster,
+ * preserving input order (nominate order). Extra same-cluster cards drop
+ * so later day-trip / other-cluster hits can fill the chip limit.
+ */
+export function capClusterOccupancy(
+  cards: PlaceCard[],
+  maxPerCluster = 3,
+): PlaceCard[] {
+  const cap = Math.max(1, Math.floor(maxPerCluster));
+  const counts = new Map<string, number>();
+  const out: PlaceCard[] = [];
+  for (const card of cards) {
+    const key = attractionClusterKey(
+      card.nominated_name?.trim() || card.name || "",
+    );
+    const n = counts.get(key) ?? 0;
+    if (n >= cap) continue;
+    counts.set(key, n + 1);
+    out.push(card);
+  }
+  return out;
 }
 
 /**

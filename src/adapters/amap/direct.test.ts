@@ -67,7 +67,7 @@ describe("AMAP live direct client", () => {
     expect(around).toBeDefined();
     expect(around?.searchParams.get("location")).toBe("121.370000,31.175000");
     expect(around?.searchParams.get("types")).toBe("050000");
-    expect(around?.searchParams.get("radius")).toBe("1000");
+    expect(around?.searchParams.get("radius")).toBe("3000");
     expect(around?.searchParams.get("sortrule")).toBe("distance");
     expect(around?.searchParams.get("keywords")).toBe("烧烤");
     const loc = around?.searchParams.get("location") ?? "";
@@ -247,6 +247,39 @@ describe("AMAP live direct client", () => {
     await expect(client.searchPlaces({ query: "x" })).rejects.toThrow(/amap_http_500/);
     const noKey = createAmapDirectClient(testConfig({ apiKey: "" }), fetchFn);
     await expect(noKey.searchPlaces({ query: "x" })).rejects.toThrow(/amap_no_api_key/);
+  });
+
+  it("should_call_inputtips_with_citylimit_when_suggesting", async () => {
+    const { fetchFn, urls } = recordFetch((url) => {
+      if (url.pathname.includes("/assistant/inputtips")) {
+        return {
+          status: "1",
+          infocode: "10000",
+          tips: [
+            {
+              id: "B0FFF",
+              name: "SFEEL设计师酒店(杭州西湖武林广场店)",
+              location: "120.16,30.27",
+              address: "武林广场",
+              district: "杭州市",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    const client = createAmapDirectClient(testConfig(), fetchFn);
+    const cards = await client.suggestPlaces({
+      query: "SFEE",
+      address: "杭州",
+    });
+    const tips = urls.find((u) => u.pathname.includes("/assistant/inputtips"));
+    expect(tips?.searchParams.get("keywords")).toBe("SFEE");
+    expect(tips?.searchParams.get("city")).toBe("杭州");
+    expect(tips?.searchParams.get("citylimit")).toBe("true");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.name).toContain("SFEEL");
+    expect(cards[0]?.location.lat).toBeCloseTo(30.27);
   });
 
   it("should_throw_when_gps_convert_empty", async () => {

@@ -62,6 +62,55 @@ describe("destination-poi-registry (TC-M22-87)", () => {
     expect(canRegisterAttraction(card("无名", { nativeId: null }))).toBe(false);
   });
 
+  it("should_merge_geo_cell_siblings_when_exact_destination_already_has_pois", async () => {
+    const store = createMemoryPoiRegistryStore();
+    const lisbonMany = Array.from({ length: 100 }, (_, i) =>
+      card(`Lisbon POI ${i}`, { nativeId: `ChIJ-lisbon-${i}` }),
+    );
+    const lisbonZh = [
+      card("贝伦塔", { nativeId: "ChIJ-zh-1" }),
+      card("热罗尼莫斯修道院", { nativeId: "ChIJ-zh-2" }),
+      card("4月25日大桥", { nativeId: "ChIJ-zh-3" }),
+      card("里斯本海洋馆", { nativeId: "ChIJ-zh-4" }),
+    ];
+    await upsertEligiblePois(lisbonMany, { city: "Lisbon", lat: 38.722, lng: -9.139 }, store);
+    await upsertEligiblePois(lisbonZh, { city: "里斯本", lat: 38.722, lng: -9.139 }, store);
+    const listed = await listPoisForDestination({ city: "里斯本", lat: 38.722, lng: -9.139 }, store);
+    expect(listed).toHaveLength(104);
+    expect(listed.map((p) => p.name)).toContain("Lisbon POI 0");
+    expect(listed.map((p) => p.name)).toContain("贝伦塔");
+  });
+
+  it("should_dedupe_geo_cell_merge_by_native_id_then_name", async () => {
+    const store = createMemoryPoiRegistryStore();
+    const casteloEn = card("Castelo de São Jorge", { nativeId: "ChIJ-castelo" });
+    const casteloZh = card("Castelo de São Jorge", { nativeId: "ChIJ-castelo" });
+    const belémDupName = card("Torre de Belém", { nativeId: "ChIJ-belem-zh" });
+    await upsertEligiblePois(
+      [casteloEn, card("Torre de Belém", { nativeId: "ChIJ-belem-en" })],
+      { city: "Lisbon", lat: 38.722, lng: -9.139 },
+      store,
+    );
+    await upsertEligiblePois(
+      [casteloZh, belémDupName],
+      { city: "里斯本", lat: 38.722, lng: -9.139 },
+      store,
+    );
+    const listed = await listPoisForDestination({ city: "里斯本", lat: 38.722, lng: -9.139 }, store);
+    const names = listed.map((p) => p.name);
+    expect(names.filter((n) => n === "Castelo de São Jorge")).toHaveLength(1);
+    expect(names.filter((n) => n === "Torre de Belém")).toHaveLength(1);
+    expect(listed).toHaveLength(2);
+  });
+
+  it("should_list_pois_by_geo_cell_when_city_string_differs", async () => {
+    const store = createMemoryPoiRegistryStore();
+    const torre = card("Torre de Belém", { nativeId: "ChIJlisbon" });
+    await upsertEligiblePois([torre], { city: "Lisbon", lat: 38.722, lng: -9.139 }, store);
+    const listed = await listPoisForDestination({ city: "里斯本", lat: 38.722, lng: -9.139 }, store);
+    expect(listed.map((p) => p.name)).toContain("Torre de Belém");
+  });
+
   it("TC-M22-87-02 should_upsert_eligible_and_list_by_destination", async () => {
     const store = createMemoryPoiRegistryStore();
     const torre = card("Torre de Belém", { nativeId: "ChIJlisbon" });
@@ -90,6 +139,7 @@ describe("destination-poi-registry (TC-M22-87)", () => {
       },
       upsertPoi: async () => ({ id: "x" }),
       listPois: async () => [],
+      listDestinationsByGeoCell: async () => [],
     };
     await expect(safeUpsertEligiblePois([card("Torre")], { city: "Lisbon" }, boom)).resolves.toEqual({
       destinationId: "",

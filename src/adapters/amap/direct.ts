@@ -1,13 +1,13 @@
 import { type PlaceCard, type PlaceLocation, type SearchInput } from "../../core/types";
 import { type AmapAdapterConfig } from "./config";
-import { amapDeeplinks, amapPoiToCard, formatLngLat, parseLngLat, type AmapPoi } from "./card-mapper";
+import { amapDeeplinks, amapPoiToCard, amapTipToCard, formatLngLat, parseLngLat, type AmapPoi } from "./card-mapper";
 import { amapKeywords } from "./keywords";
 import { isEgressFailure } from "../google/egress";
 
 export type FetchFn = typeof fetch;
 
 const DINING_TYPE = "050000";
-const DINING_AROUND_RADIUS_M = "1000";
+const DINING_AROUND_RADIUS_M = "3000";
 const PLACES_AROUND_RADIUS_M = "15000";
 const PAGE_SIZE = "20";
 
@@ -50,6 +50,7 @@ async function fetchWithTimeout(
 export type AmapDirectClient = {
   searchRestaurants(input: SearchInput): Promise<PlaceCard[]>;
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
+  suggestPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string): Promise<PlaceCard | null>;
   geocode(query: string): Promise<PlaceLocation & { address?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
@@ -127,6 +128,7 @@ export function createAmapDirectClient(
     const keywords = amapKeywords(input);
     const pin = await resolveAroundPin(input);
     const types = dining ? DINING_TYPE : undefined;
+    const pageNum = String(Math.max(1, input.page ?? 1));
     const json = pin
       ? await getJson("/v5/place/around", {
           location: formatLngLat(pin.lng, pin.lat),
@@ -135,12 +137,15 @@ export function createAmapDirectClient(
           radius: dining ? DINING_AROUND_RADIUS_M : PLACES_AROUND_RADIUS_M,
           sortrule: "distance",
           page_size: PAGE_SIZE,
+          page_num: pageNum,
           show_fields: "business,cost,photos",
         })
       : await getJson("/v5/place/text", {
           keywords,
           types,
           page_size: PAGE_SIZE,
+          page_num: pageNum,
+          city: input.city?.trim() || undefined,
           show_fields: "business,cost,photos",
         });
     assertAmapOk(json, dining ? "restaurants" : "places");
@@ -150,9 +155,47 @@ export function createAmapDirectClient(
       .filter((card): card is PlaceCard => card != null);
   }
 
+  async function suggestPlaces(input: SearchInput): Promise<PlaceCard[]> {
+    const keywords = (input.query ?? "").trim();
+    if (!keywords) return [];
+    const city = input.city?.trim() || input.address?.trim() || undefined;
+    let locationParam: string | undefined;
+    if (input.near) {
+      if (input.near.crs === "GCJ-02") {
+        locationParam = formatLngLat(input.near.lng, input.near.lat);
+      } else {
+        const gcj = await convertGps(input.near.lng, input.near.lat);
+        locationParam = formatLngLat(gcj.lng, gcj.lat);
+      }
+    }
+    const json = await getJson("/v3/assistant/inputtips", {
+      keywords,
+      city,
+      citylimit: city ? "true" : undefined,
+      location: locationParam,
+    });
+    assertAmapOk(json, "inputtips");
+    const tips = asList(
+      (json as AmapJson & { tips?: Array<Record<string, string>> | string }).tips,
+    );
+    return tips
+      .map((tip) =>
+        amapTipToCard({
+          id: tip.id,
+          name: tip.name,
+          location: tip.location,
+          address: tip.address,
+          type: tip.type,
+          district: tip.district,
+        }),
+      )
+      .filter((card): card is PlaceCard => card != null);
+  }
+
   return {
     searchRestaurants: (input) => searchPois(input, true),
     searchPlaces: (input) => searchPois(input, false),
+    suggestPlaces,
     async getDetails(nativeId) {
       const id = nativeId.trim();
       if (!id) return null;

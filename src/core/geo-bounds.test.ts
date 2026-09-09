@@ -74,6 +74,7 @@ describe("filterCardsNearAnchor", () => {
       provider: "GOOGLE_MAPS" as const,
       name: "Alfama",
       sources: [],
+      location: undefined as unknown as import("./types").PlaceLocation,
     };
     const kept = filterCardsNearAnchor([BELEM, nameless, YELLOWSTONE], LISBON);
     expect(kept.map((c) => c.name)).toEqual(["贝伦塔", "Alfama"]);

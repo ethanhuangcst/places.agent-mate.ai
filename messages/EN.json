@@ -168,6 +168,7 @@
   "admin.guide.cap_search_restaurants_body": "Find restaurants near coordinates or an address. Optional cuisine, keyword, and open now. Empty matches return errors.empty_results.",
   "admin.guide.cap_search_places": "Search places",
   "admin.guide.cap_search_places_body": "Find non-restaurant places (museums, parks, attractions). Same card shape and vendor contract as restaurant search.",
+  "admin.guide.cap_suggest_places_body": "Autocomplete place / hotel names (vendor input tips). Prefer for incomplete lodging queries; pass destination as address. Empty tips → fall back to search_places.",
   "admin.guide.cap_details": "Place details",
   "admin.guide.cap_details_body": "Load one place by provider native_id. Missing places return errors.place_not_found.",
   "admin.guide.cap_geocode": "Geocode",

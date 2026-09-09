@@ -49,6 +49,7 @@ export function healthEnvelope(): Envelope<{ tools: string[] }> {
       tools: [
         "search_restaurants",
         "search_places",
+        "suggest_places",
         "plan_itinerary",
         "get_place_details",
         "geocode",
@@ -62,6 +63,7 @@ export function healthEnvelope(): Envelope<{ tools: string[] }> {
         "travel_tips",
         "patch_trip",
         "plan_trip",
+        "list_destination_pois",
         "chat",
       ],
     },

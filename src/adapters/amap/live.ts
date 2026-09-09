@@ -24,6 +24,9 @@ export function createAmapLiveAdapter(deps: AmapLiveAdapterDeps = {}): PlaceAdap
     searchPlaces(input: SearchInput) {
       return client.searchPlaces(input);
     },
+    suggestPlaces(input: SearchInput) {
+      return client.suggestPlaces(input);
+    },
     getDetails(nativeId: string) {
       return client.getDetails(nativeId);
     },
@@ -40,6 +43,7 @@ export function createAmapLiveAdapter(deps: AmapLiveAdapterDeps = {}): PlaceAdap
       from: PlaceCard["location"];
       to: PlaceCard["location"];
       mode: TravelMode;
+      city?: string;
     }) {
       try {
         return await fetchAmapDirectionsEta(config, input, fetchFn);

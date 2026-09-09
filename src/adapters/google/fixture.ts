@@ -34,6 +34,15 @@ export const googleFixtureAdapter: PlaceAdapter = {
     }
     return pois;
   },
+  async suggestPlaces(input) {
+    const q = (input.query ?? "").trim().toLowerCase();
+    if (!q || q.includes("__empty__")) return [];
+    if (q.includes("__fail__")) throw new Error("fixture_fail");
+    const pois = FIXTURE_POIS.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.category?.includes(q),
+    );
+    return pois.slice(0, 6);
+  },
   async getDetails(nativeId) {
     return fixtureById(nativeId) ?? null;
   },

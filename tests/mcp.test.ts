@@ -113,6 +113,7 @@ describe("MCP tools", () => {
       expect.arrayContaining([
         "search_restaurants",
         "search_places",
+        "suggest_places",
         "plan_itinerary",
         "trip_plan",
         "trips",

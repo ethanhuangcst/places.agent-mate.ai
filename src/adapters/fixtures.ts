@@ -306,7 +306,7 @@ export function resolveFixtureGeocode(
   if (/澳[门門]|macau|macao/i.test(q)) {
     return { lat: 22.1937, lng: 113.539, crs, address: q };
   }
-  if (/lisbo[na]|boavista|葡萄牙/i.test(q)) {
+  if (/lisbo[na]|boavista|葡萄牙|里斯本/i.test(q)) {
     return { lat: 38.7223, lng: -9.1393, crs, address: q };
   }
   if (/新加坡|singapore|marina bay/i.test(q)) {

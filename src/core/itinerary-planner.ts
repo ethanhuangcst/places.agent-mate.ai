@@ -24,14 +24,28 @@ import {
   mustSeeTokensForCity,
   nameMatchesMustSeeTokens,
 } from "./discover-must-see";
-import { filterAttractionPlaces, filterDiningPlaces } from "./place-filters";
-import { filterEligibleAttractions, isIneligibleMustIncludeToken } from "./eligible-attraction";
+import { filterAttractionPlaces, filterDiningPlaces, isAttractionServiceFragment, isLodgingPlace } from "./place-filters";
+import {
+  filterEligibleAttractions,
+  isIneligibleMustIncludeToken,
+  isNoiseCategory,
+  isVagueAreaName,
+  pickNominatedGroundCard,
+  sharedProperToken,
+  unwrapScenicChildName,
+} from "./eligible-attraction";
 import { safeUpsertEligiblePois, schedulePoiDetailsRefresh } from "./destination-poi-registry";
 import {
+  capClusterOccupancy,
   dedupeByCluster,
   dedupeRestaurantsByStem,
   ensureMustSeeDiversity,
 } from "./discover-dedupe";
+import {
+  buildNominateMustSeeUserMessage,
+  isNominateProseLine,
+  sanitizeNominateName,
+} from "./places-ontology";
 import { normalizeMustIncludeToken, mustIncludeTokenCovered, skeletonCoversMustInclude, MCP_NO_INVENT_RULE } from "./trip-intake";
 import { markUserRequested } from "./candidate-flags";
 import {
@@ -47,7 +61,7 @@ import {
 } from "./must-include-coverage";
 import { enrichArrangeDayWithTransit } from "./enrich-arrange-transit";
 import { findIconicPlaces } from "./find-iconic-places";
-import { comparePoolHeat } from "./pool-heat-must-see";
+import { applyNominatedMustSee } from "./pool-heat-must-see";
 import {
   dropFarOriginCoords,
   filterCardsNearAnchor,
@@ -57,7 +71,7 @@ import { getAdapter } from "../adapters";
 import { type ProviderId, isProviderId } from "./providers";
 import { resolveProviderStrategy } from "../adapters/provider-resolver";
 import { resolvedDirectionProviders } from "./direction-providers";
-import { geocode, searchPlaces, searchRestaurants } from "./tools";
+import { geocode, searchPlaces, searchRestaurants, suggestPlaces } from "./tools";
 import {
   isDisplayablePhotoUrl,
   resolveDisplayPhotosForCards,
@@ -297,6 +311,7 @@ export function buildUserMessage(input: {
   time_from?: string;
   time_to?: string;
   transit_preferred?: boolean;
+  drive_preferred?: boolean;
   party_size?: number;
   /** Traveler free-text preferences for this day. */
   natural_language?: string;
@@ -403,6 +418,9 @@ export function buildUserMessage(input: {
     constraints.push("transport: prefer public transit / metro over driving");
   } else if (input.transit_preferred === false) {
     constraints.push("transport: prefer walking between nearby stops");
+  }
+  if (input.drive_preferred === true) {
+    constraints.push("transport: prefer driving / taxi over public transit for inter-stop legs");
   }
   constraints.push(`max places per day: ${paceLimit(input.pace)}`);
   const paceId = input.pace === "tight" || input.pace === "relaxed" ? input.pace : "medium";
@@ -915,6 +933,11 @@ export type DiscoverPlacesInput = {
   must_include?: string[];
   /** Cap for heat-on-pool must_see marks (F41 S2). Default 5. */
   max_number?: number;
+  trip_type?: string;
+  pace?: string;
+  budget?: string;
+  party_size?: number;
+  transit_preference?: string;
 };
 
 export type DiscoverPlacesResult = {
@@ -1090,6 +1113,355 @@ export function slimArrangeDayResultForMcp(result: ArrangeDayResult): unknown {
   return { ...rest, blocks };
 }
 
+export {
+  buildNominateMustSeeUserMessage,
+  formatNominateSeasonBit,
+  isNominateProseLine,
+  placesOntologyPrompt,
+  sanitizeNominateName,
+  type NominateTripPrefs,
+} from "./places-ontology";
+
+/** Parse JSON array or a plain heading/bullet list of place names. */
+export function parseNominatePlaceNames(raw: string | null): string[] {
+  const fromJson = parseLlmNames(raw).map(sanitizeNominateName).filter(Boolean);
+  const cleanedJson = fromJson.filter((n) => !isNominateProseLine(n));
+  if (cleanedJson.length) return [...new Set(cleanedJson)];
+  if (!raw?.trim()) return [];
+  const names: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    let s = sanitizeNominateName(line);
+    if (!s || isNominateProseLine(s)) continue;
+    names.push(s);
+  }
+  return [...new Set(names)];
+}
+
+/**
+ * Phase A2: LLM nominates must-see places, then suggest_places (then search_places)
+ * grounds each nomination to a real POI. No city tables (ADR-042).
+ */
+function hasFiniteCoords(card: PlaceCard): boolean {
+  return (
+    Number.isFinite(card.location?.lat) && Number.isFinite(card.location?.lng)
+  );
+}
+
+async function hydrateNominatedCard(
+  tip: PlaceCard,
+  input: {
+    city: string;
+    locale: Locale;
+    providers?: string[];
+    near?: { lat: number; lng: number };
+  },
+  search: typeof searchPlaces = searchPlaces,
+): Promise<PlaceCard | undefined> {
+  if (hasFiniteCoords(tip)) return tip;
+  const tipName = tip.name?.trim();
+  if (!tipName) return undefined;
+  const res = await search({
+    address: input.city,
+    query: tipName,
+    locale: input.locale,
+    providers: input.providers,
+    near: input.near,
+    rankPreference: "RELEVANCE",
+  });
+  return pickNominatedGroundCard(
+    tipName,
+    mergePlaceCardsByName([res.data ?? []]),
+  );
+}
+
+export async function groundNominatedName(input: {
+  name: string;
+  city: string;
+  locale: Locale;
+  providers?: string[];
+  near?: { lat: number; lng: number };
+  _testSuggestPlaces?: typeof suggestPlaces;
+  _testSearchPlaces?: typeof searchPlaces;
+}): Promise<PlaceCard | undefined> {
+  const first = await groundNominatedNameOnce(input);
+  if (first.card) return first.card;
+  // Retry only when suggest returned tips but pick/hydrate failed (transient).
+  // Genuine empty suggest+search already tried broad fallback inside once — no retry.
+  if (input._testSuggestPlaces || input._testSearchPlaces) return undefined;
+  if (!first.hadTips) return undefined;
+  await new Promise((r) => setTimeout(r, 200));
+  const retry = await groundNominatedNameOnce(input);
+  return retry.card;
+}
+
+/** Strip common landmark suffixes for a broader search core (destination-agnostic). */
+export function stripLandmarkSuffix(name: string): string | undefined {
+  const t = name.trim();
+  if (!t) return undefined;
+  const stripped = t
+    .replace(
+      /\s*(?:National\s+)?(?:Castle|Palace|Tower|Museum|Fortress|Cathedral|Church)\s*$/iu,
+      "",
+    )
+    .replace(/(?:塔|寺|桥|橋|园|園|宫|宮|景区|風景區|风景区)\s*$/u, "")
+    .trim();
+  if (!stripped || stripped === t) return undefined;
+  return stripped;
+}
+
+const BROAD_FALLBACK_MIN_KM = 15;
+
+async function groundNominatedNameOnce(input: {
+  name: string;
+  city: string;
+  locale: Locale;
+  providers?: string[];
+  near?: { lat: number; lng: number };
+  _testSuggestPlaces?: typeof suggestPlaces;
+  _testSearchPlaces?: typeof searchPlaces;
+}): Promise<{ card?: PlaceCard; hadTips: boolean }> {
+  const name = input.name.trim();
+  if (!name) return { hadTips: false };
+  // Whole-lake / district / street tokens do not pin — skip (ADR-042 templates).
+  if (isVagueAreaName(name)) return { hadTips: false };
+  const suggest = input._testSuggestPlaces ?? suggestPlaces;
+  const search = input._testSearchPlaces ?? searchPlaces;
+
+  const tipRes = await suggest({
+    query: name,
+    address: input.city,
+    city: input.city,
+    near: input.near,
+    locale: input.locale,
+    providers: input.providers,
+  });
+  const tips = mergePlaceCardsByName([tipRes.data ?? []]);
+  const hadTips = tips.length > 0;
+  let tipPick = pickNominatedGroundCard(name, tips);
+  if (!tipPick) {
+    // inputtips often omit coords — still use name-overlapping tip for hydrate.
+    const candidates = tips.filter((t) => {
+      const n = (t.name ?? "").trim();
+      if (!n) return false;
+      const child = unwrapScenicChildName(n) ?? n;
+      if (!(child.includes(name) || name.includes(child) || n.includes(name) || sharedProperToken(name, child))) {
+        return false;
+      }
+      if (isLodgingPlace(t) || isAttractionServiceFragment(n) || isAttractionServiceFragment(child)) {
+        return false;
+      }
+      if (isNoiseCategory(t.category, n) || isVagueAreaName(child)) return false;
+      return true;
+    });
+    tipPick =
+      candidates.find((t) => {
+        const child = unwrapScenicChildName(t.name ?? "") ?? t.name?.trim();
+        return child === name;
+      }) ?? candidates[0];
+  }
+  if (tipPick) {
+    const hydrated = await hydrateNominatedCard(tipPick, input, search);
+    if (hydrated) return { card: { ...hydrated, nominated_name: name }, hadTips };
+  }
+
+  const searchRes = await search({
+    address: input.city,
+    query: name,
+    locale: input.locale,
+    providers: input.providers,
+    near: input.near,
+    rankPreference: "RELEVANCE",
+  });
+  const searchCards = mergePlaceCardsByName([searchRes.data ?? []]);
+  const card = pickNominatedGroundCard(name, searchCards);
+  if (card) return { card: { ...card, nominated_name: name }, hadTips };
+
+  // Broad fallback: strip landmark suffix and require suburb distance from city anchor.
+  const core = stripLandmarkSuffix(name);
+  if (!core || !input.near) return { hadTips };
+  const broadRes = await search({
+    address: input.city,
+    query: core,
+    locale: input.locale,
+    providers: input.providers,
+    near: input.near,
+    rankPreference: "RELEVANCE",
+  });
+  const broadCards = mergePlaceCardsByName([broadRes.data ?? []]);
+  const broadPick = pickNominatedGroundCard(core, broadCards, {
+    requireDistanceKmFrom: {
+      lat: input.near.lat,
+      lng: input.near.lng,
+      minKm: BROAD_FALLBACK_MIN_KM,
+    },
+  });
+  return {
+    card: broadPick ? { ...broadPick, nominated_name: name } : undefined,
+    hadTips,
+  };
+}
+
+export async function nominateMustSeeViaLlm(input: {
+  city: string;
+  locale: Locale;
+  numDays: number;
+  limit: number;
+  existingPool: PlaceCard[];
+  providers?: string[];
+  near?: { lat: number; lng: number };
+  trip_type?: string;
+  pace?: string;
+  budget?: string;
+  party_size?: number;
+  transit_preference?: string;
+  bounds?: { start?: string; end?: string };
+  origin_name?: string;
+  must_include?: string[];
+  other?: string;
+  _testChatCreate?: ItineraryChatCreate;
+  _testSuggestPlaces?: typeof suggestPlaces;
+  _testSearchPlaces?: typeof searchPlaces;
+}): Promise<PlaceCard[]> {
+  // Skip if no LLM available (fixture mode / no key)
+  if (!input._testChatCreate && createOpenAI() === null) {
+    return [];
+  }
+
+  const create = input._testChatCreate ?? buildLlmCreate();
+  if (!create) return [];
+
+  const userMessage = buildNominateMustSeeUserMessage(
+    input.city,
+    input.limit,
+    input.numDays,
+    {
+      trip_type: input.trip_type,
+      pace: input.pace,
+      budget: input.budget,
+      locale: input.locale,
+      party_size: input.party_size,
+      transit_preference: input.transit_preference,
+      bounds: input.bounds,
+      origin_name: input.origin_name,
+      must_include: input.must_include,
+      other: input.other,
+    },
+  );
+
+  // Call LLM with timeout
+  let raw: string | null = null;
+  try {
+    const completion = await withAbortTimeout(NOMINATE_TIMEOUT_MS, (signal) =>
+      create(
+        {
+          model: configuredChatModel(),
+          messages: [{ role: "user", content: userMessage }],
+          max_completion_tokens: NOMINATE_MAX_TOKENS,
+          temperature: NOMINATE_TEMPERATURE,
+        },
+        { signal },
+      ),
+    );
+    raw = extractChatCompletionText(completion);
+  } catch (err) {
+    if (isLlmAbortError(err)) {
+      console.error("nominateMustSeeViaLlm: LLM timed out");
+    } else {
+      console.error("nominateMustSeeViaLlm: LLM failed", err);
+    }
+    return [];
+  }
+
+  // Parse names
+  const names = parseNominatePlaceNames(raw);
+  if (names.length === 0) return [];
+
+  const grounded: PlaceCard[] = [];
+  const seenNorm = new Set<string>();
+  const seenNativeId = new Set<string>();
+  const toSearch: string[] = [];
+
+  const tryPush = (card: PlaceCard): boolean => {
+    const nid = card.sources?.[0]?.native_id?.trim();
+    if (nid) {
+      if (seenNativeId.has(nid)) return false;
+      seenNativeId.add(nid);
+    }
+    const norm = normalizeMustIncludeToken(card.name);
+    if (norm) {
+      if (seenNorm.has(norm)) return false;
+      seenNorm.add(norm);
+    }
+    grounded.push(card);
+    return true;
+  };
+
+  for (const name of names) {
+    const poolHit = input.existingPool.find(
+      (p) =>
+        normalizeMustIncludeToken(p.name) === normalizeMustIncludeToken(name) ||
+        skeletonCoversMustInclude(name, [p.name]),
+    );
+    if (poolHit) {
+      tryPush({ ...poolHit, nominated_name: name });
+      continue;
+    }
+    toSearch.push(name);
+  }
+
+  if (toSearch.length === 0) {
+    return capClusterOccupancy(grounded, 3);
+  }
+
+  const searchResults = await Promise.all(
+    toSearch.map((name) =>
+      groundNominatedName({
+        name,
+        city: input.city,
+        locale: input.locale,
+        providers: input.providers,
+        near: input.near,
+        _testSuggestPlaces: input._testSuggestPlaces,
+        _testSearchPlaces: input._testSearchPlaces,
+      }),
+    ),
+  );
+
+  for (const card of searchResults) {
+    if (!card) continue;
+    tryPush(card);
+  }
+
+  return capClusterOccupancy(grounded, 3);
+}
+
+function buildLlmCreate(): ItineraryChatCreate | null {
+  const openai = createOpenAI();
+  if (!openai) return null;
+  return openai.chat.completions.create.bind(openai.chat.completions) as unknown as ItineraryChatCreate;
+}
+
+function parseLlmNames(raw: string | null): string[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    const text = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const jsonStr = text ? text[1].trim() : raw.trim();
+    const start = jsonStr.indexOf("[");
+    const end = jsonStr.lastIndexOf("]");
+    const arrStr = start >= 0 && end > start ? jsonStr.slice(start, end + 1) : jsonStr;
+    parsed = JSON.parse(arrStr);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((x): x is string => typeof x === "string");
+}
+
+const NOMINATE_TIMEOUT_MS = 12_000;
+const NOMINATE_MAX_TOKENS = 700;
+const NOMINATE_TEMPERATURE = 0.3;
+
 /**
  * MCP/HTTP tool: discover_places — search candidates for itinerary planning.
  * Uses provider-resolver + QLP query-assembler (same policy as restaurant search).
@@ -1133,14 +1505,35 @@ export async function discoverPlaces(
     origin,
   });
 
-  let places = filterEligibleAttractions(
-    poolResult.places.slice(0, CANDIDATE_CAP * Math.min(numDays, 3)),
+  let places = dedupeByCluster(
+    filterEligibleAttractions(
+      poolResult.places.slice(0, CANDIDATE_CAP * Math.min(numDays, 3)),
+    ),
   );
   let restaurants = poolResult.restaurants.slice(0, CANDIDATE_CAP * Math.min(numDays, 3));
 
-  // Phase B: heat-rank the existing pool only (no extra POI search / no LLM).
+  const nominatedCards = await nominateMustSeeViaLlm({
+    city: input.city,
+    locale,
+    numDays,
+    limit: Math.min(8, Math.max(3, (input.max_number ?? 5) + 2)),
+    existingPool: places,
+    providers: input.providers,
+    near,
+    trip_type: input.trip_type,
+    pace: input.pace,
+    budget: input.budget,
+    party_size: input.party_size,
+    transit_preference: input.transit_preference,
+    bounds: input.bounds,
+    origin_name: input.origin?.name,
+    must_include: input.must_include,
+  });
+
   const iconicLimit = Math.min(12, Math.max(1, input.max_number ?? 5));
-  if (places.length > 0) {
+  if (nominatedCards.length > 0) {
+    applyNominatedMustSee(places, nominatedCards, iconicLimit);
+  } else if (places.length > 0) {
     await findIconicPlaces({
       city: input.city,
       locale,
@@ -1223,10 +1616,8 @@ export async function discoverPlaces(
     counts: { places: places.length, restaurants: restaurants.length },
   });
 
-  // inferred_must_see = final pool must_see names in heat order (F79).
   const inferred_must_see = places
     .filter((p) => p.must_see === true)
-    .sort(comparePoolHeat)
     .map((p) => p.name);
 
   return { candidates: { places, restaurants }, inferred_must_see };
@@ -1417,6 +1808,7 @@ export type ArrangeSchedulePreferences = {
   time_from?: string;
   time_to?: string;
   transit_preferred?: boolean;
+  drive_preferred?: boolean;
   /** Free-text traveler notes (e.g. day trip, seafood). */
   natural_language?: string;
   /** Host-assigned focus for this day only. */
@@ -1903,7 +2295,7 @@ export async function arrangeDay(
         const adapter = getAdapter(id);
         if (!adapter?.directions) continue;
         try {
-          const eta = await adapter.directions({ from, to, mode });
+          const eta = await adapter.directions({ from, to, mode, city: input.city });
           if (eta) return eta;
         } catch {
           /* try next */
@@ -1918,6 +2310,7 @@ export async function arrangeDay(
     origin,
     destination,
     transit_preferred: input.preferences?.transit_preferred,
+    drive_preferred: input.preferences?.drive_preferred,
     resolveDuration,
   });
 
@@ -2005,7 +2398,7 @@ export async function enrichArrangeTransit(input: {
         const adapter = getAdapter(id);
         if (!adapter?.directions) continue;
         try {
-          const eta = await adapter.directions({ from, to, mode });
+          const eta = await adapter.directions({ from, to, mode, city: input.city });
           if (eta) return eta;
         } catch {
           /* try next */
@@ -2020,6 +2413,7 @@ export async function enrichArrangeTransit(input: {
     origin: input.origin,
     destination: input.destination,
     transit_preferred: input.preferences?.transit_preferred,
+    drive_preferred: input.preferences?.drive_preferred,
     resolveDuration,
   });
 }

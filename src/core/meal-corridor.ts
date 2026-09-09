@@ -19,6 +19,9 @@ export type DayStopLike = {
   name?: string;
   kind?: string;
   meal_slot?: MealSlotId | string;
+  provider?: string;
+  native_id?: string;
+  visit_part?: "am" | "pm" | string;
 };
 
 export function corridorSearchPoints(
@@ -43,8 +46,10 @@ export function mapSpendLevel(
   spend_level?: number | null,
 ): SpendLevel {
   if (spend_level === 1 || spend_level === 2 || spend_level === 3) return spend_level;
-  if (budget === "budget") return 1;
-  if (budget === "premium") return 3;
+  const key = (budget ?? "").trim().toLowerCase();
+  if (key === "budget" || key === "economy") return 1;
+  if (key === "premium" || key === "luxury") return 3;
+  if (key === "mid" || key === "comfort") return 2;
   return 2;
 }
 

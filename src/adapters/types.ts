@@ -12,6 +12,11 @@ export type PlaceAdapter = {
   id: ProviderId;
   searchRestaurants(input: SearchInput): Promise<PlaceCard[]>;
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
+  /**
+   * Vendor autocomplete / input tips (origin hotel prefix). Optional —
+   * adapters without it return [] via tools fan-out skip.
+   */
+  suggestPlaces?(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string): Promise<PlaceLocation & { address?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
@@ -21,5 +26,7 @@ export type PlaceAdapter = {
     from: PlaceLocation;
     to: PlaceLocation;
     mode: TravelMode;
+    /** City name for transit mode (AMAP requires it; defaults to from-coords reverse geocode). */
+    city?: string;
   }): Promise<DirectionsEta | null>;
 };

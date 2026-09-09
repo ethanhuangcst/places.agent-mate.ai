@@ -117,6 +117,46 @@ describe("Google live direct client", () => {
     await client.searchPlaces({ query: "museum" });
   });
 
+  it("should_call_places_autocomplete_when_suggesting", async () => {
+    let href = "";
+    let body = "";
+    const { fetchFn } = recordFetch((u, init) => {
+      href = u.href;
+      body = typeof init?.body === "string" ? init.body : "";
+      return jsonResponse({
+        suggestions: [
+          {
+            placePrediction: {
+              placeId: "places/ChIJsfeel",
+              text: { text: "SFEEL Design Hotel Hangzhou, Zhejiang, China" },
+              structuredFormat: {
+                mainText: { text: "SFEEL Design Hotel Hangzhou" },
+                secondaryText: { text: "Hangzhou, Zhejiang, China" },
+              },
+            },
+          },
+        ],
+      });
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    const cards = await client.suggestPlaces({
+      query: "SFEE",
+      near: { lat: 30.25, lng: 120.16 },
+      locale: "CN",
+    });
+    expect(href).toContain("places:autocomplete");
+    const parsed = JSON.parse(body) as {
+      input?: string;
+      locationBias?: { circle?: { radius?: number } };
+    };
+    expect(parsed.input).toBe("SFEE");
+    expect(parsed.locationBias?.circle?.radius).toBe(50_000);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.name).toBe("SFEEL Design Hotel Hangzhou");
+    expect(Number.isFinite(cards[0]?.location.lat)).toBe(false);
+    expect(cards[0]?.sources[0]?.native_id).toBe("ChIJsfeel");
+  });
+
   it("should_bias_restaurant_search_with_circle_not_restriction", async () => {
     let body = "";
     const { fetchFn } = recordFetch((_url, init) => {

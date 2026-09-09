@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type PlaceCard } from "./types";
@@ -16,7 +17,9 @@ function probeCacheDir(): string | null {
   return d || null;
 }
 function safeKey(key: string): string {
-  return key.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 200);
+  const digest = createHash("sha1").update(key).digest("hex").slice(0, 12);
+  const readable = key.replace(/[^a-zA-Z0-9._\u3400-\u9fff-]+/g, "_").slice(0, 80);
+  return `${readable}_${digest}`;
 }
 function filePath(key: string): string | null {
   const dir = probeCacheDir();
@@ -29,11 +32,13 @@ export function searchCacheKey(
   query: string,
   near?: { lat: number; lng: number },
   providers?: string[],
+  page?: number,
 ): string {
   const q = query.trim().toLowerCase();
   const loc = near ? `${near.lat.toFixed(3)},${near.lng.toFixed(3)}` : "";
   const prov = (providers ?? []).sort().join("+");
-  return `${q}|${loc}|${prov}`;
+  const p = page && page > 1 ? `|p${page}` : "";
+  return `${q}|${loc}|${prov}${p}`;
 }
 
 /** Get cached search results. Returns null on miss or expiry. */

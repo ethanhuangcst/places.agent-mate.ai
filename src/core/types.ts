@@ -46,12 +46,16 @@ export type PlaceCard = {
   /** F82: user-typed must_include — orthogonal to discover heat (`must_see`). */
   user_requested?: boolean;
   user_ratings_total?: number;
+  /** LLM nominate short name; chip label prefers this over vendor `name`. */
+  nominated_name?: string;
 };
 
 export type SearchInput = {
   query?: string;
   near?: { lat: number; lng: number; crs?: Crs };
   address?: string;
+  /** City name for AMAP text `city=` (does not trigger around-pin). */
+  city?: string;
   open_now?: boolean;
   cuisine?: string;
   providers?: string[];
@@ -67,6 +71,8 @@ export type SearchInput = {
   rankPreference?: "RELEVANCE" | "DISTANCE";
   /** Metres for Google place `locationBias` circle (capped at 50_000). Restaurants stay 5km restriction. */
   bias_radius_m?: number;
+  /** AMAP text/around page (1-based). Ignored by other adapters. */
+  page?: number;
 };
 
 export type ItineraryBounds = {
@@ -78,6 +84,8 @@ export type ItineraryPreferences = {
   pace?: "tight" | "medium" | "relaxed";
   spend?: "budget" | "premium";
   transit_preferred?: boolean;
+  /** User prefers driving/taxi over public transit (drive_walk takeoff option). */
+  drive_preferred?: boolean;
   natural_language?: string;
 };
 

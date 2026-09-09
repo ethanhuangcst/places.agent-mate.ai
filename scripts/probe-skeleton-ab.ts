@@ -178,7 +178,7 @@ function dedupeAttractionsAcrossDays(skeleton: ItinerarySkeleton): ItinerarySkel
       ...day,
       stops: day.stops.filter((s) => {
         if (s.kind === "meal" || s.kind === "stay") return true;
-        const key = s.name.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+        const key = (s.name ?? "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -193,7 +193,7 @@ function countCrossDayAttractionReuse(skeleton: ItinerarySkeleton): number {
   for (const day of skeleton.days) {
     for (const s of day.stops) {
       if (s.kind !== "attraction") continue;
-      const key = s.name.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+      const key = (s.name ?? "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
       if (first.has(key)) reuse++;
       else first.set(key, day.day_index);
     }

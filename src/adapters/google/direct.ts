@@ -42,6 +42,7 @@ async function fetchWithTimeout(
 export type GoogleDirectClient = {
   searchRestaurants(input: SearchInput): Promise<PlaceCard[]>;
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
+  suggestPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
@@ -122,9 +123,92 @@ export function createGoogleDirectClient(
       .filter((c): c is PlaceCard => c != null);
   }
 
+  async function suggestPlaces(input: SearchInput): Promise<PlaceCard[]> {
+    if (!config.apiKey) throw new EgressFailureError("no_api_key");
+    if (config.directForceFail) throw new EgressFailureError("force_fail");
+    const text = (input.query ?? "").trim();
+    if (!text) return [];
+
+    const body: Record<string, unknown> = {
+      input: text,
+      languageCode: languageCode(input.locale),
+    };
+    if (input.near) {
+      body.locationBias = {
+        circle: {
+          center: { latitude: input.near.lat, longitude: input.near.lng },
+          radius: Math.min(input.bias_radius_m ?? 50_000, 50_000),
+        },
+      };
+    }
+
+    const res = await fetchWithTimeout(
+      fetchFn,
+      `${config.placesBaseUrl}/places:autocomplete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": config.apiKey,
+          "X-Goog-FieldMask":
+            "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.queryPrediction.text",
+        },
+        body: JSON.stringify(body),
+      },
+      config.requestTimeoutMs,
+    );
+    if (!res.ok) {
+      if (isEgressFailure(null, res.status)) throw new EgressFailureError(`http_${res.status}`);
+      throw new Error(`google_autocomplete_${res.status}`);
+    }
+
+    const json = (await res.json()) as {
+      suggestions?: Array<{
+        placePrediction?: {
+          placeId?: string;
+          text?: { text?: string };
+          structuredFormat?: {
+            mainText?: { text?: string };
+            secondaryText?: { text?: string };
+          };
+        };
+        queryPrediction?: { text?: { text?: string } };
+      }>;
+    };
+
+    const cards: PlaceCard[] = [];
+    for (const s of json.suggestions ?? []) {
+      const pred = s.placePrediction;
+      const name =
+        pred?.structuredFormat?.mainText?.text?.trim() ||
+        pred?.text?.text?.trim() ||
+        s.queryPrediction?.text?.text?.trim() ||
+        "";
+      if (!name) continue;
+      const address = pred?.structuredFormat?.secondaryText?.text?.trim() || pred?.text?.text?.trim();
+      const placeId = pred?.placeId?.replace(/^places\//, "")?.trim();
+      cards.push({
+        provider: "GOOGLE_MAPS",
+        name,
+        ...(address ? { address } : {}),
+        location: { lat: Number.NaN, lng: Number.NaN, crs: "WGS84" },
+        category: "place",
+        sources: [
+          {
+            provider: "GOOGLE_MAPS",
+            native_id: placeId || `tip:${name}`,
+            deeplinks: {},
+          },
+        ],
+      });
+    }
+    return cards;
+  }
+
   return {
     searchRestaurants: (input) => searchText(input, "restaurant"),
     searchPlaces: (input) => searchText(input, "place"),
+    suggestPlaces,
     async getDetails(nativeId, locale?: Locale) {
       if (!config.apiKey) throw new EgressFailureError("no_api_key");
       if (config.directForceFail) throw new EgressFailureError("force_fail");

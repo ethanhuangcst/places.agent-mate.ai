@@ -73,6 +73,16 @@ export function createGoogleLiveAdapter(deps: GoogleLiveAdapterDeps = {}): Place
         (w) => w.searchPlaces(input),
       );
     },
+    suggestPlaces(input: SearchInput) {
+      return withGoogleTransport(
+        config,
+        direct,
+        worker,
+        (d) => d.suggestPlaces(input),
+        // Worker MCP has no autocomplete tool — empty so caller can search_places fallback.
+        async () => [],
+      );
+    },
     getDetails(nativeId: string, locale?: import("../../core/locales").Locale) {
       return withGoogleTransport(
         config,

@@ -146,6 +146,7 @@
   "admin.guide.cap_search_restaurants_body": "按座標或地址搵食肆。可以加菜式、關鍵字、而家開唔開。冇結果就返回 errors.empty_results。",
   "admin.guide.cap_search_places": "搜尋地方",
   "admin.guide.cap_search_places_body": "搵非飲食地方（博物館、公園、景點）。卡片形態同供應商約定同食肆搜尋一樣。",
+  "admin.guide.cap_suggest_places_body": "地點/酒店名稱自動補全（廠商輸入提示）。適合未打完的住宿名；address 傳目的地。提示為空時回退 search_places。",
   "admin.guide.cap_details": "地方詳情",
   "admin.guide.cap_details_body": "用供應商 native_id 讀單一地點。搵唔到就返回 errors.place_not_found。",
   "admin.guide.cap_geocode": "地理編碼",

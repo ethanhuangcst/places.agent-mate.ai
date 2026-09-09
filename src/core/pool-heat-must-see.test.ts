@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { comparePoolHeat, markMustSeeByPoolHeat, poolHeatScore } from "./pool-heat-must-see";
+import {
+  applyNominatedMustSee,
+  comparePoolHeat,
+  markMustSeeByPoolHeat,
+  poolHeatScore,
+} from "./pool-heat-must-see";
 import type { PlaceCard } from "./types";
 
 function place(
@@ -52,5 +57,36 @@ describe("TC-M19-79-01 pool heat must-see", () => {
     ];
     const names = markMustSeeByPoolHeat(pool, 1);
     expect(names).toEqual(["Real Attraction"]);
+  });
+});
+
+describe("applyNominatedMustSee chip authority", () => {
+  it("should_mark_nominated_cards_must_see_not_hottest_satellites", () => {
+    const westLake = place("西湖", { user_ratings_total: 800 });
+    const towerTicket = place("雷峰塔景区售票处", { user_ratings_total: 90_000 });
+    const tower = place("雷峰塔", { user_ratings_total: 5_000 });
+    const pool = [towerTicket, tower, westLake];
+    const names = applyNominatedMustSee(pool, [westLake, tower], 5);
+    expect(names).toEqual(["西湖", "雷峰塔"]);
+    expect(westLake.must_see).toBe(true);
+    expect(tower.must_see).toBe(true);
+    expect(towerTicket.must_see).not.toBe(true);
+  });
+
+  it("should_fill_with_heat_when_nominations_empty", () => {
+    const icon = place("西湖", { user_ratings_total: 100 });
+    const hot = place("灵隐寺", { user_ratings_total: 50_000 });
+    const names = applyNominatedMustSee([icon, hot], [], 2);
+    expect(names).toEqual(["灵隐寺", "西湖"]);
+  });
+
+  it("should_use_heat_as_tie_break_when_two_pool_rows_match_one_nomination", () => {
+    const a = place("Sintra", { user_ratings_total: 100 });
+    const b = place("Sintra", { user_ratings_total: 9_000 });
+    const nom = place("Sintra", { user_ratings_total: 1 });
+    const names = applyNominatedMustSee([a, b], [nom], 1);
+    expect(names).toEqual(["Sintra"]);
+    expect(b.must_see).toBe(true);
+    expect(a.must_see).not.toBe(true);
   });
 });

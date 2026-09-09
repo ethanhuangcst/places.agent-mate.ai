@@ -4,6 +4,7 @@ import {
   getPlaceDetails,
   searchPlaces,
   searchRestaurants,
+  suggestPlaces,
 } from "../core/tools";
 import { planItinerary } from "../core/itinerary";
 import { arrangeDay, discoverPlaces, enrichArrangeTransit } from "../core/itinerary-planner";
@@ -28,8 +29,7 @@ import { planTrip } from "../core/plan-trip";
 import { artifactsTipsPatch, artifactsVisaPatch } from "../core/trip-artifacts";
 import { type PlanItineraryInput, type PlaceCard } from "../core/types";
 import { parseLocale, type Locale } from "../core/locales";
-
-const MEAL_SLOT_NAME = new Set(["lunch", "dinner", "afternoon_tea"]);
+import { listPoisForDestination } from "../core/destination-poi-registry";
 import {
   errorEnvelope,
   okEnvelope,
@@ -41,6 +41,7 @@ import {
   arrangeDayBody,
   discoverPlacesBody,
   fetchTripDetailsBody,
+  listDestinationPoisBody,
   patchTripBody,
   geocodeBody,
   getPlaceDetailsBody,
@@ -48,6 +49,7 @@ import {
   planItineraryBody,
   planNextStopBody,
   searchPlacesBody,
+  suggestPlacesBody,
   searchRestaurantsBody,
   enrichArrangeTransitBody,
   visaRequirementBody,
@@ -55,9 +57,12 @@ import {
   planTripBody,
 } from "./schemas";
 
+const MEAL_SLOT_NAME = new Set(["lunch", "dinner", "afternoon_tea"]);
+
 export type ToolName =
   | "search_restaurants"
   | "search_places"
+  | "suggest_places"
   | "plan_itinerary"
   | "get_place_details"
   | "geocode"
@@ -70,7 +75,8 @@ export type ToolName =
   | "visa_requirement"
   | "travel_tips"
   | "patch_trip"
-  | "plan_trip";
+  | "plan_trip"
+  | "list_destination_pois";
 
 export type DispatchResult = { status: number; envelope: Envelope };
 
@@ -126,6 +132,12 @@ export async function dispatchTool(
     const parsed = searchPlacesBody.safeParse(body ?? {});
     if (!parsed.success) return invalid(locale, extra);
     const result = await searchPlaces(parsed.data);
+    return { status: statusForOutcome(result.outcomeKey), envelope: toolToEnvelope(result) };
+  }
+  if (tool === "suggest_places") {
+    const parsed = suggestPlacesBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    const result = await suggestPlaces(parsed.data);
     return { status: statusForOutcome(result.outcomeKey), envelope: toolToEnvelope(result) };
   }
   if (tool === "plan_itinerary") {
@@ -327,12 +339,15 @@ export async function dispatchTool(
 
       let usedNames = [...(parsed.data.used_restaurant_names ?? [])];
       let dayStops = parsed.data.day_stops;
-      let skeletonDoc: { days?: Array<{ day_index?: number; stops?: unknown[] }> } | null = null;
+      type SkeletonDocLite = {
+        days?: Array<{ day_index?: number; stops?: unknown[] }>;
+      };
+      let skeletonDoc: SkeletonDocLite | null = null;
 
       if (parsed.data.trip_id) {
         try {
           const tripDoc = await getTripOrThrow(auth.keyId, parsed.data.trip_id);
-          skeletonDoc = (tripDoc.skeleton as typeof skeletonDoc) ?? null;
+          skeletonDoc = (tripDoc.skeleton as SkeletonDocLite | null | undefined) ?? null;
           const filled = tripDoc.filled as
             | { stops?: Array<{ name?: string; kind?: string; meal_skipped?: boolean }> }
             | Array<{ name?: string; kind?: string; meal_skipped?: boolean }>
@@ -408,9 +423,9 @@ export async function dispatchTool(
         const dayIndex = parsed.data.day_index ?? 1;
         const di = days.findIndex((d) => d.day_index === dayIndex);
         if (di >= 0) {
-          days[di] = { ...days[di], stops: result.patched_day_stops };
+          days[di] = { ...days[di], stops: result.patched_day_stops as unknown[] };
         } else {
-          days.push({ day_index: dayIndex, stops: result.patched_day_stops });
+          days.push({ day_index: dayIndex, stops: result.patched_day_stops as unknown[] });
         }
         patch.skeleton = { ...(skeletonDoc ?? {}), days };
       }
@@ -553,6 +568,45 @@ export async function dispatchTool(
     } catch (err) {
       const tripFail = tripStoreFailure(err, locale, extra);
       if (tripFail) return tripFail;
+      return {
+        status: 502,
+        envelope: errorEnvelope("errors.provider_failed", locale, extra),
+      };
+    }
+  }
+  if (tool === "list_destination_pois") {
+    const parsed = listDestinationPoisBody.safeParse(body ?? {});
+    if (!parsed.success) return invalid(locale, extra);
+    try {
+      let lat = parsed.data.lat;
+      let lng = parsed.data.lng;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        const geo = await geocode({ query: parsed.data.city, locale });
+        lat = geo.data?.lat;
+        lng = geo.data?.lng;
+      }
+      const places = await listPoisForDestination({
+        city: parsed.data.city,
+        lat,
+        lng,
+      });
+      return {
+        status: 200,
+        envelope: okEnvelope(
+          {
+            count: places.length,
+            places: places.map((p) => ({
+              name: p.name,
+              kind: "attraction" as const,
+              must_see: Boolean(p.must_see),
+              provider: p.provider ?? p.sources?.[0]?.provider,
+            })),
+          },
+          locale,
+          { locales: extra },
+        ),
+      };
+    } catch {
       return {
         status: 502,
         envelope: errorEnvelope("errors.provider_failed", locale, extra),

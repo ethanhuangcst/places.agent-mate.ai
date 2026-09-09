@@ -87,6 +87,41 @@ export function parseLngLat(location: string): { lng: number; lat: number } | nu
   return { lng, lat };
 }
 
+/** AMAP inputtips row → PlaceCard. Allows missing coords (NaN sentinel) for hydrate later. */
+export function amapTipToCard(tip: {
+  id?: string;
+  name?: string;
+  location?: string;
+  address?: string;
+  type?: string;
+  district?: string;
+}): PlaceCard | null {
+  const name = tip.name?.trim();
+  if (!name) return null;
+  const parsed = parseLngLat(tip.location ?? "");
+  const location: PlaceLocation = parsed
+    ? { lat: parsed.lat, lng: parsed.lng, crs: "GCJ-02" }
+    : { lat: Number.NaN, lng: Number.NaN, crs: "GCJ-02" };
+  const nativeId = tip.id?.trim() || `tip:${name}`;
+  const address = [tip.district, tip.address].filter(Boolean).join(" ").trim() || tip.address;
+  return {
+    provider: "AMAP",
+    name,
+    ...(address ? { address } : {}),
+    location,
+    category: tip.type ?? "place",
+    sources: [
+      {
+        provider: "AMAP",
+        native_id: nativeId,
+        deeplinks: Number.isFinite(location.lat)
+          ? amapDeeplinks(location, name)
+          : {},
+      },
+    ],
+  };
+}
+
 export function formatLngLat(lng: number, lat: number): string {
   return `${formatCoord(lng)},${formatCoord(lat)}`;
 }

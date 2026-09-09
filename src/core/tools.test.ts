@@ -16,14 +16,14 @@ beforeEach(() => {
 });
 
 describe("shouldTryGoogleAfterEmptyAmap", () => {
-  it("should_retry_google_when_auto_amap_empty", () => {
+  it("should_never_retry_google_after_amap_empty (ADR-052 update: mainland禁用回退)", () => {
     expect(
       shouldTryGoogleAfterEmptyAmap({
         callerForcedProviders: false,
         providers: ["AMAP"],
         cardCount: 0,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("should_not_retry_when_caller_forced_amap", () => {
@@ -136,14 +136,14 @@ describe("searchRestaurants", () => {
     expect(result.data.every((c) => c.provider === "AMAP")).toBe(true);
   });
 
-  it("should_fallback_to_google_when_auto_amap_empty_near_shanghai", async () => {
+  it("should_return_empty_when_auto_amap_empty_near_shanghai (ADR-052 update: 禁用回退)", async () => {
     const result = await searchRestaurants({
       query: "__amap_miss__",
       near: { lat: 31.176, lng: 121.382 },
       locale: "CN",
     });
-    expect(result.data.length).toBeGreaterThan(0);
-    expect(result.data.every((c) => c.provider === "GOOGLE_MAPS")).toBe(true);
+    expect(result.data).toEqual([]);
+    expect(result.outcomeKey).toBe("errors.empty_results");
   });
 
   it("should_not_fallback_to_google_when_caller_forces_amap_empty", async () => {

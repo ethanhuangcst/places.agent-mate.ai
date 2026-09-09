@@ -15,12 +15,14 @@ import {
   slimStop,
   type SkeletonEcho,
 } from "./fill-handoff";
+import { capClusterOccupancy, dedupeByCluster } from "./discover-dedupe";
 import {
   configuredChatModel,
   createOpenAI,
   useFixtureLlm,
   withAbortTimeout,
 } from "./itinerary-planner";
+import { placesOntologyPrompt } from "./places-ontology";
 import { parseLocale, type Locale } from "./locales";
 import {
   createSkeletonChatCreate,
@@ -38,7 +40,11 @@ import {
   type PlanStopPoint,
 } from "./plan-next-stop";
 import { resolveDisplayPhotosForCards } from "./resolve-display-photo";
-import { safeUpsertEligiblePois } from "./destination-poi-registry";
+import {
+  listPoisForDestination,
+  safeUpsertEligiblePois,
+  type DestinationAnchor,
+} from "./destination-poi-registry";
 import { artifactsTipsPatch, artifactsVisaPatch } from "./trip-artifacts";
 import { dualWriteTrip, slimCandidatesForStore } from "./trip-dual-write";
 import { ensureTrip, getTripOrThrow } from "./trip-store";
@@ -49,15 +55,24 @@ import { visaRequirement } from "./visa-requirement";
 
 const MAX_ITERATIONS = 8;
 const MAX_FULL_ITERATIONS = 40;
-const MUST_SEE_LIMIT = 5;
+const MUST_SEE_LIMIT = 8;
 const CITY_RADIUS_KM = 80;
 const LLM_TIMEOUT_MS = 60_000;
 const MAX_FILL_STEPS = 80;
 
 export type PlanTripStatus = "needs_input" | "planning" | "ready" | "failed";
 
+export type PlanTripNeedOption = { id: string; label: string };
+
+export type PlanTripNeedQuestion = {
+  id: string;
+  prompt: string;
+  options?: PlanTripNeedOption[];
+  multi?: boolean;
+};
+
 export type PlanTripNeedInput = {
-  questions: Array<{ id: string; prompt: string }>;
+  questions: PlanTripNeedQuestion[];
 };
 
 export type PlanTripTurn =
@@ -91,9 +106,11 @@ export type PlanTripInput = {
   numDays?: number;
   origin?: { name: string; lat?: number; lng?: number };
   pace?: "tight" | "medium" | "relaxed";
-  budget?: "budget" | "premium";
+  /** Catalog key for L3 (`economy`/`mid`/`luxury`/…) or legacy `budget`/`premium`. */
+  budget?: string;
   transit_preference?: string;
   trip_type?: string;
+  party_size?: number;
   bounds?: { start: string; end: string };
   must_include?: string[];
   /** Scripted intake loop for tests (skips live LLM). */
@@ -102,6 +119,7 @@ export type PlanTripInput = {
   _testFullLoopTurns?: PlanTripTurn[];
   _testGeocode?: typeof geocode;
   _testSearchPlaces?: typeof searchPlaces;
+  _testListPois?: (anchor: DestinationAnchor) => Promise<PlaceCard[]>;
   _testMakeItinerary?: (
     input: MakeItineraryInput,
   ) => Promise<MakeItineraryResult>;
@@ -144,7 +162,7 @@ const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "search_places",
       description:
-        "Search attractions by name. Omit providers[]. Only search hits can become chips.",
+        "Search real map places by name. Returns grounded cards with coordinates from Google/AMAP. Omit providers[]. Do not invent lat/lng in arguments. Only search hits can become chips.",
       parameters: {
         type: "object",
         properties: {
@@ -160,7 +178,7 @@ const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "commit_trip",
       description:
-        "Commit verified attraction cards as must_see candidates. Optional names filter search hits only — ungrounded names are dropped.",
+        "Commit search-hit attraction cards as must_see candidates. Optional names filter grounded hits only — ungrounded names and cards without coordinates are dropped. Never invent place IDs or lat/lng.",
       parameters: {
         type: "object",
         properties: {
@@ -181,7 +199,21 @@ const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             type: "array",
             items: {
               type: "object",
-              properties: { id: { type: "string" }, prompt: { type: "string" } },
+              properties: {
+                id: { type: "string" },
+                prompt: { type: "string" },
+                multi: { type: "boolean" },
+                options: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      label: { type: "string" },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -204,7 +236,7 @@ const FULL_TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "search_places",
       description:
-        "Widen the attraction pool if skeleton density is low. Eligible + 80km only.",
+        "Widen the attraction pool if skeleton density is low. Returns grounded cards only. Eligible + 80km. Do not invent lat/lng.",
       parameters: {
         type: "object",
         properties: {
@@ -227,7 +259,7 @@ const FULL_TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "plan_next_stop",
       description:
-        "Fill the next skeleton stop (directions + slot). Repeat until trip_complete.",
+        "Fill the next skeleton stop (directions + slot). Travel times come from directions/heuristics only — do not invent durations. Repeat until trip_complete.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -262,22 +294,65 @@ function defaultNeedInput(locale: Locale): PlanTripNeedInput {
   const prompts =
     locale === "CN" || locale === "HK" || locale === "TW"
       ? {
-          dates: "行程起止日期？",
-          hotel: "住宿酒店名称，或跳过？",
-          pace: "节奏：紧凑 / 适中 / 轻松？",
+          hotel:
+            "1. 请输入您的住宿地 / 每日行程起点。也可点「跳过这一题」，按不设起点规划。",
+          start_time:
+            "2. 每天行程开始时间？也可点「跳过这一题」，按上午 09:00 规划。",
+          must_see:
+            "3. 必去点：可多选，也可手动输入。也可点「跳过这一题」，按不设必去点规划。",
+          other: "4. 其他要求？也可点「跳过这一题」。",
         }
       : {
-          dates: "What are the trip start and end dates?",
-          hotel: "Hotel name, or skip?",
-          pace: "Pace: tight / medium / relaxed?",
+          hotel:
+            "1. Enter your stay or daily origin. You can skip this question — the trip is planned without an origin.",
+          start_time:
+            "2. Daily start time? You can skip this question — the trip starts at 09:00.",
+          must_see:
+            "3. Must-see places: multi-select or type. You can skip this question — the trip is planned without must-sees.",
+          other: "4. Anything else? You can skip this question.",
         };
   return {
     questions: [
-      { id: "dates", prompt: prompts.dates },
       { id: "hotel", prompt: prompts.hotel },
-      { id: "pace", prompt: prompts.pace },
+      { id: "start_time", prompt: prompts.start_time },
+      { id: "must_see", prompt: prompts.must_see, multi: true },
+      { id: "other", prompt: prompts.other },
     ],
   };
+}
+
+function attachCollectedChips(
+  need: PlanTripNeedInput,
+  collected: PlaceCard[],
+): PlanTripNeedInput {
+  const chips = capClusterOccupancy(dedupeByCluster(collected), 3).slice(
+    0,
+    MUST_SEE_LIMIT,
+  );
+  const options = chips
+    .map((c) => {
+      const label = mustSeeChipLabel(c);
+      if (!label) return null;
+      return { id: c.name.trim() || label, label };
+    })
+    .filter((o): o is { id: string; label: string } => Boolean(o));
+  if (!options.length) return need;
+  return {
+    questions: need.questions.map((q) => {
+      if (q.id !== "must_see") return q;
+      if (q.options?.length) return q;
+      return {
+        ...q,
+        multi: true,
+        options,
+      };
+    }),
+  };
+}
+
+/** Chip UI label: nominate short name when present (vendor name stays on card). */
+export function mustSeeChipLabel(card: PlaceCard): string {
+  return (card.nominated_name?.trim() || card.name?.trim() || "").trim();
 }
 
 function haversineKm(
@@ -293,6 +368,12 @@ function haversineKm(
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function hasMapPin(card: PlaceCard): boolean {
+  const lat = card.location?.lat;
+  const lng = card.location?.lng;
+  return Number.isFinite(lat) && Number.isFinite(lng);
 }
 
 function withinCityRadius(
@@ -322,6 +403,7 @@ function intakeEligible(
   anchor: { lat: number; lng: number } | null,
 ): PlaceCard[] {
   return filterEligibleAttractions(cards)
+    .filter((c) => hasMapPin(c))
     .filter((c) => !isLodgingPlace(c))
     .filter((c) => filterDiningPlaces([c]).length === 0)
     .filter((c) => isAttractionish(c))
@@ -372,12 +454,14 @@ function systemPrompt(city: string, locale: Locale): string {
   return [
     "You are places-agent planning intake. The host already gave a destination city.",
     `City: ${city}. Locale: ${locale}.`,
+    placesOntologyPrompt(locale),
     "Hold the loop. Call tools until chips are committed, then stop.",
     "1. geocode the city (omit providers[]).",
-    "2. Nominate 3–5 specific attraction names (temple, museum, peak, bridge) from parametric knowledge — no city tables in source.",
-    "3. search_places for each exact name (omit providers[]). On mainland China use Chinese POI names, not generic area labels that match shops/hotels.",
+    "2. search_places for must-see venues that pin on the map (omit providers[]). Prefer specific venue names, not whole lakes/streets/districts. When the trip is long enough (about 3+ days), include at least one reachable day or half-day trip. Do not invent city tables. One chip per landmark cluster.",
+    "3. On mainland China use Chinese POI names, not generic area labels that match shops/hotels.",
     "4. commit_trip with only search-hit names. Never commit ungrounded names. Do not commit hotels or shops.",
-    "5. After commit, stop. Remaining bounds come back as need_input.",
+    "5. Only after search/commit: ask_user with all four questions at once: hotel (verified stay options), start_time, must_see (search-hit chips, multi), other. Put search-hit names in must_see.options. Do not invent chips. Prefer not to ask_user before any search_places.",
+    "6. After ask_user, stop. Caller will resubmit answers on the same trip_id.",
     "Do not invent coordinates. Do not write a skeleton.",
   ].join("\n");
 }
@@ -386,6 +470,7 @@ function fullSystemPrompt(input: PlanTripInput, locale: Locale): string {
   return [
     "You are places-agent scheduling. Trip bounds: city, numDays, origin, pace, budget.",
     `City: ${input.city}. Days: ${input.numDays}. Origin: ${input.origin?.name ?? "unknown"}. Locale: ${locale}.`,
+    placesOntologyPrompt(locale),
     "Candidates pool already has must_see chips. Build a complete itinerary:",
     "1. resolve_origin_stay (once).",
     "2. search_places to widen pool if density low.",
@@ -432,9 +517,11 @@ function toPlanStop(s: {
   visit_part?: string;
   end_time?: string;
 }): PlanStopPoint {
+  const kind =
+    s.kind === "stay" || s.kind === "attraction" || s.kind === "meal" ? s.kind : undefined;
   const stop: PlanStopPoint = {
     name: s.name ?? s.meal_slot ?? "stop",
-    kind: s.kind,
+    kind,
     meal_slot: s.meal_slot as PlanStopPoint["meal_slot"],
     provider: s.provider,
     native_id: s.native_id,
@@ -442,6 +529,10 @@ function toPlanStop(s: {
   };
   if (s.end_time) stop.end_time = s.end_time;
   return stop;
+}
+
+function asMakeBudget(v: string | undefined): "budget" | "premium" | undefined {
+  return v === "budget" || v === "premium" ? v : undefined;
 }
 
 type LoopState = {
@@ -518,7 +609,7 @@ async function commitTripInternal(
     ? (args.names as unknown[]).filter((n): n is string => typeof n === "string")
     : input.must_include?.length
       ? input.must_include
-      : null;
+    : null;
   let selected = intakeEligible(state.collected, state.anchor);
   if (requested?.length) {
     const want = new Set(requested.map(normalizeName));
@@ -529,7 +620,10 @@ async function commitTripInternal(
     const id = card.sources[0]?.native_id ?? card.name;
     if (!byId.has(id)) byId.set(id, card);
   }
-  selected = [...byId.values()].slice(0, MUST_SEE_LIMIT);
+  selected = capClusterOccupancy(dedupeByCluster([...byId.values()]), 3).slice(
+    0,
+    MUST_SEE_LIMIT,
+  );
   if (!selected.length) {
     return { trip_id: tripId, revision: expectedRevision ?? 1 };
   }
@@ -579,13 +673,34 @@ function parseAskUser(args: Record<string, unknown>, locale: Locale): PlanTripNe
   const raw = args.questions;
   if (Array.isArray(raw) && raw.length) {
     const questions = raw
-      .map((q) => {
+      .map((q): PlanTripNeedQuestion | null => {
         if (!q || typeof q !== "object") return null;
-        const row = q as { id?: unknown; prompt?: unknown };
+        const row = q as {
+          id?: unknown;
+          prompt?: unknown;
+          multi?: unknown;
+          options?: unknown;
+        };
         if (typeof row.id !== "string" || typeof row.prompt !== "string") return null;
-        return { id: row.id, prompt: row.prompt };
+        const options = Array.isArray(row.options)
+          ? row.options
+              .map((o): PlanTripNeedOption | null => {
+                if (!o || typeof o !== "object") return null;
+                const opt = o as { id?: unknown; label?: unknown };
+                if (typeof opt.label !== "string") return null;
+                const id = typeof opt.id === "string" ? opt.id : opt.label;
+                return { id, label: opt.label };
+              })
+              .filter((o): o is PlanTripNeedOption => o != null)
+          : undefined;
+        return {
+          id: row.id,
+          prompt: row.prompt,
+          ...(row.multi === true ? { multi: true } : {}),
+          ...(options?.length ? { options } : {}),
+        };
       })
-      .filter((q): q is { id: string; prompt: string } => q != null);
+      .filter((q): q is PlanTripNeedQuestion => q != null);
     if (questions.length) return { questions };
   }
   return defaultNeedInput(locale);
@@ -619,6 +734,45 @@ async function executeInternal(
     return { stopped: true };
   }
   return { error: `unknown_tool:${name}` };
+}
+
+function registryChipEligible(
+  cards: PlaceCard[],
+  anchor: { lat: number; lng: number } | null,
+): PlaceCard[] {
+  return filterEligibleAttractions(cards)
+    .filter((c) => hasMapPin(c))
+    .filter((c) => !isLodgingPlace(c))
+    .filter((c) => filterDiningPlaces([c]).length === 0)
+    .filter((c) => withinCityRadius(c, anchor));
+}
+
+async function seedCollectedFromCityRegistry(
+  input: PlanTripInput,
+  locale: Locale,
+  state: LoopState,
+): Promise<void> {
+  if (!state.anchor) {
+    await runGeocode({ query: input.city }, input, locale, state);
+  }
+  if (state.anchor) {
+    state.collected = registryChipEligible(state.collected, state.anchor);
+  }
+  if (state.collected.length) return;
+  if (!state.anchor) return;
+
+  const listFn = input._testListPois ?? listPoisForDestination;
+  let cards: PlaceCard[] = [];
+  try {
+    cards = await listFn({
+      city: input.city,
+      lat: state.anchor.lat,
+      lng: state.anchor.lng,
+    });
+  } catch {
+    return;
+  }
+  state.collected = registryChipEligible(cards, state.anchor).slice(0, MUST_SEE_LIMIT);
 }
 
 async function recoverPoolIfEmpty(
@@ -663,6 +817,30 @@ async function nextLiveTurn(
   return message;
 }
 
+async function loadExistingMustSee(
+  input: PlanTripInput,
+): Promise<PlaceCard[]> {
+  if (!input.trip_id) return [];
+  try {
+    const doc = await getTripOrThrow(input.callerKey, input.trip_id);
+    const places =
+      (doc.candidates as { places?: PlaceCard[] } | null)?.places ?? [];
+    return places.filter((p) => p.must_see === true && hasMapPin(p));
+  } catch {
+    return [];
+  }
+}
+
+/** Same trip_id (e.g. locale switch): reuse committed must_see chips — no re-search. */
+async function seedExistingMustSeeChips(
+  input: PlanTripInput,
+  state: LoopState,
+): Promise<void> {
+  const existing = await loadExistingMustSee(input);
+  if (!existing.length) return;
+  state.collected = dedupeByCluster([...state.collected, ...existing]);
+}
+
 async function runIntakeLoop(
   input: PlanTripInput,
   locale: Locale,
@@ -678,6 +856,8 @@ async function runIntakeLoop(
     useFixtureLlm();
   const turns = input._testTurns ?? (fixture ? defaultFixtureTurns(input.city) : null);
   const openai = fixture ? null : createOpenAI();
+
+  await seedExistingMustSeeChips(input, state);
 
   if (turns) {
     for (const turn of turns) {
@@ -742,6 +922,7 @@ async function runIntakeLoop(
   if (!state.committed) {
     await recoverPoolIfEmpty(input, locale, state);
   }
+  await seedCollectedFromCityRegistry(input, locale, state);
   if (!state.committed && state.collected.length) {
     const written = await commitTripInternal(
       input.must_include?.length ? { names: input.must_include } : {},
@@ -934,7 +1115,7 @@ async function executeFullTool(
         lng: ctx.originStay.location?.lng,
       },
       pace: input.pace,
-      budget: input.budget,
+      budget: asMakeBudget(input.budget),
       must_include: input.must_include,
       natural_language: nlParts.join("；") || undefined,
       locale,
@@ -1027,7 +1208,7 @@ async function executeFullTool(
         : undefined,
       transit_preference: input.transit_preference,
       pace: input.pace,
-      budget: input.budget,
+      budget: asMakeBudget(input.budget),
       time_from: typeof nextArgs.time_from === "string" ? nextArgs.time_from : undefined,
       stay_role: nextArgs.stay_role as PlanNextStopFillInput["stay_role"],
       day_stops: dayStops.map((s) => slimStop(s)),
@@ -1392,7 +1573,7 @@ async function runFullLoop(
       lng: originStay.location?.lng,
     },
     pace: input.pace,
-    budget: input.budget,
+    budget: asMakeBudget(input.budget),
     must_include: input.must_include,
     natural_language: nlParts.join("；") || undefined,
     locale,
@@ -1485,7 +1666,7 @@ async function runFullLoop(
         : undefined,
       transit_preference: input.transit_preference,
       pace: input.pace,
-      budget: input.budget,
+      budget: asMakeBudget(input.budget),
       time_from: typeof nextArgs.time_from === "string" ? nextArgs.time_from : undefined,
       stay_role: nextArgs.stay_role as PlanNextStopFillInput["stay_role"],
       day_stops: dayStops.map((s) => slimStop(s)),
@@ -1692,8 +1873,23 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
   await runIntakeLoop(input, locale, ensured.trip_id, revisionRef, state, toolCalls);
   timing.intake_s = secondsSince(tIntake);
 
+  const wantsFull = Boolean(input.numDays && input.origin?.name);
   if (!state.committed) {
     timing.total_s = secondsSince(t0);
+    // Intake (no origin yet): still ask hotel / time / must-see. Do not 502 the assistant.
+    if (!wantsFull) {
+      return {
+        trip_id: ensured.trip_id,
+        revision: revisionRef.current ?? ensured.revision,
+        status: "needs_input",
+        need_input: attachCollectedChips(
+          state.asked ?? defaultNeedInput(locale),
+          state.collected,
+        ),
+        tool_calls: toolCalls,
+        timing,
+      };
+    }
     return {
       trip_id: ensured.trip_id,
       revision: revisionRef.current ?? ensured.revision,
@@ -1703,15 +1899,17 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
     };
   }
 
-  const wantsFull = Boolean(input.numDays && input.origin?.name);
   if (!wantsFull) {
     timing.total_s = secondsSince(t0);
-    return {
-      trip_id: ensured.trip_id,
-      revision: revisionRef.current ?? ensured.revision,
-      status: "needs_input",
-      need_input: state.asked ?? defaultNeedInput(locale),
-      tool_calls: toolCalls,
+  return {
+    trip_id: ensured.trip_id,
+    revision: revisionRef.current ?? ensured.revision,
+    status: "needs_input",
+      need_input: attachCollectedChips(
+        state.asked ?? defaultNeedInput(locale),
+        state.collected,
+      ),
+    tool_calls: toolCalls,
       timing,
     };
   }

@@ -867,7 +867,7 @@ async function main(): Promise<void> {
     planned.itinerary?.skeleton.days.map((d) => ({
       day_index: d.day_index,
       day_theme: d.day_theme,
-      stops: d.stops.map((s) => ({ name: s.name, kind: s.kind })),
+      stops: d.stops.map((s) => ({ name: s.name ?? s.meal_slot ?? "stop", kind: s.kind })),
     })) ?? [];
 
   const filledStops =

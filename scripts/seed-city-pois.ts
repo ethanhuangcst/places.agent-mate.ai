@@ -8,6 +8,10 @@
  *   npx tsx --env-file=.env.local scripts/seed-city-pois.ts lisbon
  *   npx tsx --env-file=.env.local scripts/seed-city-pois.ts hongkong
  *   npx tsx --env-file=.env.local scripts/seed-city-pois.ts taipei
+ *   npx tsx --env-file=.env.local scripts/seed-city-pois.ts hangzhou
+ *   npx tsx --env-file=.env.local scripts/seed-city-pois.ts xian
+ *   npx tsx --env-file=.env.local scripts/seed-city-pois.ts shanghai
+ *   npx tsx --env-file=.env.local scripts/seed-city-pois.ts xiamen
  *
  * Optional:
  *   SEED_TARGET=100
@@ -26,7 +30,14 @@ import { geocode, searchPlaces } from "../src/core/tools";
 import type { Locale } from "../src/core/locales";
 import type { PlaceCard } from "../src/core/types";
 
-type CityKey = "lisbon" | "hongkong" | "taipei";
+type CityKey =
+  | "lisbon"
+  | "hongkong"
+  | "taipei"
+  | "hangzhou"
+  | "xian"
+  | "shanghai"
+  | "xiamen";
 
 type CitySpec = {
   city: string;
@@ -54,6 +65,26 @@ const CITIES: Record<CityKey, CitySpec> = {
     locale: "EN",
     wipeKeys: ["taipei", "台北", "臺北", "台北市"],
     extraStems: ["博物馆", "景点", "公园", "寺庙", "夜市"],
+  },
+  hangzhou: {
+    city: "杭州",
+    locale: "CN",
+    wipeKeys: ["hangzhou", "杭州", "杭州市"],
+  },
+  xian: {
+    city: "西安",
+    locale: "CN",
+    wipeKeys: ["xian", "xi'an", "西安", "西安市"],
+  },
+  shanghai: {
+    city: "上海",
+    locale: "CN",
+    wipeKeys: ["shanghai", "上海", "上海市"],
+  },
+  xiamen: {
+    city: "厦门",
+    locale: "CN",
+    wipeKeys: ["xiamen", "厦门", "厦门市"],
   },
 };
 
@@ -85,6 +116,42 @@ const EN_STEMS = [
   "observatory",
 ];
 
+const CN_STEMS = [
+  "景点",
+  "博物馆",
+  "公园",
+  "寺庙",
+  "古迹",
+  "地标",
+  "夜市",
+  "观景台",
+  "历史建筑",
+  "园林",
+  "广场",
+  "纪念碑",
+  "文化中心",
+  "动物园",
+  "水族馆",
+  "天文台",
+  "遗址",
+  "陵园",
+  "城墙",
+  "古镇",
+  "免费景点",
+  "夜景",
+  "古街",
+  "老街",
+  "湿地",
+  "湖泊",
+  "登山",
+  "故居",
+  "纪念馆",
+  "美术馆",
+  "图书馆",
+  "步行街",
+  "古巷",
+];
+
 const TARGET = Math.max(1, Number(process.env.SEED_TARGET ?? "100") || 100);
 
 function cardKey(c: PlaceCard): string {
@@ -104,9 +171,11 @@ async function wipeCity(wipeKeys: string[]): Promise<number> {
 
 function buildQueries(spec: CitySpec): string[] {
   const city = spec.city;
-  const stems = [...EN_STEMS, ...(spec.extraStems ?? [])];
+  const base = spec.locale === "CN" || spec.locale === "HK" || spec.locale === "TW"
+    ? CN_STEMS
+    : EN_STEMS;
+  const stems = [...base, ...(spec.extraStems ?? [])];
   const queries = stems.map((s) => `${city} ${s}`);
-  // Dedup while preserving order.
   return [...new Set(queries)];
 }
 
@@ -120,20 +189,24 @@ async function collectEligible(
   for (const query of queries) {
     if (byKey.size >= TARGET * 2) break; // gather surplus before photo resolve
     try {
-      const result = await searchPlaces({
-        query,
-        address: city,
-        locale,
-        near,
-      });
-      const eligible = filterEligibleAttractions(result.data ?? []);
-      for (const card of eligible) {
-        const k = cardKey(card);
-        if (!byKey.has(k)) byKey.set(k, card);
+      const pages = near ? [1] : [1, 2, 3, 4, 5];
+      for (const page of pages) {
+        const result = await searchPlaces({
+          query,
+          ...(near ? { address: city, near } : { city }),
+          locale,
+          page,
+        });
+        const eligible = filterEligibleAttractions(result.data ?? []);
+        for (const card of eligible) {
+          const k = cardKey(card);
+          if (!byKey.has(k)) byKey.set(k, card);
+        }
+        process.stdout.write(
+          `  search "${query}" p${page} → +${eligible.length} eligible (pool=${byKey.size})\n`,
+        );
+        if (eligible.length === 0) break;
       }
-      process.stdout.write(
-        `  search "${query}" → +${eligible.length} eligible (pool=${byKey.size})\n`,
-      );
     } catch (err) {
       process.stderr.write(
         `  search failed "${query}": ${err instanceof Error ? err.message : err}\n`,
@@ -165,7 +238,11 @@ async function seedCity(key: CityKey): Promise<void> {
   process.stdout.write(`anchor: ${near.lat}, ${near.lng}\n`);
 
   const queries = buildQueries(spec);
-  const collected = await collectEligible(spec.city, spec.locale, queries, near);
+  // Mainland text search: omit `near` so AMAP uses /v5/place/text, not around+distance
+  // (same pin + sortrule=distance collapses every keyword into one city-center set).
+  const searchNear =
+    spec.locale === "CN" ? undefined : near;
+  const collected = await collectEligible(spec.city, spec.locale, queries, searchNear);
   process.stdout.write(`collected unique eligible: ${collected.length}\n`);
 
   if (collected.length < TARGET) {
@@ -230,7 +307,9 @@ async function seedCity(key: CityKey): Promise<void> {
 async function main(): Promise<void> {
   const arg = (process.argv[2] ?? "").toLowerCase() as CityKey;
   if (!CITIES[arg]) {
-    process.stderr.write(`Usage: seed-city-pois.ts <lisbon|hongkong|taipei>\n`);
+    process.stderr.write(
+      `Usage: seed-city-pois.ts <lisbon|hongkong|taipei|hangzhou|xian|shanghai|xiamen>\n`,
+    );
     process.exit(2);
   }
   try {

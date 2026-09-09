@@ -69,8 +69,8 @@ export function parseTransitPreference(pref?: string): TransitPreferenceParsed {
     return { single_mode: false, mode: null, transit_preferred: false };
   }
   const hasWalk = /walk|步行|走路/.test(p);
-  const hasTransit = /transit|metro|subway|bus|tram|捷运|公交|地铁|电车/.test(p);
-  const hasDrive = /drive|taxi|cab|uber|打车|开车/.test(p);
+  const hasTransit = /transit|metro|subway|bus|tram|捷运|公交|交通|地铁|电车/.test(p);
+  const hasDrive = /drive|taxi|cab|uber|打车|开车|自驾|租车/.test(p);
   const modeCount = [hasWalk, hasTransit, hasDrive].filter(Boolean).length;
 
   if (modeCount >= 2) {
@@ -432,16 +432,30 @@ function looksLikeLodgingCard(card: PlaceCard): boolean {
   const name = card.name ?? "";
   if (isLodgingAncillaryName(name)) return false;
   const cat = (card.category ?? "").toLowerCase();
-  if (/lodging|hotel|住宿|酒店|宾馆|旅馆|resort|inn|客栈/.test(cat)) return true;
-  return /酒店|宾馆|旅馆|饭店|客栈|hotel|hyatt|hilton|marriott|sheraton|novotel|ibis|inn|resort|凯悦|希尔顿|万豪|喜来登|洲际|假日/i.test(
+  if (
+    /lodging|hotel|住宿|酒店|宾馆|旅馆|resort|inn|客栈|民宿|公寓|招待所|山庄|庄园|别墅|驿站|旅社|旅店|旅舍|青年旅舍|hostel|apartment|guesthouse|homestay|bnb|精舍/.test(
+      cat,
+    )
+  ) {
+    return true;
+  }
+  return /酒店|宾馆|旅馆|饭店|客栈|民宿|公寓|招待所|山庄|庄园|别墅|驿站|旅社|旅店|旅舍|青年旅舍|hotel|hyatt|hilton|marriott|sheraton|novotel|ibis|inn|resort|hostel|apartment|guesthouse|homestay|bnb|凯悦|希尔顿|万豪|喜来登|洲际|假日|诺富特|宜必思|丽思|四季|精舍/i.test(
     name,
   );
 }
 
 /** Exported for unit tests — pick lodging from search hits (never bare cards[0]). */
 export function pickLodgingStayCard(query: string, cards: PlaceCard[]): PlaceCard | undefined {
+  const q = query.trim();
+  const tokenHits = cards.filter((c) => {
+    const n = (c.name ?? "").trim();
+    if (!n) return false;
+    return n === q || n.includes(q) || q.includes(staySearchCoreName(n));
+  });
+  if (tokenHits.length === 1) return tokenHits[0];
+
   const lodging = cards.filter(looksLikeLodgingCard);
-  if (!lodging.length) return undefined;
+  if (!lodging.length) return tokenHits[0];
   const exact = lodging.find((c) => c.name === query);
   if (exact) return exact;
   const core = staySearchCoreName(query);
@@ -452,14 +466,13 @@ export function pickLodgingStayCard(query: string, cards: PlaceCard[]): PlaceCar
     return core.length >= 2 && n.includes(core.toLowerCase());
   });
   if (covered) return covered;
-  // AMAP often drops a district/landmark prefix (e.g. 西湖大华饭店 → 大华饭店).
   const reverse = lodging
     .filter((c) => {
       const n = staySearchCoreName(c.name);
       return n.length >= 2 && core.toLowerCase().includes(n.toLowerCase());
     })
     .sort((a, b) => (a.name?.length ?? 99) - (b.name?.length ?? 99));
-  return reverse[0];
+  return reverse[0] ?? tokenHits[0];
 }
 
 /**

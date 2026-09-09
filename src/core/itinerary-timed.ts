@@ -145,6 +145,7 @@ export async function buildLegs(
   const severity: WeatherSeverity = impact?.severity ?? "fair";
   const preferTransit =
     prefs.transit_preferred || severity === "adverse" || severity === "severe";
+  const preferDrive = prefs.drive_preferred ?? false;
 
   const modes: TravelMode[] = ["walk", "transit", "drive"];
   let directionsFailed = false;
@@ -177,7 +178,7 @@ export async function buildLegs(
     });
   }
 
-  const recommendedMode = pickRecommendedTravelMode(legs, preferTransit);
+  const recommendedMode = pickRecommendedTravelMode(legs, preferTransit, preferDrive);
   for (const leg of legs) {
     leg.recommended = leg.mode === recommendedMode;
   }
@@ -189,6 +190,7 @@ export async function buildLegs(
 export function pickRecommendedTravelMode(
   legs: Array<{ mode: TravelMode; duration_min: number }>,
   preferTransit: boolean,
+  preferDrive = false,
 ): TravelMode {
   const walk = legs.find((l) => l.mode === "walk");
   const transit = legs.find((l) => l.mode === "transit");
@@ -196,6 +198,11 @@ export function pickRecommendedTravelMode(
   if (preferTransit) {
     if (transit) return "transit";
     if (drive) return "drive";
+    return walk?.mode ?? "walk";
+  }
+  if (preferDrive) {
+    if (drive) return "drive";
+    if (transit) return "transit";
     return walk?.mode ?? "walk";
   }
   if (
@@ -231,6 +238,7 @@ export function buildHeuristicLegs(
   const severity: WeatherSeverity = impact?.severity ?? "fair";
   const preferTransit =
     prefs.transit_preferred || severity === "adverse" || severity === "severe";
+  const preferDrive = prefs.drive_preferred ?? false;
   const modes: TravelMode[] = ["walk", "transit", "drive"];
   const legs: ItineraryLeg[] = modes.map((mode) => {
     const base = estimateBaseDurationMin(mode, km);
@@ -246,7 +254,7 @@ export function buildHeuristicLegs(
       source: "heuristic" as const,
     };
   });
-  const recommendedMode = pickRecommendedTravelMode(legs, preferTransit);
+  const recommendedMode = pickRecommendedTravelMode(legs, preferTransit, preferDrive);
   for (const leg of legs) leg.recommended = leg.mode === recommendedMode;
   legs.sort((a, b) => Number(b.recommended) - Number(a.recommended));
   return legs;

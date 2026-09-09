@@ -20,8 +20,58 @@ export function comparePoolHeat(a: PlaceCard, b: PlaceCard): number {
 }
 
 /**
+ * Chip authority: grounded LLM nominations own must_see.
+ * Heat only fills remaining slots when nominations are short, and ties among
+ * multiple pool matches for the same nominated name.
+ */
+export function applyNominatedMustSee(
+  places: PlaceCard[],
+  nominated: PlaceCard[],
+  limit: number,
+): string[] {
+  const cap = Math.max(0, Math.min(limit, 12));
+  for (const card of places) {
+    if (card.must_see) card.must_see = false;
+  }
+  if (cap === 0) return [];
+
+  const names: string[] = [];
+  const seen = new Set<string>();
+
+  for (const nom of nominated) {
+    if (names.length >= cap) break;
+    const match = findNominatedPoolMatch(places, nom) ?? nom;
+    const key = normalizeMustIncludeToken(match.name);
+    if (!key || seen.has(key)) continue;
+    match.must_see = true;
+    seen.add(key);
+    names.push(match.name);
+    if (!places.includes(match)) places.push(match);
+  }
+
+  if (nominated.length === 0 && names.length < cap) {
+    const extra = markMustSeeByPoolHeat(places, cap);
+    return extra;
+  }
+
+  return names;
+}
+
+function findNominatedPoolMatch(places: PlaceCard[], nom: PlaceCard): PlaceCard | undefined {
+  const nomKey = normalizeMustIncludeToken(nom.name);
+  const nomNid = nom.sources?.[0]?.native_id?.trim();
+  const matches = places.filter((p) => {
+    if (nomNid && p.sources?.some((s) => s.native_id === nomNid)) return true;
+    return normalizeMustIncludeToken(p.name) === nomKey;
+  });
+  if (matches.length === 0) return undefined;
+  if (matches.length === 1) return matches[0];
+  return [...matches].sort(comparePoolHeat)[0];
+}
+
+/**
  * F79 Phase B — mark top-K attractions by vendor heat; no LLM.
- * Returns must-see names in heat order for `inferred_must_see`.
+ * Used as fallback when LLM nomination is empty, or to fill remaining chip slots.
  */
 export function markMustSeeByPoolHeat(places: PlaceCard[], limit: number): string[] {
   const cap = Math.max(0, Math.min(limit, 12));

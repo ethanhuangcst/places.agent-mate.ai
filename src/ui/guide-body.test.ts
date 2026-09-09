@@ -40,6 +40,7 @@ describe("guide literals", () => {
     expect(GUIDE_CAPABILITIES.filter((cap) => cap.labelLiteral).map((cap) => cap.label)).toEqual([
       "search_restaurants",
       "search_places",
+      "suggest_places",
       "get_place_details",
       "geocode",
       "plan_itinerary",

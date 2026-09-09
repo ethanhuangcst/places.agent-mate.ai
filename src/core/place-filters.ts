@@ -7,12 +7,19 @@ const LODGING_DENY =
 const BUSINESS_TRANSIT_DENY =
   /公司企业|农林牧渔|停车场|停車|公交站|巴士站|parking|bus.?stop|transit_station/i;
 
-/** POI fragments that inflate discover pools (ADR-038 P0). */
+/** POI fragments that inflate discover pools (ADR-038 P0). Destination-agnostic. */
 const ATTRACTION_FRAGMENT_DENY =
-  /售票处|售票處|直通车|直通車|乘车点|乘車點|发车点|發車點|敌台|敵台|敌楼|敵樓|瓮城|甕城|箭楼|箭樓/i;
+  /售票处|售票處|请香|請香|直通车|直通車|乘车点|乘車點|发车点|發車點|敌台|敵台|敌楼|敵樓|瓮城|甕城|箭楼|箭樓|停靠点|停靠點|手划船|游船|遊船|码头|碼頭|检票|檢票|停车场|停車場|游客中心|遊客中心|入口|出口/i;
 
 const VISIT_DENY =
-  /shopping_mall|fashion plaza|garden plaza|\bplaza\b|\bmall\b|美食街|residential|transit_station|地铁站|\bstation\b|码头|景区|商城|购物中心|步行街|tourist_information|information_center|visitor.?center|visitlisboa|lisboa card|\bturismo\b|不对外开放/i;
+  /shopping_mall|fashion plaza|garden plaza|\bplaza\b|\bmall\b|美食街|residential|transit_station|地铁站|\bstation\b|码头|碼頭|停靠点|停靠點|手划船|游船|遊船|景区|商城|购物中心|步行街|tourist_information|information_center|visitor.?center|visitlisboa|lisboa card|\bturismo\b|不对外开放/i;
+
+/** Service / satellite POI labels — not visit-worthy must-see chips (ADR-042 templates). */
+export function isAttractionServiceFragment(name: string): boolean {
+  const t = name.trim();
+  if (!t) return false;
+  return ATTRACTION_FRAGMENT_DENY.test(t);
+}
 
 const ATTRACTION_ALLOW =
   /museum|park|landmark|tourist_attraction|monument|gallery|temple|church|castle|viewpoint|miradouro|zoo|aquarium|palace|bridge|memorial|scenic|place_of_worship|monastery|abbey|景点|博物馆|博物館|公园|公園|风景|風景|名胜|名勝|古迹|古跡|寺庙|寺廟|园林|園林|展览|展覽|美术馆|美術館|history_museum|botanical|archaeolog|cathedral|科教文化|风景名胜|風景名勝|文物古迹|文物古蹟|纪念馆|紀念館|展览馆|展覽館|观光|觀光|人文景观|人文景觀|修道院|教堂|14\d{4}/i;

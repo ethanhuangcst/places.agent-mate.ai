@@ -97,9 +97,10 @@ describe("resolveDisplayPhoto (ADR-051)", () => {
     });
     expect(out.photos).toEqual(["https://lh3.googleusercontent.com/p/resolved"]);
     expect(out.google_photo_names).toBeUndefined();
-    expect(String(fetchFn.mock.calls[0]?.[0])).toContain("skipHttpRedirect=true");
-    expect(String(fetchFn.mock.calls[0]?.[0])).toContain("key=test-key");
-    expect(String(fetchFn.mock.calls[0]?.[0])).toContain("maxWidthPx=800");
+    const firstUrl = String((fetchFn.mock.calls as unknown as Array<[unknown]>)[0]?.[0] ?? "");
+    expect(firstUrl).toContain("skipHttpRedirect=true");
+    expect(firstUrl).toContain("key=test-key");
+    expect(firstUrl).toContain("maxWidthPx=800");
   });
 
   it("should_not_treat_stripped_media_url_as_displayable", async () => {

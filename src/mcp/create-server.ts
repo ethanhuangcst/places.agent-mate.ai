@@ -6,6 +6,7 @@ import {
   getPlaceDetails,
   searchPlaces,
   searchRestaurants,
+  suggestPlaces,
 } from "../core/tools";
 import { discoverPlaces, arrangeDay, slimArrangeCandidates, slimArrangeDayResultForMcp, ARRANGE_DAY_FAILURE_HOST_INSTRUCTIONS } from "../core/itinerary-planner";
 import {
@@ -351,6 +352,29 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
       },
     },
     async (args) => jsonResult(toolToEnvelope(await searchPlaces(args))),
+  );
+
+  server.registerTool(
+    "suggest_places",
+    {
+      description:
+        "places-agent: Autocomplete / input tips for place names (e.g. hotel prefix). Prefer before search_places when the user typed a short or incomplete lodging name. Pass address=destination city; omit providers[]. Empty tips return errors.empty_results — then fall back to search_places.",
+      inputSchema: {
+        query: z.string().optional(),
+        near: z
+          .object({
+            lat: z.number(),
+            lng: z.number(),
+            crs: z.enum(["WGS84", "GCJ-02"]).optional(),
+          })
+          .optional(),
+        address: z.string().optional(),
+        city: z.string().optional(),
+        merge: z.boolean().optional(),
+        ...sharedShape,
+      },
+    },
+    async (args) => jsonResult(toolToEnvelope(await suggestPlaces(args))),
   );
 
   for (const name of ["plan_itinerary", "trip_plan", "trips"] as const) {

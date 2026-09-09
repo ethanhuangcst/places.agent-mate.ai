@@ -9,6 +9,7 @@ describe("healthEnvelope", () => {
     expect(env.data?.tools).toEqual([
       "search_restaurants",
       "search_places",
+      "suggest_places",
       "plan_itinerary",
       "get_place_details",
       "geocode",
@@ -22,6 +23,7 @@ describe("healthEnvelope", () => {
       "travel_tips",
       "patch_trip",
       "plan_trip",
+      "list_destination_pois",
       "chat",
     ]);
   });

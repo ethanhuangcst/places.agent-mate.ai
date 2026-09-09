@@ -62,9 +62,10 @@ export function filterCardsNearAnchor(
 }
 
 function locOf(
-  name: string,
+  name: string | undefined,
   pool: PlaceCard[],
 ): { lat: number; lng: number } | null {
+  if (!name) return null;
   const card = pool.find((p) => p.name === name);
   const loc = card?.location;
   if (loc?.lat == null || loc?.lng == null) return null;
@@ -72,8 +73,10 @@ function locOf(
 }
 
 export type ThemeDay = {
+  day_index?: number;
+  date?: string;
   day_theme: string;
-  stops: Array<{ name: string; kind: string }>;
+  stops: Array<{ name?: string; kind?: string }>;
 };
 
 /**
@@ -88,13 +91,13 @@ export function trimThemedDayOutliers<T extends { days: ThemeDay[] }>(
 ): T {
   if (!mustInclude.length) return skeleton;
   const days = skeleton.days.map((day) => {
-    const haystacks = [day.day_theme, ...day.stops.map((s) => s.name)];
+    const haystacks = [day.day_theme, ...day.stops.map((s) => s.name ?? "")];
     const focus = mustInclude.filter((t) => skeletonCoversMustInclude(t, haystacks));
     if (!focus.length) return day;
     const anchorStop = day.stops.find(
       (s) =>
         s.kind !== "stay" &&
-        focus.some((t) => skeletonCoversMustInclude(t, [s.name])) &&
+        focus.some((t) => skeletonCoversMustInclude(t, [s.name ?? ""])) &&
         locOf(s.name, pool),
     );
     if (!anchorStop) return day;

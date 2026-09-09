@@ -1293,6 +1293,8 @@ describe("buildSkeletonUserMessage", () => {
     expect(msg).toContain("Seafood lover");
     expect(msg).toContain("NO times");
     expect(msg).toContain('Never schedule the city name "Lisbon"');
+    expect(msg).toMatch(/Never reuse the same attraction across days/);
+    expect(msg).toMatch(/do not repeat venues/);
   });
 
   it("should_require_meal_slots_in_prompt_without_restaurant_catalog", () => {

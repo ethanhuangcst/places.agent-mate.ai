@@ -19,8 +19,11 @@ function firstFallbackModel(raw: string | undefined): string | undefined {
   return parseModelList(raw)[0];
 }
 
+/** Env bag for unit tests (Next augments ProcessEnv with required NODE_ENV). */
+export type ChatLlmEnv = Partial<NodeJS.ProcessEnv> & Record<string, string | undefined>;
+
 /** Primary + `QWEN_CHAT_MODEL_FALLBACK` (slash-separated). Deduped, order preserved. */
-export function chatLlmModelCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+export function chatLlmModelCandidates(env: ChatLlmEnv = process.env): string[] {
   const cfg = resolveChatLlmConfig(env);
   if (!cfg) return [];
   if (cfg.provider === "qwen") {
@@ -84,7 +87,7 @@ export async function createChatWithModelFallback<T>(
 
 /** Prefer Qwen (ADR-047). Fall back to OPENAI_CN when QWEN_API_KEY is empty. */
 export function resolveChatLlmConfig(
-  env: NodeJS.ProcessEnv = process.env,
+  env: ChatLlmEnv = process.env,
 ): ChatLlmConfig | null {
   const qwen = env.QWEN_API_KEY?.trim();
   if (qwen && qwen !== "fixture") {
@@ -105,7 +108,7 @@ export function resolveChatLlmConfig(
   };
 }
 
-export function chatLlmConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+export function chatLlmConfigured(env: ChatLlmEnv = process.env): boolean {
   return resolveChatLlmConfig(env) != null;
 }
 
@@ -113,7 +116,7 @@ export function chatLlmConfigured(env: NodeJS.ProcessEnv = process.env): boolean
  * Default: Qwen first (ADR-047), then OPENAI_CN when both keys exist.
  * Optional `CHAT_LLM_PRIMARY=openai_cn|qwen` reorders for local/dev (does not change ADR default).
  */
-export function chatLlmProviderQueue(env: NodeJS.ProcessEnv = process.env): ChatLlmConfig[] {
+export function chatLlmProviderQueue(env: ChatLlmEnv = process.env): ChatLlmConfig[] {
   const qwenSlot = (() => {
     const key = env.QWEN_API_KEY?.trim();
     if (!key || key === "fixture") return null;

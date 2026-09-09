@@ -174,7 +174,7 @@ export function dropUnknownAttractionStops(
     ...parsed.data,
     days: parsed.data.days.map((day) => ({
       ...day,
-      stops: day.stops.filter((s) => s.kind !== "attraction" || known.has(s.name)),
+      stops: day.stops.filter((s) => s.kind !== "attraction" || (s.name != null && known.has(s.name))),
     })),
   };
 }
@@ -552,6 +552,10 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
   );
   parts.push(`Never schedule the city name "${input.city}" as a stop.`);
   parts.push(
+    `Never reuse the same attraction across days (same native_id or same name). ` +
+      `If the candidate list is smaller than needed for every day, schedule fewer attraction stops per day — do not repeat venues.`,
+  );
+  parts.push(
     `Never schedule a bare area or district name (e.g. "Belém", "Sintra") as an attraction — ` +
       `use specific POIs from the candidate list.`,
   );
@@ -612,7 +616,7 @@ export function createSkeletonChatCreate(): SkeletonChatCreate | null {
   if (!queue.length) return null;
   const head = queue[0]!;
   console.info(`make_itinerary llm provider=${head.provider} model=${head.model}`);
-  return async (params, options) => {
+  return (async (params, options) => {
     let last: unknown;
     for (const cfg of queue) {
       const openai = new OpenAI({
@@ -626,14 +630,19 @@ export function createSkeletonChatCreate(): SkeletonChatCreate | null {
       const models =
         cfg.provider === "qwen" ? chatLlmModelCandidates() : [cfg.model];
       try {
-        return await createChatWithModelFallback(inner, params, options, models);
+        return await createChatWithModelFallback(
+          inner as Parameters<typeof createChatWithModelFallback>[0],
+          params as Parameters<typeof createChatWithModelFallback>[1],
+          options,
+          models,
+        );
       } catch (err) {
         last = err;
         if (!isLlmModelDeniedError(err)) throw err;
       }
     }
     throw last instanceof Error ? last : new Error(String(last));
-  };
+  }) as SkeletonChatCreate;
 }
 
 /** Documented 2play `PLACES_AGENT_PLAN_TIMEOUT_MS` default — agent LLM must finish below this. */
@@ -778,7 +787,15 @@ export async function enrichMakeItineraryInput(
 
   if (!opts?.skipPoiRegistry && city) {
     try {
-      const geo = opts?.geocode ? await opts.geocode(city) : null;
+      const geocodeFn =
+        opts?.geocode ??
+        (async (query: string) => {
+          const res = await geocode({ query, locale: input.locale });
+          const d = res.data;
+          if (!d || !Number.isFinite(d.lat) || !Number.isFinite(d.lng)) return null;
+          return { lat: d.lat, lng: d.lng };
+        });
+      const geo = await geocodeFn(city);
       const registered = await listPoisForDestination({
         city,
         lat: geo?.lat,

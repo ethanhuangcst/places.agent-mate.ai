@@ -103,8 +103,8 @@ export function clusterRoleForIndex(
     if (!la || !lb) return false;
     return (
       haversineKm(
-        { lat: la.lat, lng: la.lng, crs: "WGS84" },
-        { lat: lb.lat, lng: lb.lng, crs: "WGS84" },
+        { lat: la.lat, lng: la.lng },
+        { lat: lb.lat, lng: lb.lng },
       ) <= 0.8
     );
   };

@@ -94,6 +94,28 @@ describe("caller auth and HTTP dispatch", () => {
     expect(cards[0]?.category).not.toBe("restaurant");
   });
 
+  it("should_suggest_places_when_caller_key_is_valid", async () => {
+    const generated = generateCallerSecret();
+    await prisma.callerApiKey.create({
+      data: {
+        name: "test",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    const result = await dispatchTool(
+      "suggest_places",
+      `Bearer ${generated.secret}`,
+      { query: "museum", address: "Hong Kong", providers: ["AMAP"], locale: "EN" },
+    );
+    expect(result.status).toBe(200);
+    expect(result.envelope.ok).toBe(true);
+    const cards = result.envelope.data as { name?: string }[];
+    expect(cards.length).toBeGreaterThan(0);
+    expect(cards[0]?.name).toMatch(/Fixture Tip/i);
+  });
+
   it("should_return_empty_results_key_when_no_match", async () => {
     const generated = generateCallerSecret();
     await prisma.callerApiKey.create({

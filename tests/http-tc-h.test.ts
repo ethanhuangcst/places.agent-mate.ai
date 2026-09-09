@@ -439,6 +439,9 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       searchPlaces: vi.fn(async () => {
         throw new EgressFailureError();
       }),
+      suggestPlaces: vi.fn(async () => {
+        throw new EgressFailureError();
+      }),
       getDetails: vi.fn(async () => null),
       geocode: vi.fn(async () => {
         throw new EgressFailureError();
@@ -569,6 +572,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
     const googleDirect = {
       searchRestaurants: vi.fn(async () => [liveCard]),
       searchPlaces: vi.fn(async () => [liveCard]),
+      suggestPlaces: vi.fn(async () => [liveCard]),
       getDetails: vi.fn(async () => liveCard),
       geocode: vi.fn(async () => ({ lat: 22.28, lng: 114.16, crs: "WGS84" as const })),
       reverseGeocode: vi.fn(async () => "Central"),

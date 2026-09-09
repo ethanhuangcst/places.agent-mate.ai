@@ -46,6 +46,32 @@ function recommendedTransport(legs: ItineraryLeg[]): {
 }
 
 /**
+ * Normalize a venue name for fuzzy matching: NFKC, lowercase, strip whitespace
+ * and branch parentheses (e.g. "杭州酒家(延安路店)" → "杭州酒家").
+ */
+function normalizeVenueNameForLookup(name: string): string {
+  return name
+    .normalize("NFKC")
+    .replace(/[（(][^）)]*[）)]/g, "")
+    .replace(/[\s\-·・。、]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Find a candidate by normalized name when exact match fails.
+ * True-agent principle: use ledger coordinates, not re-geocoded names.
+ */
+function findByNormalizedName(
+  name: string,
+  candidates: PlaceCard[],
+): PlaceCard | undefined {
+  const target = normalizeVenueNameForLookup(name);
+  if (!target) return undefined;
+  return candidates.find((c) => normalizeVenueNameForLookup(c.name ?? "") === target);
+}
+
+/**
  * Enrich arrange_day blocks with legs_to_here between consecutive places
  * (and optional origin/destination). Degrades to heuristic when directions fail.
  */
@@ -55,6 +81,7 @@ export async function enrichArrangeDayWithTransit(input: {
   origin?: { name?: string; lat?: number; lng?: number };
   destination?: { name?: string; lat?: number; lng?: number };
   transit_preferred?: boolean;
+  drive_preferred?: boolean;
   resolveDuration?: (
     mode: TravelMode,
     from: PlaceLocation,
@@ -62,7 +89,15 @@ export async function enrichArrangeDayWithTransit(input: {
   ) => Promise<{ duration_min: number; distance_m?: number } | null>;
 }): Promise<ArrangeDayWithTransit> {
   const byName = new Map(input.candidates.map((c) => [c.name, c]));
-  const prefs = { transit_preferred: input.transit_preferred ?? false };
+  const byNativeId = new Map(
+    input.candidates
+      .filter((c) => c.sources?.some((s) => s.native_id?.trim()))
+      .map((c) => [c.sources!.find((s) => s.native_id?.trim())!.native_id!.trim(), c]),
+  );
+  const prefs = {
+    transit_preferred: input.transit_preferred ?? false,
+    drive_preferred: input.drive_preferred ?? false,
+  };
   let anyDirections = false;
   let anyHeuristic = false;
   let directionsFailed = false;
@@ -80,11 +115,25 @@ export async function enrichArrangeDayWithTransit(input: {
   let prev = originLoc;
   let from_origin = input.day.from_origin;
   const blocks: ArrangeBlockWithTransit[] = [];
+  let coordLookupFailed = false;
 
   for (let i = 0; i < input.day.blocks.length; i++) {
     const block = input.day.blocks[i]!;
-    const card = byName.get(block.name);
+    // True-agent principle: use ledger coordinates, not re-geocoded names.
+    // 1. Try native_id (if LLM provides it in future)
+    // 2. Try exact name match
+    // 3. Try normalized name match (strip branch parens, NFKC, lowercase)
+    // 4. If no match → mark degraded, do NOT estimate with 0km
+    const card =
+      byNativeId.get((block as { native_id?: string }).native_id ?? "") ??
+      byName.get(block.name) ??
+      findByNormalizedName(block.name, input.candidates);
     const to = locOf(card);
+
+    if (!card || !to) {
+      coordLookupFailed = true;
+    }
+
     let legs_to_here: ItineraryLeg[] | undefined;
 
     if (prev && to) {
@@ -129,7 +178,8 @@ export async function enrichArrangeDayWithTransit(input: {
   }
 
   let transit_outcome: TransitOutcome = "heuristic";
-  if (anyDirections && (anyHeuristic || directionsFailed)) transit_outcome = "partial";
+  if (coordLookupFailed) transit_outcome = "partial";
+  else if (anyDirections && (anyHeuristic || directionsFailed)) transit_outcome = "partial";
   else if (anyDirections) transit_outcome = "directions";
 
   // Ensure deeplinks never leak secrets

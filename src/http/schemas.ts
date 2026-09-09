@@ -45,6 +45,22 @@ export const searchRestaurantsBody = z.object({
 
 export const searchPlacesBody = searchRestaurantsBody;
 
+/** Autocomplete / inputtips — same geo fields as search_places; no cuisine/enrich. */
+export const suggestPlacesBody = z.object({
+  query: z.string().optional(),
+  near: z
+    .object({
+      lat: z.number(),
+      lng: z.number(),
+      crs: z.enum(["WGS84", "GCJ-02"]).optional(),
+    })
+    .optional(),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  merge: z.boolean().optional(),
+  ...shared,
+});
+
 export const getPlaceDetailsBody = z.object({
   provider: z.string().min(1),
   native_id: z.string().min(1),
@@ -239,6 +255,7 @@ export const chatBody = z.object({
 export type ChatBody = z.infer<typeof chatBody>;
 export type SearchRestaurantsBody = z.infer<typeof searchRestaurantsBody>;
 export type SearchPlacesBody = z.infer<typeof searchPlacesBody>;
+export type SuggestPlacesBody = z.infer<typeof suggestPlacesBody>;
 export type GetPlaceDetailsBody = z.infer<typeof getPlaceDetailsBody>;
 export const makeItineraryBody = z.object({
   city: z.string().min(1),
@@ -388,7 +405,8 @@ export const planTripBody = z.object({
     })
     .optional(),
   pace: z.enum(["tight", "medium", "relaxed"]).optional(),
-  budget: z.enum(["budget", "premium"]).optional(),
+  /** Catalog keys (`economy`/`mid`/`luxury`/…) or legacy `budget`/`premium`. */
+  budget: z.string().min(1).optional(),
   transit_preference: z.string().min(1).optional(),
   trip_type: z.string().min(1).optional(),
   bounds: z
@@ -411,6 +429,15 @@ export const fetchTripDetailsBody = z.object({
 });
 
 export type FetchTripDetailsBody = z.infer<typeof fetchTripDetailsBody>;
+
+export const listDestinationPoisBody = z.object({
+  city: z.string().min(1),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  ...shared,
+});
+
+export type ListDestinationPoisBody = z.infer<typeof listDestinationPoisBody>;
 
 export const patchTripBody = z.object({
   ...shared,

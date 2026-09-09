@@ -12,7 +12,7 @@ You are creating the STOP-ORDER SKELETON for a multi-day travel itinerary — or
 - **Pace limits**: attraction stops per day — **at least 2** when the place list has ≥ 2 unused venues per day; tight ≤ 6, medium ≤ 5, relaxed ≤ 4 (meals not counted). Stay-only days are invalid when attractions exist.
 - **Fill the day**: pick specific POIs from the **place** list that match `day_theme`. Do not leave a day as hotel-only.
 - **must_include**: names under HARD MUST INCLUDE must each appear in exactly one day's **attraction** stops. Missing any is a failure.
-- **Cross-day uniqueness**: each attraction appears on at most one day.
+- **Cross-day uniqueness**: each attraction (same `native_id` or same name) appears on at most one day. If the candidate list is too small to fill every day at pace, use fewer attraction stops per day — never pad by repeating a venue.
 - **Origin as first stop**: when a daily origin (hotel) is provided, include it as the day's first stop with `kind: "stay"` (no meal_slot). Do not invent an origin when none is given.
 
 ### Self-check before output

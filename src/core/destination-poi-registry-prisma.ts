@@ -1,6 +1,7 @@
 import { type PrismaClient } from "@prisma/client";
 import { type PlaceCard } from "./types";
 import {
+  destinationGeoCellKey,
   destinationLookupKey,
   normalizeCityQuery,
   type AttractionPoiRow,
@@ -116,6 +117,19 @@ export function createPrismaPoiRegistryStore(client: PrismaClient): PoiRegistryS
         details: r.details && typeof r.details === "object" ? (r.details as Record<string, unknown>) : null,
         detailsFetchedAt: r.detailsFetchedAt,
       };
+    },
+    async listDestinationsByGeoCell(cell) {
+      const want = destinationGeoCellKey(cell.lat, cell.lng);
+      const provider = (cell.provider ?? "GEO").trim() || "GEO";
+      const rows = await client.destination.findMany({
+        where: {
+          lookupKey: {
+            startsWith: `${provider}:q:`,
+            endsWith: `:${want}`,
+          },
+        },
+      });
+      return rows.map((r) => ({ id: r.id, lookupKey: r.lookupKey }));
     },
     async listPois(destinationId) {
       const rows = await client.attractionPoi.findMany({ where: { destinationId } });

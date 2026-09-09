@@ -118,17 +118,17 @@ function filterPlaceSearchResults(cards: PlaceCard[], query?: string): PlaceCard
  * Callers that explicitly pass providers[] are not retried (override stays absolute).
  * Restores fuzzy POI matching (e.g. 定位 vs 定味) that Google often handles better.
  */
+/**
+ * ADR-052 Update (2026-09-07): mainland China禁用 Google 回退。
+ * Google 在大陆数据不准（景点/餐厅/交通均如此），AMAP 空结果时返回空，
+ * 不再静默切到 Google。调用方应处理空结果（显示「该区域无结果」而非给不准数据）。
+ */
 export function shouldTryGoogleAfterEmptyAmap(opts: {
   callerForcedProviders: boolean;
   providers: string[] | undefined;
   cardCount: number;
 }): boolean {
-  return (
-    !opts.callerForcedProviders &&
-    opts.cardCount === 0 &&
-    opts.providers?.length === 1 &&
-    opts.providers[0] === "AMAP"
-  );
+  return false;
 }
 
 export async function searchRestaurants(
@@ -180,7 +180,7 @@ export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<Pl
   const callerForcedProviders = Boolean(rawInput.providers?.length);
   const input = await applyProviderStrategy(rawInput);
   const { locale, pair } = localesFrom(input);
-  const cKey = searchCacheKey(input.query ?? "", input.near, input.providers);
+  const cKey = searchCacheKey(input.query ?? "", input.near, input.providers, input.page);
   const cached = getCachedSearch(cKey);
   if (cached) {
     return { data: cached, skipped: [], locale, locales: pair };
@@ -214,6 +214,25 @@ export async function searchPlaces(rawInput: SearchInput): Promise<ToolResult<Pl
     skipped.push(...enriched.skipped);
   }
   if (cards.length > 0) setCachedSearch(cKey, cards);
+  const outcomeKey = cards.length === 0 ? "errors.empty_results" : undefined;
+  return { data: cards, skipped, locale, locales: pair, outcomeKey };
+}
+
+/** Autocomplete / inputtips — no search cache (prefix queries are ephemeral). */
+export async function suggestPlaces(rawInput: SearchInput): Promise<ToolResult<PlaceCard[]>> {
+  const input = await applyProviderStrategy(rawInput);
+  const { locale, pair } = localesFrom(input);
+  const q = (input.query ?? "").trim();
+  if (!q) {
+    return { data: [], skipped: [], locale, locales: pair, outcomeKey: "errors.empty_results" };
+  }
+  const { values, skipped } = await fanOut(input.providers, "search", async (id) => {
+    const adapter = getAdapter(id);
+    if (!adapter?.suggestPlaces) return [];
+    return adapter.suggestPlaces(input);
+  });
+  let cards = values.flat();
+  if (input.merge) cards = mergeCards(cards);
   const outcomeKey = cards.length === 0 ? "errors.empty_results" : undefined;
   return { data: cards, skipped, locale, locales: pair, outcomeKey };
 }

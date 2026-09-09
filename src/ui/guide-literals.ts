@@ -16,6 +16,7 @@ export const GUIDE_HTTP_ENDPOINTS = [
   "GET  /v1/health",
   "POST /v1/search_restaurants",
   "POST /v1/search_places",
+  "POST /v1/suggest_places",
   "POST /v1/plan_itinerary",
   "POST /v1/discover_places",
   "POST /v1/arrange_day",
@@ -30,6 +31,7 @@ export const GUIDE_HTTP_ENDPOINTS = [
 export const GUIDE_MCP_TOOLS = [
   "search_restaurants",
   "search_places",
+  "suggest_places",
   "plan_itinerary",
   "discover_places",
   "arrange_day",
@@ -65,6 +67,13 @@ export const GUIDE_CAPABILITIES: readonly GuideCapability[] = [
     label: "search_places",
     labelLiteral: true,
     bodyKey: "admin.guide.cap_search_places_body",
+    channel: "both",
+  },
+  {
+    id: "suggest_places",
+    label: "suggest_places",
+    labelLiteral: true,
+    bodyKey: "admin.guide.cap_suggest_places_body",
     channel: "both",
   },
   {

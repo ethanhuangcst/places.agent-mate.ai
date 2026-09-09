@@ -26,6 +26,12 @@ describe("resolveFixtureGeocode — city coverage", () => {
     expect(r.lng).toBeCloseTo(-9.14, 1);
   });
 
+  it("should_resolve_里斯本_to_Lisbon_not_HK", () => {
+    const r = resolveFixtureGeocode("里斯本", "WGS84");
+    expect(r.lat).toBeCloseTo(38.72, 1);
+    expect(r.lng).toBeCloseTo(-9.14, 1);
+  });
+
   it("should resolve 澳门 to Macau", () => {
     const r = resolveFixtureGeocode("澳门大三巴牌坊", "WGS84");
     expect(r.lat).toBeCloseTo(22.19, 1);

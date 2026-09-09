@@ -36,6 +36,28 @@ export const amapFixtureAdapter: PlaceAdapter = {
     if (q && !card.name.includes(q) && q !== "museum") return [];
     return [card];
   },
+  async suggestPlaces(input) {
+    if ((input.query ?? "").includes("__fail__")) throw new Error("fixture_fail");
+    const q = (input.query ?? "").trim();
+    if (!q || q.includes("__empty__")) return [];
+    // Canned tip — not a city encyclopedia (ADR-042); fixture-only.
+    return [
+      {
+        provider: "AMAP" as const,
+        name: `Fixture Tip ${q}`,
+        address: input.address ?? "fixture",
+        location: { lat: 30.25, lng: 120.16, crs: "GCJ-02" as const },
+        category: "酒店",
+        sources: [
+          {
+            provider: "AMAP" as const,
+            native_id: `fixture_tip_${q}`,
+            deeplinks: {},
+          },
+        ],
+      },
+    ];
+  },
   async getDetails(nativeId) {
     const fromRestaurants = FIXTURE_AMAP_RESTAURANTS.find((r) =>
       r.sources.some((s) => s.native_id === nativeId),

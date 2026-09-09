@@ -37,6 +37,12 @@ export type PoiRegistryStore = {
     native: { provider: string; nativeId: string },
   ): Promise<{ id: string }>;
   listPois(destinationId: string): Promise<AttractionPoiRow[]>;
+  /** Same GEO cell (rounded lat/lng), any city string. */
+  listDestinationsByGeoCell(cell: {
+    lat: number;
+    lng: number;
+    provider?: string;
+  }): Promise<{ id: string; lookupKey: string }[]>;
   getPoi?(poiId: string): Promise<AttractionPoiRow | null>;
   updatePoiDetails?(
     poiId: string,
@@ -84,6 +90,10 @@ export function resetPoiRegistryStoreForTests(): void {
 
 export function normalizeCityQuery(city: string): string {
   return city.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+}
+
+export function destinationGeoCellKey(lat: number, lng: number): string {
+  return `${Number(lat).toFixed(3)}:${Number(lng).toFixed(3)}`;
 }
 
 export function destinationLookupKey(anchor: DestinationAnchor): string {
@@ -187,6 +197,15 @@ export function createMemoryPoiRegistryStore(): PoiRegistryStore {
       poisByDest.set(row.id, new Map());
       return row;
     },
+    async listDestinationsByGeoCell(cell) {
+      const want = destinationGeoCellKey(cell.lat, cell.lng);
+      const provider = (cell.provider ?? "GEO").trim() || "GEO";
+      const prefix = `${provider}:q:`;
+      const suffix = `:${want}`;
+      return [...destByKey.values()].filter(
+        (row) => row.lookupKey.startsWith(prefix) && row.lookupKey.endsWith(suffix),
+      );
+    },
     async upsertPoi(destinationId, card, native) {
       const bag = poisByDest.get(destinationId) ?? new Map();
       poisByDest.set(destinationId, bag);
@@ -272,7 +291,33 @@ export async function listPoisForDestination(
   store: PoiRegistryStore = getPoiRegistryStore(),
 ): Promise<PlaceCard[]> {
   const dest = await store.getOrCreateDestination(anchor);
-  const rows = await store.listPois(dest.id);
+  let rows = await store.listPois(dest.id);
+  if (Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
+    const siblings = await store.listDestinationsByGeoCell({
+      lat: Number(anchor.lat),
+      lng: Number(anchor.lng),
+      provider: anchor.provider,
+    });
+    const merged: AttractionPoiRow[] = [];
+    const seenRowId = new Set<string>();
+    const seenNative = new Set<string>();
+    const seenName = new Set<string>();
+    for (const sib of siblings) {
+      const extra = await store.listPois(sib.id);
+      for (const row of extra) {
+        if (seenRowId.has(row.id)) continue;
+        const nativeKey = `${row.provider}:${row.nativeId}`.trim();
+        if (nativeKey.length > 1 && seenNative.has(nativeKey)) continue;
+        const nameKey = row.name.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+        if (nameKey && seenName.has(nameKey)) continue;
+        seenRowId.add(row.id);
+        if (nativeKey.length > 1) seenNative.add(nativeKey);
+        if (nameKey) seenName.add(nameKey);
+        merged.push(row);
+      }
+    }
+    rows = merged;
+  }
   return rows.map((r) => r.cardSlim);
 }
 
