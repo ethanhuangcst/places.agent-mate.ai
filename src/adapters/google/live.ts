@@ -92,13 +92,13 @@ export function createGoogleLiveAdapter(deps: GoogleLiveAdapterDeps = {}): Place
         (w) => w.getDetails(nativeId, locale),
       );
     },
-    geocode(query: string) {
+    geocode(query: string, locale?: import("../../core/locales").Locale) {
       return withGoogleTransport(
         config,
         direct,
         worker,
-        (d) => d.geocode(query),
-        (w) => w.geocode(query),
+        (d) => d.geocode(query, locale),
+        (w) => w.geocode(query, locale),
       );
     },
     reverseGeocode(lat: number, lng: number) {

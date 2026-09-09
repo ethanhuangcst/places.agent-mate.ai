@@ -1,5 +1,6 @@
 import { LOCALE_LANG, type Locale } from "../../core/locales";
 import { type PlaceCard, type PlaceLocation, type SearchInput } from "../../core/types";
+import { type GeocodeHit, parseGoogleAddressComponents } from "../geocode-hit";
 import { type GoogleAdapterConfig } from "./config";
 import { directPlaceToCard } from "./card-mapper";
 import { EgressFailureError, isEgressFailure } from "./egress";
@@ -44,7 +45,7 @@ export type GoogleDirectClient = {
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
   suggestPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
-  geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string }>;
+  geocode(query: string, locale?: Locale): Promise<GeocodeHit>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
 };
 
@@ -242,31 +243,64 @@ export function createGoogleDirectClient(
       if (!config.apiKey) throw new EgressFailureError("no_api_key");
       if (config.directForceFail) throw new EgressFailureError("force_fail");
 
-      const url = new URL(`${config.geocodeBaseUrl}/maps/api/geocode/json`);
-      url.searchParams.set("address", query);
-      url.searchParams.set("key", config.apiKey);
-      url.searchParams.set("language", languageCode(locale));
+      type GeoRow = {
+        formatted_address?: string;
+        geometry?: { location?: { lat?: number; lng?: number } };
+        address_components?: {
+          long_name?: string;
+          short_name?: string;
+          types?: string[];
+        }[];
+      };
 
-      const res = await fetchWithTimeout(fetchFn, url.toString(), {}, config.requestTimeoutMs);
-      if (!res.ok) {
-        if (isEgressFailure(null, res.status)) throw new EgressFailureError(`http_${res.status}`);
-        throw new Error(`google_geocode_${res.status}`);
+      async function fetchGeocodeJson(language: string): Promise<GeoRow | undefined> {
+        const url = new URL(`${config.geocodeBaseUrl}/maps/api/geocode/json`);
+        url.searchParams.set("address", query);
+        url.searchParams.set("key", config.apiKey!);
+        url.searchParams.set("language", language);
+        const res = await fetchWithTimeout(fetchFn, url.toString(), {}, config.requestTimeoutMs);
+        if (!res.ok) {
+          if (isEgressFailure(null, res.status)) throw new EgressFailureError(`http_${res.status}`);
+          throw new Error(`google_geocode_${res.status}`);
+        }
+        const json = (await res.json()) as { results?: GeoRow[] };
+        return json.results?.[0];
       }
 
-      const json = (await res.json()) as {
-        results?: { formatted_address?: string; geometry?: { location?: { lat?: number; lng?: number } } }[];
-      };
-      const first = json.results?.[0];
+      const lang = languageCode(locale);
+      const first = await fetchGeocodeJson(lang);
       const lat = first?.geometry?.location?.lat;
       const lng = first?.geometry?.location?.lng;
       if (lat == null || lng == null) throw new Error("google_geocode_empty");
 
-      return {
+      const admin = parseGoogleAddressComponents(first?.address_components);
+      let cityEn: string | undefined;
+      if (lang === "en") {
+        cityEn = admin.city;
+      } else {
+        try {
+          const enRow = await fetchGeocodeJson("en");
+          cityEn = parseGoogleAddressComponents(enRow?.address_components).city;
+        } catch {
+          cityEn = undefined;
+        }
+      }
+
+      const hit: GeocodeHit = {
         lat,
         lng,
-        crs: "WGS84" as const,
+        crs: "WGS84",
         address: first?.formatted_address,
+        ...(admin.country ? { country: admin.country } : {}),
+        ...(admin.city ? { city: admin.city } : {}),
       };
+      if (cityEn && cityEn !== admin.city) hit.city_en = cityEn;
+      else if (cityEn && lang === "en") {
+        /* city already English — omit duplicate city_en */
+      } else if (cityEn && !admin.city) {
+        hit.city = cityEn;
+      }
+      return hit;
     },
     async reverseGeocode(lat, lng) {
       if (!config.apiKey) throw new EgressFailureError("no_api_key");

@@ -9,6 +9,7 @@ import {
   type SearchInput,
   type ToolResult,
 } from "./types";
+import { type GeocodeHit } from "../adapters/geocode-hit";
 
 import { cachedGeocode } from "./geocode-cache";
 import { searchCacheKey, getCachedSearch, setCachedSearch } from "./search-cache";
@@ -277,11 +278,24 @@ export async function geocode(input: {
   locale?: Locale;
   locales?: Locale[];
 }): Promise<
-  ToolResult<{ lat: number; lng: number; crs: string; address?: string } | null>
+  ToolResult<{
+    lat: number;
+    lng: number;
+    crs: string;
+    address?: string;
+    country?: string;
+    city?: string;
+    city_en?: string;
+  } | null>
 > {
   const { locale, pair } = localesFrom(input);
-  const geoKey = `geo|${(input.query ?? "").trim().toLowerCase()}|${input.lat ?? ""}|${input.lng ?? ""}`;
-  const cached = getCachedSearch(geoKey);
+  const geoKey = `geo|${(input.query ?? "").trim().toLowerCase()}|${input.lat ?? ""}|${input.lng ?? ""}|${locale}`;
+  type CachedGeo = PlaceCard & {
+    country?: string;
+    city?: string;
+    city_en?: string;
+  };
+  const cached = getCachedSearch(geoKey) as CachedGeo[] | undefined;
   if (cached && cached[0]?.location) {
     return {
       data: {
@@ -289,6 +303,9 @@ export async function geocode(input: {
         lng: cached[0].location!.lng,
         crs: cached[0].location!.crs,
         address: cached[0].address,
+        ...(cached[0].country ? { country: cached[0].country } : {}),
+        ...(cached[0].city ? { city: cached[0].city } : {}),
+        ...(cached[0].city_en ? { city_en: cached[0].city_en } : {}),
       },
       skipped: [],
       locale,
@@ -313,23 +330,26 @@ export async function geocode(input: {
   const { values, skipped } = await fanOut(providers, "geocode", async (id) => {
     const adapter = getAdapter(id);
     if (!adapter) throw new Error("missing");
-    if (input.query) return adapter.geocode(input.query);
+    if (input.query) return adapter.geocode(input.query, locale);
     if (input.lat != null && input.lng != null) {
       const address = await adapter.reverseGeocode(input.lat, input.lng);
       return { lat: input.lat, lng: input.lng, crs: "WGS84", address };
     }
     throw new Error("missing_input");
   });
-  const result = values[0] ?? null;
+  const result = (values[0] ?? null) as GeocodeHit | null;
   if (result) {
     setCachedSearch(geoKey, [
       {
         provider: "GOOGLE_MAPS",
         name: input.query ?? "",
-        location: { lat: result.lat, lng: result.lng, crs: result.crs },
+        location: { lat: result.lat, lng: result.lng, crs: result.crs as PlaceCard["location"]["crs"] },
         address: result.address,
+        country: result.country,
+        city: result.city,
+        city_en: result.city_en,
         sources: [],
-      } as PlaceCard,
+      } as CachedGeo,
     ]);
   }
   return { data: result, skipped, locale, locales: pair };

@@ -16,7 +16,16 @@ const OK_EMPTY = { status: "1", infocode: "10000", pois: [] };
 const OK_GEO = {
   status: "1",
   infocode: "10000",
-  geocodes: [{ location: "121.364597,31.172796", formatted_address: "上海市闵行区紫藤路" }],
+  geocodes: [
+    {
+      location: "121.364597,31.172796",
+      formatted_address: "上海市闵行区紫藤路",
+      country: "中国",
+      province: "上海市",
+      city: "上海市",
+      district: "闵行区",
+    },
+  ],
 };
 const OK_CONVERT = { status: "1", infocode: "10000", locations: "121.370000,31.175000" };
 const FAIL_BODY = { status: "0", infocode: "10001", info: "INVALID_USER_KEY" };
@@ -229,6 +238,9 @@ describe("AMAP live direct client", () => {
     const pin = await client.geocode("上海地铁十号线紫藤路站");
     expect(pin.crs).toBe("GCJ-02");
     expect(pin.lat).toBeCloseTo(31.172796);
+    expect(pin.country).toBe("中国");
+    expect(pin.city).toBe("上海市");
+    expect(pin.city_en).toBeUndefined();
     const addr = await client.reverseGeocode(31.17, 121.36);
     expect(addr).toContain("紫藤路");
     expect(urls.some((u) => u.pathname.includes("/place/detail"))).toBe(true);

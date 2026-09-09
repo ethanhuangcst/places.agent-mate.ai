@@ -276,6 +276,10 @@ describe("Google live direct client", () => {
           {
             formatted_address: "Lisbon",
             geometry: { location: { lat: 38.7, lng: -9.1 } },
+            address_components: [
+              { long_name: "Lisbon", types: ["locality", "political"] },
+              { long_name: "Portugal", types: ["country", "political"] },
+            ],
           },
         ],
       }),
@@ -285,7 +289,49 @@ describe("Google live direct client", () => {
     expect(pin.lat).toBe(38.7);
     expect(pin.lng).toBe(-9.1);
     expect(pin.crs).toBe("WGS84");
+    expect(pin.country).toBe("Portugal");
+    expect(pin.city).toBe("Lisbon");
+    expect(pin.city_en).toBeUndefined();
     expect(urls[0]?.searchParams.get("language")).toBe("en");
+  });
+
+  it("should_attach_city_en_when_locale_is_not_english", async () => {
+    let calls = 0;
+    const { fetchFn, urls } = recordFetch(() => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse({
+          results: [
+            {
+              formatted_address: "里斯本",
+              geometry: { location: { lat: 38.7, lng: -9.1 } },
+              address_components: [
+                { long_name: "里斯本", types: ["locality", "political"] },
+                { long_name: "葡萄牙", types: ["country", "political"] },
+              ],
+            },
+          ],
+        });
+      }
+      return jsonResponse({
+        results: [
+          {
+            formatted_address: "Lisbon",
+            geometry: { location: { lat: 38.7, lng: -9.1 } },
+            address_components: [
+              { long_name: "Lisbon", types: ["locality", "political"] },
+              { long_name: "Portugal", types: ["country", "political"] },
+            ],
+          },
+        ],
+      });
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    const pin = await client.geocode("Lisbon", "CN");
+    expect(pin.country).toBe("葡萄牙");
+    expect(pin.city).toBe("里斯本");
+    expect(pin.city_en).toBe("Lisbon");
+    expect(urls.map((u) => u.searchParams.get("language"))).toEqual(["zh-CN", "en"]);
   });
 
   it("should_throw_when_geocode_empty", async () => {

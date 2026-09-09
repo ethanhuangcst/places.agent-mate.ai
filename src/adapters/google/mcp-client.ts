@@ -46,7 +46,7 @@ export type GoogleMcpClient = {
   searchRestaurants(input: SearchInput): Promise<PlaceCard[]>;
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
-  geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string }>;
+  geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string; country?: string; city?: string; city_en?: string }>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
   directions(input: { from: PlaceLocation; to: PlaceLocation; mode: TravelMode }): Promise<DirectionsEta | null>;
   /** Test hook: how many tools/call invocations */

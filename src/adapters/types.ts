@@ -2,6 +2,9 @@ import { type PlaceCard, type SearchInput, type PlaceLocation } from "../core/ty
 import { type ProviderId } from "../core/providers";
 import { type TravelMode } from "../core/itinerary-timed";
 import { type Locale } from "../core/locales";
+import { type GeocodeHit } from "./geocode-hit";
+
+export type { GeocodeHit } from "./geocode-hit";
 
 export type DirectionsEta = {
   duration_min: number;
@@ -18,7 +21,7 @@ export type PlaceAdapter = {
    */
   suggestPlaces?(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
-  geocode(query: string): Promise<PlaceLocation & { address?: string }>;
+  geocode(query: string, locale?: Locale): Promise<GeocodeHit>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
   deeplinks(card: PlaceCard): Record<string, string>;
   /** Optional live A→B ETA (Story C). Missing/failure → caller keeps heuristic. */

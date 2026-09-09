@@ -1,4 +1,5 @@
 import { type PlaceCard, type PlaceLocation, type SearchInput } from "../../core/types";
+import { type GeocodeHit, parseAmapGeocodeAdmin } from "../geocode-hit";
 import { type AmapAdapterConfig } from "./config";
 import { amapDeeplinks, amapPoiToCard, amapTipToCard, formatLngLat, parseLngLat, type AmapPoi } from "./card-mapper";
 import { amapKeywords } from "./keywords";
@@ -11,12 +12,21 @@ const DINING_AROUND_RADIUS_M = "3000";
 const PLACES_AROUND_RADIUS_M = "15000";
 const PAGE_SIZE = "20";
 
+type AmapGeocodeRow = {
+  location?: string;
+  formatted_address?: string;
+  country?: string;
+  province?: string;
+  city?: string;
+  district?: string;
+};
+
 type AmapJson = {
   status?: string;
   infocode?: string | number;
   info?: string;
   pois?: AmapPoi[] | string;
-  geocodes?: { location?: string; formatted_address?: string }[] | string;
+  geocodes?: AmapGeocodeRow[] | string;
   locations?: string;
   regeocode?: { formatted_address?: string };
 };
@@ -52,7 +62,7 @@ export type AmapDirectClient = {
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
   suggestPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string): Promise<PlaceCard | null>;
-  geocode(query: string): Promise<PlaceLocation & { address?: string }>;
+  geocode(query: string): Promise<GeocodeHit>;
   reverseGeocode(lat: number, lng: number): Promise<string>;
 };
 
@@ -91,17 +101,25 @@ export function createAmapDirectClient(
     return parsed;
   }
 
-  async function geocode(query: string): Promise<PlaceLocation & { address?: string }> {
+  async function geocode(query: string): Promise<GeocodeHit> {
     const json = await getJson("/v3/geocode/geo", { address: query });
     assertAmapOk(json, "geocode");
     const first = asList(json.geocodes)[0];
     const parsed = parseLngLat(first?.location ?? "");
     if (!parsed) throw new Error("amap_geocode_empty");
+    const admin = parseAmapGeocodeAdmin({
+      country: first?.country,
+      province: first?.province,
+      city: first?.city,
+      district: first?.district,
+    });
     return {
       lat: parsed.lat,
       lng: parsed.lng,
       crs: "GCJ-02",
       address: first?.formatted_address,
+      ...(admin.country ? { country: admin.country } : {}),
+      ...(admin.city ? { city: admin.city } : {}),
     };
   }
 

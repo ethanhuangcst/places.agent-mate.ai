@@ -41,6 +41,7 @@ function mockDirect(cards: PlaceCard[] = [sampleCard]): GoogleDirectClient {
   return {
     searchRestaurants: vi.fn(async () => cards),
     searchPlaces: vi.fn(async () => cards),
+    suggestPlaces: vi.fn(async () => cards),
     getDetails: vi.fn(async () => cards[0] ?? null),
     geocode: vi.fn(async () => ({ lat: 22.28, lng: 114.16, crs: "WGS84" as const })),
     reverseGeocode: vi.fn(async () => "Central, Hong Kong"),
