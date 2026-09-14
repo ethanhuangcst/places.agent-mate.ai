@@ -5,7 +5,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../db/client";
 import { generateCallerSecret, hashPassword } from "./crypto";
-import { planTrip } from "./plan-trip";
+import { planTrip, skeletonPoolQueries } from "./plan-trip";
+import type { PlanTripInput } from "./plan-trip";
 import { fetchTripDetails } from "./fetch-trip-details";
 import { clearTripMemoryForTests } from "./trip-store";
 import { resolveProviderStrategy } from "../adapters/provider-resolver";
@@ -243,7 +244,8 @@ describe("planTrip POC intake", () => {
       ?.places ?? [];
     expect(places.length).toBeGreaterThanOrEqual(1);
     for (const card of places) {
-      expect(card.must_see).toBe(true);
+      // ADR-069: committed candidates are pool cards — no must_see heat flag.
+      expect(card.must_see).toBeUndefined();
       expect(card.provider).toBe("GOOGLE_MAPS");
       const photos = card.photos as string[] | undefined;
       expect(photos?.[0]).toMatch(/^https:\/\//);
@@ -288,7 +290,7 @@ describe("planTrip POC intake", () => {
       ["Castelo de São Jorge", "Torre de Belém"].sort(),
     );
     for (const card of listed) {
-      expect(card.must_see).toBeUndefined();
+      expect("must_see" in card).toBe(false);
       expect(card.photos?.[0]).toMatch(/^https:\/\//);
       expect(card.sources[0]?.native_id).toBeTruthy();
     }
@@ -1210,7 +1212,6 @@ describe("planTrip POC intake", () => {
       lat: 38.6916,
       lng: -9.216,
     });
-    tower.must_see = true;
 
     const first = await planTrip({
       callerKey,
@@ -1251,5 +1252,677 @@ describe("planTrip POC intake", () => {
       second.need_input?.questions.find((q) => q.id === "must_see")?.options?.map((o) => o.label) ??
       [];
     expect(secondLabels).toContain("Torre de Belém");
+  });
+});
+
+describe("MVP-T3 plan_trip skeleton_only (TC-T3-100)", () => {
+  let callerKey = "";
+  const prevVendor = process.env.PLACES_VENDOR_MODE;
+  const prevQwen = process.env.QWEN_API_KEY;
+  const prevOpenai = process.env.OPENAI_API_KEY;
+
+  const skeletonFixture = {
+    days: [
+      {
+        day_index: 1,
+        day_theme: "Belém",
+        stops: [
+          { name: "Hills Hotel", kind: "stay" as const },
+          { name: "Torre de Belém", kind: "attraction" as const },
+        ],
+      },
+    ],
+  };
+
+  function baseT3() {
+    return {
+      callerKey,
+      city: "Lisbon",
+      locale: "EN" as const,
+      numDays: 3,
+      origin: { name: "Hills Hotel Lisboa" },
+      pace: "medium" as const,
+      budget: "mid",
+      transit_preference: "transit_walk",
+      trip_type: "couple",
+      party_size: 2,
+      bounds: { start: "2026-10-10", end: "2026-10-12" },
+      start_time: "09:30",
+      other: "prefer waterfront walks",
+      // Thin fixture pool: answer expand_radius so TC-T3-100 reaches skeleton.
+      answers: { expand_radius: "no" as const },
+      skeleton_only: true as const,
+      _testGeocode: async () => okGeocode(38.7223, -9.1393, "Lisbon"),
+      _testSearchPlaces: async () =>
+        okCards([
+          place({
+            name: "Torre de Belém",
+            provider: "GOOGLE_MAPS" as const,
+            lat: 38.6916,
+            lng: -9.216,
+            photo: "https://cdn.example.com/belem.jpg",
+            nativeId: "ChIJbelem",
+          }),
+        ]),
+      _testResolveStay: async () =>
+        place({
+          name: "Hills Hotel Lisboa",
+          provider: "GOOGLE_MAPS" as const,
+          lat: 38.73,
+          lng: -9.14,
+          photo: "https://cdn.example.com/hotel.jpg",
+          nativeId: "ChIJhotel",
+        }),
+      _testMakeItinerary: async () => ({
+        skeleton: skeletonFixture,
+        candidates_slim: { places: [] as PlaceCard[], restaurants: [] as PlaceCard[] },
+      }),
+      _testPlanNextStopFill: async () => {
+        throw new Error("plan_next_stop must not run on skeleton_only");
+      },
+    };
+  }
+
+  beforeEach(async () => {
+    process.env.PLACES_VENDOR_MODE = "fixture";
+    delete process.env.QWEN_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    resetPoiRegistryStoreForTests();
+    setPoiRegistryStore(createMemoryPoiRegistryStore());
+    await resetDb();
+    const generated = generateCallerSecret();
+    const row = await prisma.callerApiKey.create({
+      data: {
+        name: "plan-trip-t3",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    callerKey = row.id;
+  });
+
+  afterEach(async () => {
+    clearTripMemoryForTests();
+    resetPoiRegistryStoreForTests();
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    if (prevVendor === undefined) delete process.env.PLACES_VENDOR_MODE;
+    else process.env.PLACES_VENDOR_MODE = prevVendor;
+    if (prevQwen === undefined) delete process.env.QWEN_API_KEY;
+    else process.env.QWEN_API_KEY = prevQwen;
+    if (prevOpenai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenai;
+  });
+
+  it("should_return_trip_id_and_persist_takeoff_bounds_when_skeleton_only (TC-T3-100-01)", async () => {
+    const result = await planTrip(baseT3());
+    expect(result.status).toBe("ready");
+    expect(result.trip_id.length).toBeGreaterThan(0);
+
+    const fetched = await fetchTripDetails({
+      callerKey,
+      trip_id: result.trip_id,
+      fields: ["constraints"],
+    });
+    const constraints = (fetched.data.constraints ?? {}) as Record<string, unknown>;
+    expect(constraints.party_size ?? constraints.partySize).toBe(2);
+    expect(constraints.start_time ?? constraints.startTime).toBe("09:30");
+    expect(constraints.other).toBe("prefer waterfront walks");
+    expect(
+      (constraints.origin as { name?: string } | undefined)?.name ?? constraints.origin_name,
+    ).toMatch(/Hills Hotel/);
+  });
+
+  it("should_stop_after_skeleton_without_plan_next_stop (TC-T3-100-02)", async () => {
+    const result = await planTrip(baseT3());
+    expect(result.status).toBe("ready");
+    expect(result.itinerary?.skeleton).toBeTruthy();
+    expect(result.itinerary?.filledStops ?? []).toEqual([]);
+    expect(result.tool_calls ?? []).toContain("make_itinerary");
+    expect(result.tool_calls ?? []).not.toContain("plan_next_stop");
+  });
+
+  it("should_not_return_fixed_four_need_input_when_skeleton_only (TC-T3-100-03)", async () => {
+    const result = await planTrip(baseT3());
+    expect(result.status).not.toBe("needs_input");
+    const ids = result.need_input?.questions?.map((q) => q.id) ?? [];
+    expect(ids).not.toContain("hotel");
+    expect(ids).not.toContain("must_see");
+  });
+
+  it("should_emit_trip_created_generating_ready_phases (TC-T3-100-04)", async () => {
+    const result = await planTrip(baseT3());
+    const names = (result.phases ?? []).map((p) => p.phase);
+    expect(names).toEqual(
+      expect.arrayContaining(["trip_created", "skeleton_generating", "skeleton_ready"]),
+    );
+  });
+
+  it("should_fetch_ordered_skeleton_days_after_ready (TC-T3-100-05)", async () => {
+    const result = await planTrip(baseT3());
+    const fetched = await fetchTripDetails({
+      callerKey,
+      trip_id: result.trip_id,
+      fields: ["skeleton", "constraints"],
+    });
+    const skeleton = fetched.data.skeleton as {
+      days?: Array<{ day_index: number; stops?: unknown[] }>;
+    };
+    expect(skeleton.days?.length).toBeGreaterThanOrEqual(1);
+    expect(skeleton.days?.[0]?.day_index).toBe(1);
+    expect((skeleton.days?.[0]?.stops ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("should_list_city_pool_honestly_without_invented_pois (TC-T3-100-06)", async () => {
+    await planTrip(baseT3());
+    const listed = await listPoisForDestination({
+      city: "Lisbon",
+      lat: 38.7223,
+      lng: -9.1393,
+    });
+    for (const card of listed) {
+      expect(card.name.trim().length).toBeGreaterThan(0);
+      expect(card.name).not.toMatch(/^fixture_/i);
+    }
+  });
+
+  it("should_fail_honestly_without_fake_filled_when_make_throws (TC-T3-100-07)", async () => {
+    const result = await planTrip({
+      ...baseT3(),
+      _testMakeItinerary: async () => {
+        throw new Error("skeleton boom");
+      },
+    });
+    expect(result.status).toBe("failed");
+    expect(result.itinerary?.filledStops?.length ?? 0).toBe(0);
+    expect(JSON.stringify(result)).not.toMatch(/sk-|api[_-]?key|secret/i);
+  });
+
+  it("should_ready_skeleton_when_origin_omitted (takeoff skip hotel)", async () => {
+    const { origin: _omit, ...rest } = baseT3();
+    const result = await planTrip({
+      ...rest,
+      city: "Xi'an",
+      trip_type: "探访历史",
+      _testGeocode: async () => okGeocode(34.3416, 108.9398, "Xi'an"),
+      _testMakeItinerary: async (mi) => {
+        expect(mi.origin?.name).toBeUndefined();
+        return {
+          skeleton: {
+            days: [
+              {
+                day_index: 1,
+                day_theme: "城墙",
+                stops: [{ name: "西安城墙", kind: "attraction" as const }],
+              },
+            ],
+          },
+          candidates_slim: { places: [], restaurants: [] },
+        };
+      },
+    });
+    expect(result.status).toBe("ready");
+    expect(result.itinerary?.skeleton).toBeTruthy();
+  });
+
+  it("should_ready_skeleton_with_name_only_stay_when_resolve_stay_misses", async () => {
+    const result = await planTrip({
+      ...baseT3(),
+      city: "Xi'an",
+      origin: { name: "随便一家客栈" },
+      trip_type: "探访历史",
+      _testGeocode: async () => okGeocode(34.3416, 108.9398, "Xi'an"),
+      _testResolveStay: async () => null,
+      _testMakeItinerary: async (mi) => {
+        expect(mi.origin?.name).toBe("随便一家客栈");
+        return {
+          skeleton: skeletonFixture,
+          candidates_slim: { places: [], restaurants: [] },
+        };
+      },
+    });
+    expect(result.status).toBe("ready");
+  });
+});
+
+describe("MVP-T3++ LLM OptA discovery (TC-T3-110a)", () => {
+  let callerKey = "";
+  const prevVendor = process.env.PLACES_VENDOR_MODE;
+  const prevQwen = process.env.QWEN_API_KEY;
+  const prevOpenai = process.env.OPENAI_API_KEY;
+
+  const skeletonFixture = {
+    days: [
+      {
+        day_index: 1,
+        day_theme: "Belém",
+        stops: [
+          { name: "Hills Hotel", kind: "stay" as const },
+          { name: "Torre de Belém", kind: "attraction" as const },
+        ],
+      },
+    ],
+  };
+
+  function nominateChat(names: string[]) {
+    return async () =>
+      ({
+        choices: [{ message: { content: JSON.stringify(names) } }],
+      }) as never;
+  }
+
+  function base110a(searchQueries: string[]): PlanTripInput {
+    return {
+      callerKey,
+      city: "Lisbon",
+      locale: "EN",
+      numDays: 3,
+      origin: { name: "Hills Hotel Lisboa" },
+      pace: "medium",
+      budget: "mid",
+      transit_preference: "transit_walk",
+      trip_type: "couple",
+      party_size: 2,
+      bounds: { start: "2026-10-10", end: "2026-10-12" },
+      start_time: "09:30",
+      other: "prefer waterfront walks",
+      // Thin fixture pool: answer expand_radius so discovery tests reach make_itinerary.
+      answers: { expand_radius: "no" },
+      skeleton_only: true,
+      _testGeocode: async () => okGeocode(38.7223, -9.1393, "Lisbon"),
+      _testNominateChatCreate: nominateChat(["Torre de Belém", "Mosteiro dos Jerónimos"]),
+      _testSearchPlaces: async (input) => {
+        if (input.query) searchQueries.push(input.query);
+        const name = input.query?.includes("Mosteiro")
+          ? "Mosteiro dos Jerónimos"
+          : "Torre de Belém";
+        const nativeId = name.startsWith("Mosteiro") ? "ChIJjer" : "ChIJbelem";
+        return okCards([
+          place({
+            name,
+            provider: "GOOGLE_MAPS",
+            lat: 38.69,
+            lng: -9.21,
+            photo: "https://cdn.example.com/p.jpg",
+            nativeId,
+          }),
+        ]);
+      },
+      _testResolveStay: async () =>
+        place({
+          name: "Hills Hotel Lisboa",
+          provider: "GOOGLE_MAPS",
+          lat: 38.73,
+          lng: -9.14,
+          photo: "https://cdn.example.com/hotel.jpg",
+          nativeId: "ChIJhotel",
+        }),
+      _testMakeItinerary: async () => ({
+        skeleton: skeletonFixture,
+        candidates_slim: { places: [] as PlaceCard[], restaurants: [] as PlaceCard[] },
+      }),
+      _testPlanNextStopFill: async () => {
+        throw new Error("plan_next_stop must not run on skeleton_only");
+      },
+    };
+  }
+
+  beforeEach(async () => {
+    process.env.PLACES_VENDOR_MODE = "fixture";
+    delete process.env.QWEN_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    resetPoiRegistryStoreForTests();
+    setPoiRegistryStore(createMemoryPoiRegistryStore());
+    await resetDb();
+    const generated = generateCallerSecret();
+    const row = await prisma.callerApiKey.create({
+      data: {
+        name: "plan-trip-110a",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    callerKey = row.id;
+  });
+
+  afterEach(async () => {
+    clearTripMemoryForTests();
+    resetPoiRegistryStoreForTests();
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    if (prevVendor === undefined) delete process.env.PLACES_VENDOR_MODE;
+    else process.env.PLACES_VENDOR_MODE = prevVendor;
+    if (prevQwen === undefined) delete process.env.QWEN_API_KEY;
+    else process.env.QWEN_API_KEY = prevQwen;
+    if (prevOpenai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenai;
+  });
+
+  it("should_not_call_template_skeletonPoolQueries_on_skeleton_path (TC-T3-110a-02)", async () => {
+    const searchQueries: string[] = [];
+    await planTrip(base110a(searchQueries));
+    const templates = skeletonPoolQueries("Lisbon", "EN", {
+      trip_type: "couple",
+      other: "prefer waterfront walks",
+    });
+    for (const q of templates) {
+      expect(searchQueries).not.toContain(q);
+    }
+  });
+
+  it("should_nominate_clean_ground_and_skip_search_on_registry_hit (TC-T3-110a-03)", async () => {
+    await upsertEligiblePois(
+      [
+        place({
+          name: "Torre de Belém",
+          provider: "GOOGLE_MAPS",
+          lat: 38.6916,
+          lng: -9.216,
+          photo: "https://cdn.example.com/belem.jpg",
+          nativeId: "ChIJbelem",
+        }),
+      ],
+      { city: "Lisbon", lat: 38.7223, lng: -9.1393 },
+    );
+    const searchQueries: string[] = [];
+    let makePlaces: string[] = [];
+    await planTrip({
+      ...base110a(searchQueries),
+      _testMakeItinerary: async (mi) => {
+        makePlaces = mi.candidates.places.map((p) => p.name);
+        return {
+          skeleton: skeletonFixture,
+          candidates_slim: {
+            places: mi.candidates.places,
+            restaurants: [],
+          },
+        };
+      },
+    });
+    expect(searchQueries.some((q) => /Torre|Belém|Belem/i.test(q))).toBe(false);
+    expect(searchQueries.some((q) => /Mosteiro|Jerónimos|Jeronimos/i.test(q))).toBe(true);
+    expect(makePlaces).toEqual(
+      expect.arrayContaining(["Torre de Belém", "Mosteiro dos Jerónimos"]),
+    );
+  });
+
+  it("should_write_only_nominated_grounded_candidates_not_whole_city_registry (TC-T3-110a-06)", async () => {
+    await upsertEligiblePois(
+      [
+        place({
+          name: "Castelo de São Jorge",
+          provider: "GOOGLE_MAPS",
+          lat: 38.7139,
+          lng: -9.1334,
+          photo: "https://cdn.example.com/castelo.jpg",
+          nativeId: "ChIJcastelo",
+        }),
+        place({
+          name: "Torre de Belém",
+          provider: "GOOGLE_MAPS",
+          lat: 38.6916,
+          lng: -9.216,
+          photo: "https://cdn.example.com/belem.jpg",
+          nativeId: "ChIJbelem",
+        }),
+      ],
+      { city: "Lisbon", lat: 38.7223, lng: -9.1393 },
+    );
+    const searchQueries: string[] = [];
+    let makePlaces: string[] = [];
+    const result = await planTrip({
+      ...base110a(searchQueries),
+      _testNominateChatCreate: nominateChat(["Torre de Belém"]),
+      _testMakeItinerary: async (mi) => {
+        makePlaces = mi.candidates.places.map((p) => p.name);
+        return {
+          skeleton: skeletonFixture,
+          candidates_slim: {
+            places: mi.candidates.places,
+            restaurants: [],
+          },
+        };
+      },
+    });
+    expect(result.status).toBe("ready");
+    expect(makePlaces).toContain("Torre de Belém");
+    expect(makePlaces).not.toContain("Castelo de São Jorge");
+    const doc = await fetchTripDetails({
+      callerKey,
+      trip_id: result.trip_id,
+      fields: ["candidates"],
+    });
+    const places = (
+      (doc.data.candidates as { places?: PlaceCard[] } | undefined)?.places ?? []
+    ).map((p) => p.name);
+    expect(places).toContain("Torre de Belém");
+    expect(places).not.toContain("Castelo de São Jorge");
+  });
+});
+
+describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
+  let callerKey = "";
+  const prevVendor = process.env.PLACES_VENDOR_MODE;
+  const prevQwen = process.env.QWEN_API_KEY;
+  const prevOpenai = process.env.OPENAI_API_KEY;
+
+  const skeletonFixture = {
+    days: [
+      {
+        day_index: 1,
+        day_theme: "Local",
+        stops: [
+          { name: "Hills Hotel", kind: "stay" as const },
+          { name: "Torre de Belém", kind: "attraction" as const },
+        ],
+      },
+    ],
+  };
+
+  /** Lisbon ~38.72,-9.14; ~100km NE is beyond CITY_RADIUS_KM (80) but within 160. */
+  function localCard() {
+    return place({
+      name: "Torre de Belém",
+      provider: "GOOGLE_MAPS",
+      lat: 38.6916,
+      lng: -9.216,
+      photo: "https://cdn.example.com/belem.jpg",
+      nativeId: "ChIJbelem",
+    });
+  }
+
+  function nearbyCard(name: string, nativeId: string) {
+    return place({
+      name,
+      provider: "GOOGLE_MAPS",
+      lat: 39.5,
+      lng: -8.9,
+      photo: "https://cdn.example.com/nearby.jpg",
+      nativeId,
+    });
+  }
+
+  function base110d(overrides?: Partial<PlanTripInput>): PlanTripInput {
+    return {
+      callerKey,
+      city: "Lisbon",
+      locale: "EN",
+      numDays: 3,
+      origin: { name: "Hills Hotel Lisboa" },
+      pace: "medium",
+      budget: "mid",
+      transit_preference: "transit_walk",
+      trip_type: "couple",
+      party_size: 2,
+      bounds: { start: "2026-10-10", end: "2026-10-12" },
+      start_time: "09:30",
+      other: "prefer waterfront walks",
+      skeleton_only: true,
+      _testGeocode: async () => okGeocode(38.7223, -9.1393, "Lisbon"),
+      _testDiscoverPlacesForSkeleton: async () => [
+        localCard(),
+        nearbyCard("Óbidos Castle", "ChIJobidos"),
+        nearbyCard("Nazaré Beach", "ChIJnazare"),
+      ],
+      _testResolveStay: async () =>
+        place({
+          name: "Hills Hotel Lisboa",
+          provider: "GOOGLE_MAPS",
+          lat: 38.73,
+          lng: -9.14,
+          photo: "https://cdn.example.com/hotel.jpg",
+          nativeId: "ChIJhotel",
+        }),
+      _testMakeItinerary: async () => ({
+        skeleton: skeletonFixture,
+        candidates_slim: { places: [] as PlaceCard[], restaurants: [] as PlaceCard[] },
+      }),
+      _testPlanNextStopFill: async () => {
+        throw new Error("plan_next_stop must not run on expand_radius gate");
+      },
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    process.env.PLACES_VENDOR_MODE = "fixture";
+    delete process.env.QWEN_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    resetPoiRegistryStoreForTests();
+    setPoiRegistryStore(createMemoryPoiRegistryStore());
+    await resetDb();
+    const generated = generateCallerSecret();
+    const row = await prisma.callerApiKey.create({
+      data: {
+        name: "plan-trip-110d",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    callerKey = row.id;
+  });
+
+  afterEach(async () => {
+    clearTripMemoryForTests();
+    resetPoiRegistryStoreForTests();
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    if (prevVendor === undefined) delete process.env.PLACES_VENDOR_MODE;
+    else process.env.PLACES_VENDOR_MODE = prevVendor;
+    if (prevQwen === undefined) delete process.env.QWEN_API_KEY;
+    else process.env.QWEN_API_KEY = prevQwen;
+    if (prevOpenai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenai;
+  });
+
+  it("should_ask_expand_radius_when_thin_even_without_expandable_pois", async () => {
+    // 江阴-style: local attractions < days and nothing beyond local radius.
+    const result = await planTrip({
+      ...base110d({
+        _testSearchPlaces: async () =>
+          okCards([
+            place({
+              name: "Torre de Belém",
+              provider: "GOOGLE_MAPS",
+              lat: 38.6916,
+              lng: -9.216,
+              photo: "https://cdn.example.com/belem.jpg",
+              nativeId: "ChIJbelem",
+            }),
+          ]),
+      }),
+    });
+    expect(result.status).toBe("needs_input");
+    expect(result.need_input?.questions.some((q) => q.id === "expand_radius")).toBe(true);
+  });
+
+  it("should_return_needs_input_expand_radius_when_local_pool_scarce (TC-T3-110d-01)", async () => {
+    const result = await planTrip(base110d());
+    expect(result.status).toBe("needs_input");
+    const q = result.need_input?.questions.find((x) => x.id === "expand_radius");
+    expect(q).toBeDefined();
+    expect(q?.options?.map((o) => o.id)).toEqual(["yes", "no"]);
+    // Nearby-city POIs must not be auto-merged into candidates before confirm.
+    const doc = await fetchTripDetails({
+      callerKey,
+      trip_id: result.trip_id,
+      fields: ["candidates"],
+    });
+    const names = (
+      (doc.data.candidates as { places?: PlaceCard[] } | undefined)?.places ?? []
+    ).map((p) => p.name);
+    expect(names).toContain("Torre de Belém");
+    expect(names).not.toContain("Óbidos Castle");
+    expect(names).not.toContain("Nazaré Beach");
+  });
+
+  it("should_include_expanded_pois_when_expand_radius_affirmed", async () => {
+    let makeNames: string[] = [];
+    const first = await planTrip(base110d());
+    expect(first.status).toBe("needs_input");
+
+    const second = await planTrip(
+      base110d({
+        trip_id: first.trip_id,
+        revision: first.revision,
+        answers: { expand_radius: "yes" },
+        _testMakeItinerary: async (mi) => {
+          makeNames = mi.candidates.places.map((p) => p.name);
+          return {
+            skeleton: skeletonFixture,
+            candidates_slim: {
+              places: mi.candidates.places,
+              restaurants: [],
+            },
+          };
+        },
+      }),
+    );
+    expect(second.status).toBe("ready");
+    expect(makeNames).toEqual(
+      expect.arrayContaining(["Torre de Belém", "Óbidos Castle", "Nazaré Beach"]),
+    );
+  });
+
+  it("should_keep_local_only_and_complete_when_expand_radius_declined", async () => {
+    let makeNames: string[] = [];
+    const first = await planTrip(base110d());
+    expect(first.status).toBe("needs_input");
+
+    const second = await planTrip(
+      base110d({
+        trip_id: first.trip_id,
+        revision: first.revision,
+        answers: { expand_radius: "no" },
+        _testMakeItinerary: async (mi) => {
+          makeNames = mi.candidates.places.map((p) => p.name);
+          return {
+            skeleton: {
+              days: skeletonFixture.days,
+              deviations: [
+                {
+                  field: "attraction_pool",
+                  expected: ">= 3 attractions for 3 days",
+                  actual: "1",
+                  reason: "insufficient grounded attractions for requested trip length",
+                },
+              ],
+            },
+            candidates_slim: {
+              places: mi.candidates.places,
+              restaurants: [],
+            },
+          };
+        },
+      }),
+    );
+    expect(second.status).toBe("ready");
+    expect(makeNames).toContain("Torre de Belém");
+    expect(makeNames).not.toContain("Óbidos Castle");
+    expect(makeNames).not.toContain("Nazaré Beach");
+    expect(second.itinerary?.skeleton).toBeTruthy();
   });
 });

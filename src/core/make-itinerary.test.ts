@@ -18,8 +18,10 @@ import {
   trimAreaAliasStops,
   trimPaceOverages,
   validateSkeleton,
+  ItinerarySkeletonSchema,
   type MakeItineraryInput,
   type SkeletonChatCreate,
+  type SkeletonDeviation,
 } from "./make-itinerary";
 import { type PlaceCard } from "./types";
 import { type Locale } from "./locales";
@@ -129,7 +131,7 @@ describe("validateSkeleton", () => {
     if (!result.ok) expect(result.error).toMatch(/stay-only|attraction/i);
   });
 
-  it("should_reject_day_with_one_attraction_when_pool_covers_two_per_day", () => {
+  it("TC-T3-110e-01 should_allow_one_attraction_day_under_soft_pace_no_hard_minattr_floor", () => {
     const fatPool = {
       places: [
         place("A"),
@@ -146,33 +148,65 @@ describe("validateSkeleton", () => {
       days: [
         {
           day_index: 1,
-          day_theme: "thin",
+          day_theme: "theme park full day",
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
             { name: "A", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
             { kind: "meal", meal_slot: "dinner" },
-            { name: "C", kind: "attraction" },
           ],
         },
         {
           day_index: 2,
-          day_theme: "thin2",
+          day_theme: "city",
           stops: [
             { name: "Hills Hotel Lisboa", kind: "stay" },
-            { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
-            { kind: "meal", meal_slot: "dinner" },
             { name: "B", kind: "attraction" },
+            { name: "C", kind: "attraction" },
+            { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+            { name: "D", kind: "attraction" },
+            { kind: "meal", meal_slot: "dinner" },
           ],
         },
       ],
     };
+    // 110e: a 1-attraction day (e.g. theme park) is no longer hard-rejected for
+    // being below a ">= 2" minimum; pace is a soft signal, not a hard floor.
     const result = validateSkeleton(raw, fatPool, [], "relaxed");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/at least 2/);
+    expect(result.ok).toBe(true);
   });
 
-  it("should_trim_extra_attractions_when_day_exceeds_pace_limit (TC-M13-55-01)", () => {
+  it("TC-T3-110e-01b should_not_hard_reject_near_cap_pace_day_at_medium", () => {
+    const fatPool = {
+      places: ["A", "B", "C", "D", "E", "F", "G"].map((n) => place(n)),
+      restaurants: input.candidates.restaurants,
+      stays: ["Hills Hotel Lisboa"],
+    };
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "city",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "A", kind: "attraction" },
+            { name: "B", kind: "attraction" },
+            { name: "C", kind: "attraction" },
+            { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { name: "D", kind: "attraction" },
+            { name: "E", kind: "attraction" },
+            { name: "F", kind: "attraction" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    // 110e: 6 attractions at medium (soft cap 5) is not a hard rejection.
+    const result = validateSkeleton(raw, fatPool, [], "medium");
+    expect(result.ok).toBe(true);
+  });
+
+  it("should_trim_extreme_attraction_overage_only (TC-M13-55-01 / 110e)", () => {
     const manyPlaces = {
       places: [
         place("A"),
@@ -205,13 +239,14 @@ describe("validateSkeleton", () => {
         },
       ],
     };
+    // 110e: trim only extreme overage (> limit + 2); relaxed cap 4 → 7 trimmed to 6, not 4.
     const trimmed = reseatLateLunchStops(trimPaceOverages(crowded, "relaxed"));
     const result = validateSkeleton(trimmed, manyPlaces, [], "relaxed");
     expect(result.ok).toBe(true);
     if (result.ok) {
       const attr = result.skeleton.days[0]!.stops.filter((s) => s.kind === "attraction");
-      expect(attr).toHaveLength(4);
-      expect(attr.map((s) => s.name)).toEqual(["A", "B", "C", "D"]);
+      expect(attr).toHaveLength(6);
+      expect(attr.map((s) => s.name)).toEqual(["A", "B", "C", "D", "E", "F"]);
     }
   });
 
@@ -721,6 +756,266 @@ describe("validateSkeleton", () => {
       expect(lunchIdx).toBeLessThan(lastAttrIdx);
     }
   });
+
+  /** TC-T3-110e-02 — lunch rule soft on a single-attraction (theme-park) day. */
+  it("should_not_force_lunch_before_sole_attraction_on_single_attraction_day", () => {
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "theme park",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "上海迪士尼乐园", kind: "attraction" },
+            { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const extendedPool = {
+      ...pool,
+      places: [...pool.places, place("上海迪士尼乐园")],
+    };
+    const reseated = reseatLateLunchStops(raw);
+    const result = validateSkeleton(reseated, extendedPool, [], "medium");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const stops = result.skeleton.days[0]!.stops;
+      const lunchIdx = stops.findIndex((s) => s.kind === "meal" && s.meal_slot === "lunch");
+      const attrIdx = stops.findIndex((s) => s.kind === "attraction");
+      // Lunch stays after the sole attraction so splitSingleAttractionDays can build AM→lunch→PM.
+      expect(lunchIdx).toBeGreaterThan(attrIdx);
+    }
+  });
+
+  /** TC-T3-110e-05 — safety rails still hard after softening. */
+  it("should_still_reject_cross_day_reuse_city_as_stop_and_uncovered_must_include", () => {
+    const fatPool = {
+      places: ["A", "B", "C", "D", "E", "F"].map((n) => place(n)),
+      restaurants: input.candidates.restaurants,
+      stays: ["Hills Hotel Lisboa"],
+    };
+    const reused = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "d1",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "A", kind: "attraction" },
+            { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+        {
+          day_index: 2,
+          day_theme: "d2",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "A", kind: "attraction" },
+            { name: "Time Out Market", kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    expect(validateSkeleton(reused, fatPool, [], "medium").ok).toBe(false);
+
+    const cityAsStop = JSON.parse(JSON.stringify(reused));
+    cityAsStop.days[1].stops[1] = { name: "Lisbon", kind: "attraction" };
+    expect(validateSkeleton(cityAsStop, fatPool, [], "medium", "Lisbon").ok).toBe(false);
+
+    const missingMust = JSON.parse(JSON.stringify(reused));
+    expect(
+      validateSkeleton(missingMust, fatPool, ["Mosteiro dos Jerónimos"], "medium").ok,
+    ).toBe(false);
+  });
+
+  /** TC-T3-110e-06 — day count is a hard safety rail, not a pace quota. */
+  it("should_reject_skeleton_when_day_count_mismatches_numDays", () => {
+    const fatPool = {
+      places: ["A", "B", "C", "D", "E", "F"].map((n) => place(n)),
+      restaurants: input.candidates.restaurants,
+      stays: ["Hills Hotel Lisboa"],
+    };
+    const threeDay = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "d1",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "A", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+        {
+          day_index: 2,
+          day_theme: "d2",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "B", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+        {
+          day_index: 3,
+          day_theme: "d3",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "C", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    // 3-day skeleton is valid when numDays=3.
+    expect(validateSkeleton(threeDay, fatPool, [], "medium", undefined, undefined, 3).ok).toBe(true);
+    // 3-day skeleton is invalid when numDays=2 (LLM emitted too many days).
+    const tooMany = validateSkeleton(threeDay, fatPool, [], "medium", undefined, undefined, 2);
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.error).toMatch(/day count|numDays|expected/i);
+    // 3-day skeleton is invalid when numDays=4 (LLM emitted too few days).
+    const tooFew = validateSkeleton(threeDay, fatPool, [], "medium", undefined, undefined, 4);
+    expect(tooFew.ok).toBe(false);
+    if (!tooFew.ok) expect(tooFew.error).toMatch(/day count|numDays|expected/i);
+    // Omitting numDays keeps backward-compatible behavior (no count check).
+    expect(validateSkeleton(threeDay, fatPool, [], "medium").ok).toBe(true);
+  });
+
+  /** TC-T3-110c-02 — optional deviations on skeleton schema. */
+  it("should_allow_optional_deviations_on_ItinerarySkeletonSchema", () => {
+    const withDev: {
+      days: Array<{
+        day_index: number;
+        day_theme: string;
+        stops: Array<{ name?: string; kind: "stay" | "attraction" | "meal"; meal_slot?: "lunch" | "dinner" }>;
+      }>;
+      deviations: SkeletonDeviation[];
+    } = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "d1",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "Torre de Belém", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+      deviations: [
+        {
+          field: "attraction_pool",
+          expected: ">= 3 attractions for 3 days",
+          actual: "1",
+          reason: "insufficient grounded attractions for requested trip length",
+        },
+      ],
+    };
+    const parsed = ItinerarySkeletonSchema.safeParse(withDev);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.deviations).toHaveLength(1);
+      expect(parsed.data.deviations![0]!.field).toBe("attraction_pool");
+    }
+    expect(ItinerarySkeletonSchema.safeParse({ days: withDev.days }).success).toBe(true);
+  });
+});
+
+describe("makeItinerary deviations (agent-discover-110c)", () => {
+  /** TC-T3-110c-01 — post-make never grows days; far-cluster issues become deviations. */
+  it("should_not_grow_days_beyond_numDays_and_attach_far_cluster_deviation", async () => {
+    const pink = place("Pink Street", 38.7072, -9.1438);
+    const sculpture = place("Street Sculpture", 38.7346, -9.1371);
+    const pena = place("佩纳宫", 38.7876, -9.3906);
+    const cabo = place("罗卡角", 38.7804, -9.4989);
+    const restaurants = [restaurant("Pastéis de Belém"), restaurant("Time Out Market")];
+    const tripInput = baseInput({
+      numDays: 1,
+      candidates: { places: [pink, sculpture, pena, cabo], restaurants },
+    });
+    const llmSkeleton = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Mixed city and hills",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "Pink Street", kind: "attraction" },
+            { name: "Street Sculpture", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { name: "佩纳宫", kind: "attraction" },
+            { name: "罗卡角", kind: "attraction" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const result = await makeItinerary(tripInput, {
+      create: fakeCreate(JSON.stringify(llmSkeleton)),
+    });
+    expect(result.skeleton.days).toHaveLength(1);
+    expect(result.skeleton.deviations?.some((d) => /far_cluster/i.test(d.field))).toBe(true);
+  });
+
+  /** TC-T3-110c-03 — thin pool: deviation + no endless retry hang. */
+  it("should_attach_thin_pool_deviation_and_complete_without_endless_retry", async () => {
+    const onlyTwo = [place("A"), place("B")];
+    const tripInput = baseInput({
+      numDays: 4,
+      candidates: {
+        places: onlyTwo,
+        restaurants: [restaurant("Pastéis de Belém"), restaurant("Time Out Market")],
+      },
+      must_include: undefined,
+    });
+    // Fixture path (no create): thin pool must still complete with deviation.
+    const result = await makeItinerary(tripInput);
+    expect(result.skeleton.days).toHaveLength(4);
+    const thin = result.skeleton.deviations?.find((d) =>
+      /attraction_pool|thin|poi/i.test(d.field),
+    );
+    expect(thin).toBeDefined();
+    expect(thin!.expected).toMatch(/4/);
+    expect(thin!.actual).toMatch(/2/);
+    expect(thin!.reason.length).toBeGreaterThan(0);
+  });
+
+  it("should_preserve_llm_attached_deviations_on_skeleton", async () => {
+    const tripInput = baseInput({ numDays: 1 });
+    const llmSkeleton = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "City",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "Torre de Belém", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+      deviations: [
+        {
+          field: "pace",
+          expected: "relaxed density",
+          actual: "1 attraction",
+          reason: "LLM chose a light day",
+        },
+      ],
+    };
+    const result = await makeItinerary(tripInput, {
+      create: fakeCreate(JSON.stringify(llmSkeleton)),
+    });
+    expect(result.skeleton.deviations?.some((d) => d.field === "pace")).toBe(true);
+  });
 });
 
 describe("makeItinerary events (TC-M10-43-01)", () => {
@@ -988,7 +1283,7 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
     });
     const backfill = result.candidates_slim.places.find((p) => p.name === "卡斯凯什老城");
     expect(backfill?.user_requested).toBe(true);
-    expect(backfill?.must_see).not.toBe(true);
+    expect(backfill && "must_see" in backfill).toBe(false);
   });
 
   it("should_enrich_empty_restaurants_and_uncovered_must_include_before_llm", async () => {
@@ -1308,18 +1603,17 @@ describe("buildSkeletonUserMessage", () => {
     expect(msg).not.toMatch(/from the restaurant list/);
   });
 
-  it("TC-M12-49-05: should_annotate_must_see_candidates", () => {
-    const places = [
-      { ...place("Torre de Belém"), must_see: true },
-      place("Mosteiro dos Jerónimos"),
-    ];
+  it("ADR-069: should_not_annotate_must_see_tags_in_skeleton_prompt", () => {
+    const places = [place("Torre de Belém"), place("Mosteiro dos Jerónimos")];
     const input = baseInput({ candidates: { places, restaurants: [] } });
     input.candidates.places = places;
     const msg = buildSkeletonUserMessage(input);
-    expect(msg).toMatch(/Torre de Belém.*\[must-see\]/);
-    expect(msg).not.toMatch(/Mosteiro dos Jerónimos.*\[must-see\]/);
+    expect(msg).toMatch(/Torre de Belém/);
+    expect(msg).toMatch(/Mosteiro dos Jerónimos/);
+    expect(msg).not.toMatch(/\[must-see\]/);
   });
 });
+
 
 describe("buildFixtureSkeleton", () => {
   it("should_never_emit_times", () => {
@@ -1342,11 +1636,10 @@ describe("buildFixtureSkeleton", () => {
     );
   });
 
-  it("TC-M12-49-05: should_prefer_must_see_places_first", () => {
-    // Generic place first, iconic (must_see) last — fixture must reorder so the
-    // iconic place is scheduled on day 1 ahead of the generic one.
+  it("ADR-069: should_keep_candidate_order_without_must_see_first_sort", () => {
+    // Fixture schedules places in pool order — no must_see-first reorder.
     const generic = place("Generic Viewpoint");
-    const iconic = { ...place("Pena Palace"), must_see: true };
+    const iconic = place("Pena Palace");
     const input = baseInput({
       numDays: 1,
       candidates: { places: [generic, iconic], restaurants: [restaurant("Lunch")] },
@@ -1356,7 +1649,8 @@ describe("buildFixtureSkeleton", () => {
     const attractionNames = day1.stops
       .filter((s) => s.kind === "attraction")
       .map((s) => s.name);
-    expect(attractionNames[0]).toBe("Pena Palace");
+    expect(attractionNames[0]).toBe("Generic Viewpoint");
+    expect(attractionNames).toContain("Pena Palace");
   });
 
   it("TC-M21-83-01 should_keep_lisbon_pool_when_origin_is_far", async () => {
@@ -1426,8 +1720,8 @@ describe("buildFixtureSkeleton", () => {
   });
 });
 
-describe("enrichMakeItineraryInput registry merge (TC-M22-87-03)", () => {
-  it("should_merge_registry_places_into_make_pool_then_still_filter_eligible", async () => {
+describe("enrichMakeItineraryInput registry cache-only (TC-T3-110a-05)", () => {
+  it("should_not_merge_whole_city_registry_into_make_pool", async () => {
     const { createMemoryPoiRegistryStore, setPoiRegistryStore, upsertEligiblePois } =
       await import("./destination-poi-registry");
     const store = createMemoryPoiRegistryStore();
@@ -1452,10 +1746,10 @@ describe("enrichMakeItineraryInput registry merge (TC-M22-87-03)", () => {
       }),
       { geocode: async () => ({ lat: 38.722, lng: -9.139 }) },
     );
-    expect(enriched.candidates.places.map((p) => p.name)).toEqual(
-      expect.arrayContaining(["Torre de Belém", "Mosteiro dos Jerónimos"]),
+    expect(enriched.candidates.places.map((p) => p.name)).toEqual(["Torre de Belém"]);
+    expect(enriched.candidates.places.map((p) => p.name)).not.toContain(
+      "Mosteiro dos Jerónimos",
     );
-    expect(enriched.candidates.places.every((p) => !/名胜区/.test(p.name))).toBe(true);
     setPoiRegistryStore(null);
   });
 });
@@ -1578,3 +1872,150 @@ describe("F91 skeleton dinner + single-attraction split (TC-M23-91-04)", () => {
     expect(msg).toMatch(/Every day also needs a dinner/i);
   });
 });
+
+describe("buildSkeletonUserMessage traveler prefs (agent-itinerary-102 / 110b)", () => {
+  it("should_include_season_context_and_display_names_without_season_rule_when_cn_family_kids (TC-T3-110b-01)", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        trip_type: "family_kids",
+        party_size: 2,
+        budget: "comfort",
+        transit_preference: "transit_walk",
+        other: "7岁儿童",
+        bounds: { start: "2026-09-10", end: "2026-09-13" },
+        start_time: "09:30",
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/9月/);
+    expect(msg).toMatch(/秋季/);
+    // 2a-none: no formatNominateSeasonRule injection (glossary season line from 110e may remain)
+    expect(msg).not.toMatch(/不要因季节硬删|四季可游|候选池内已有名称不要因季节/);
+    expect(msg).not.toMatch(
+      /Do not drop names that are already in the candidate pool solely for season|prefer year-round experiences/i,
+    );
+    expect(msg).toMatch(/亲子玩乐/);
+    expect(msg).not.toMatch(/family_kids/);
+    expect(msg).toMatch(/2人|party/i);
+    expect(msg).toMatch(/舒适/);
+    expect(msg).toMatch(/其他：7岁儿童/);
+    expect(msg).not.toMatch(/其他（偏好）/);
+    expect(msg).not.toMatch(/HARD MUST INCLUDE[\s\S]*7岁儿童/);
+  });
+
+  it("should_label_other_as_Other_without_preference_when_en (TC-T3-110b-01)", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "EN",
+        other: "no museums",
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/Other: no museums/);
+    expect(msg).not.toMatch(/Other \(preference\)/);
+  });
+
+  it("should_pass_through_custom_trip_type_探访历史", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        trip_type: "探访历史",
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/探访历史/);
+  });
+
+  it("should_show_mid_budget_display_not_only_budget_premium", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        budget: "mid",
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/适中/);
+    expect(msg).not.toMatch(/Budget: mid\./);
+  });
+
+  it("should_keep_seasonal_pool_names_as_context_without_season_hard_rule (TC-T3-110b-01)", () => {
+    const places = [place("断桥残雪"), place("灵隐寺")];
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        city: "杭州",
+        bounds: { start: "2026-09-10", end: "2026-09-12" },
+        candidates: { places, restaurants: [] },
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/断桥残雪/);
+    expect(msg).toMatch(/秋季|9月/);
+    expect(msg).not.toMatch(/不要因季节硬删|四季可游|候选池内已有名称不要因季节/);
+    expect(msg).not.toMatch(/must drop|remove 断桥|强制删除断桥/);
+  });
+});
+
+describe("buildSkeletonUserMessage kids rank (agent-itinerary-107)", () => {
+  it("should_prefer_pool_park_shaped_cards_when_family_kids (TC-T3-107-01)", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        trip_type: "family_kids",
+        other: "7岁儿童",
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/乐园|水族馆|动物园|游乐场|公园/);
+    expect(msg).toMatch(/不要发明池外地名|候选池/);
+    expect(msg).not.toMatch(/必须安排迪士尼|must include Disney/i);
+  });
+});
+
+describe("Takeoff-11 full prompt intake (agent-itinerary-109)", () => {
+  it("should_include_iso_date_range_in_traveler_block (TC-T3-109-01)", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        bounds: { start: "2026-09-10", end: "2026-09-13" },
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/2026-09-10/);
+    expect(msg).toMatch(/2026-09-13/);
+    expect(msg).toMatch(/日期|Dates/i);
+    expect(msg).toMatch(/秋季|9月/);
+  });
+
+  it("should_label_start_time_and_transit_as_soft_prefs (TC-T3-109-04)", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        start_time: "09:30",
+        transit_preference: "transit_walk",
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).toMatch(/09:30/);
+    expect(msg).toMatch(/公交|地铁/);
+    expect(msg).toMatch(/后续填细节/);
+    expect(msg).toMatch(/不要在骨架 JSON/);
+    expect(msg).toMatch(/NO times/);
+    expect(msg).toMatch(/NO transit/);
+  });
+
+  it("should_omit_dates_when_bounds_empty (TC-T3-109-05)", () => {
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        locale: "CN",
+        bounds: undefined,
+        budget: undefined,
+        natural_language: undefined,
+      }),
+    );
+    expect(msg).not.toMatch(/日期：|Dates:/);
+    expect(msg).not.toMatch(/\d{4}-\d{2}-\d{2}至\d{4}-\d{2}-\d{2}/);
+  });
+});
+

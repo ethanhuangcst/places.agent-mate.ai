@@ -103,7 +103,6 @@ async function enrichTimed(input: MakeItineraryInput) {
           existingNorm,
         });
         if (!found) return;
-        found.must_see = true;
         existingNorm.add(normalizeMustIncludeToken(found.name));
         places.unshift(found);
       });
@@ -143,7 +142,6 @@ async function enrichTimed(input: MakeItineraryInput) {
           const n = normalizeMustIncludeToken(card.name);
           if (!n || existingNorm.has(n)) continue;
           if (city && n === normalizeMustIncludeToken(city)) continue;
-          card.must_see = true;
           existingNorm.add(n);
           places.push(card);
           if (places.filter((p) => skeletonCoversMustInclude(tok, [p.name])).length >= 8) break;

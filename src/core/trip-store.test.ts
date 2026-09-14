@@ -8,7 +8,7 @@ import {
   commitPatch,
   ensureTrip,
   getTripOrThrow,
-  mergeCandidatesPreserveMustSee,
+  mergeCandidates,
   slimCandidatesForStore,
   tripPatchCandidatesIfNonEmpty,
 } from "./trip-store";
@@ -193,40 +193,41 @@ describe("slim candidates for Trip patch", () => {
     ).toMatchObject({ name: "A", user_requested: true });
   });
 
-  it("TC-M19-82-01 should_preserve_store_must_see_when_incoming_pool_is_slimmer", () => {
+  it("TC-M19-82-01 should_merge_incoming_over_store_by_name", () => {
     const store = {
       places: [
-        { name: "Belém Tower", must_see: true },
-        { name: "Jerónimos Monastery", must_see: true },
-        { name: "Castelo de São Jorge", must_see: true },
-        { name: "Pena Palace", must_see: true },
-        { name: "Sintra", must_see: true },
-        { name: "Cabo da Roca", must_see: true },
-        { name: "LX Factory", must_see: true },
-        { name: "Time Out Market", must_see: true },
+        { name: "Belém Tower", rating: 4.5 },
+        { name: "Jerónimos Monastery" },
+        { name: "Castelo de São Jorge" },
+        { name: "Pena Palace" },
+        { name: "Sintra" },
+        { name: "Cabo da Roca" },
+        { name: "LX Factory" },
+        { name: "Time Out Market" },
         { name: "Generic Cafe" },
       ],
       restaurants: [],
     };
     const incoming = {
       places: [
-        { name: "Belém Tower", must_see: true, user_requested: true },
+        { name: "Belém Tower", user_requested: true },
         { name: "Jerónimos Monastery", user_requested: true },
         { name: "Sintra", user_requested: true },
       ],
       restaurants: [],
     };
-    const merged = mergeCandidatesPreserveMustSee(store, incoming);
-    expect(merged.places.filter((p) => p.must_see === true)).toHaveLength(8);
+    const merged = mergeCandidates(store, incoming);
+    // ADR-069: merge keeps full store pool; no must_see heat preservation.
+    expect(merged.places).toHaveLength(9);
     expect(merged.places.filter((p) => p.user_requested === true)).toHaveLength(3);
+    expect(merged.places.every((p) => p.must_see === undefined)).toBe(true);
   });
 
-  it("TC-M19-82-01 should_merge_candidates_on_commitPatch_without_dropping_heat", async () => {
+  it("TC-M19-82-01 should_merge_candidates_on_commitPatch_keeping_pool_names", async () => {
     const { trip_id, revision } = await ensureTrip({ callerKey: CALLER });
     const heatPool = {
       places: Array.from({ length: 8 }, (_, i) => ({
         name: `Heat Place ${i + 1}`,
-        must_see: true,
       })),
       restaurants: [],
     };
@@ -255,8 +256,10 @@ describe("slim candidates for Trip patch", () => {
       },
     });
     const afterMake = await getTripOrThrow(CALLER, trip_id);
-    const places = (afterMake.candidates as { places?: Array<{ must_see?: boolean }> })?.places ?? [];
-    expect(places.filter((p) => p.must_see === true)).toHaveLength(8);
+    const places = (afterMake.candidates as { places?: Array<{ name?: string; must_see?: boolean; user_requested?: boolean }> })?.places ?? [];
+    expect(places).toHaveLength(8);
+    expect(places.filter((p) => p.user_requested === true)).toHaveLength(3);
+    expect(places.every((p) => p.must_see === undefined)).toBe(true);
     expect((afterMake.constraints as { must_include?: string[] })?.must_include).toHaveLength(3);
   });
 

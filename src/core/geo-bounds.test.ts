@@ -3,6 +3,7 @@ import {
   DAY_THEME_CLUSTER_KM,
   DISCOVER_GEO_MAX_KM,
   dropFarOriginCoords,
+  ensureFarClustersOwnDays,
   filterCardsNearAnchor,
   pickSupplementaryMustIncludeHit,
   trimThemedDayOutliers,
@@ -214,5 +215,94 @@ describe("trimThemedDayOutliers", () => {
     expect(names).toContain("dinner");
     expect(names).toContain("卡斯凯什");
     expect(names).not.toContain("Pink Street");
+  });
+});
+
+describe("ensureFarClustersOwnDays (agent-itinerary-104 / agent-discover-110c)", () => {
+  const mixedDay = {
+    days: [
+      {
+        day_index: 1,
+        day_theme: "Mixed city and hills",
+        stops: [
+          { name: "Hills Hotel Lisboa", kind: "stay" },
+          { name: "Pink Street", kind: "attraction" },
+          { name: "Street Sculpture", kind: "attraction" },
+          { kind: "meal" as const, meal_slot: "lunch" as const },
+          { name: "佩纳宫", kind: "attraction" },
+          { name: "罗卡角", kind: "attraction" },
+          { kind: "meal" as const, meal_slot: "dinner" as const },
+        ],
+      },
+    ],
+  };
+
+  /** TC-T3-110c-01 — validate-don't-repair: never silently add days; record deviation. */
+  it("should_not_silently_add_days_and_record_far_cluster_deviation", () => {
+    const pool = [PINK, SCULPTURE, PENA, CABO];
+    const out = ensureFarClustersOwnDays(mixedDay, pool, undefined, 1);
+    expect(out.skeleton.days).toHaveLength(1);
+    const attrNames = out.skeleton.days[0]!.stops
+      .filter((s) => s.kind === "attraction")
+      .map((s) => s.name);
+    expect(attrNames).toContain("佩纳宫");
+    expect(attrNames).toContain("罗卡角");
+    expect(attrNames).toContain("Pink Street");
+    expect(out.deviations.length).toBeGreaterThanOrEqual(1);
+    expect(out.deviations[0]).toMatchObject({
+      field: expect.stringMatching(/far_cluster|day/i),
+      expected: expect.any(String),
+      actual: expect.any(String),
+      reason: expect.any(String),
+    });
+  });
+
+  it("should_not_add_days_beyond_numDays_even_when_budget_would_allow_legacy_split", () => {
+    const pool = [PINK, SCULPTURE, PENA, CABO];
+    // 110c: validate-don't-repair — never peel far clusters onto new days.
+    const out = ensureFarClustersOwnDays(mixedDay, pool, undefined, 3);
+    expect(out.skeleton.days).toHaveLength(1);
+    expect(out.deviations.some((d) => /far_cluster/i.test(d.field))).toBe(true);
+  });
+
+  it("should_not_insert_unscheduled_far_pool_pois", () => {
+    const pool = [PINK, PENA, CABO];
+    const out = ensureFarClustersOwnDays(
+      {
+        days: [
+          {
+            day_index: 1,
+            day_theme: "City only",
+            stops: [
+              { name: "Hills Hotel Lisboa", kind: "stay" },
+              { name: "Pink Street", kind: "attraction" },
+              { kind: "meal", meal_slot: "lunch" },
+              { kind: "meal", meal_slot: "dinner" },
+            ],
+          },
+        ],
+      },
+      pool,
+    );
+    const names = out.skeleton.days.flatMap((d) =>
+      d.stops.map((s) => s.name).filter(Boolean),
+    );
+    expect(names).not.toContain("佩纳宫");
+    expect(names).not.toContain("罗卡角");
+    expect(out.skeleton.days).toHaveLength(1);
+    expect(out.deviations).toHaveLength(0);
+  });
+
+  /** TC-T3-110e-06b / 110c — keep far attrs; never grow past maxDays. */
+  it("should_not_split_beyond_maxDays_and_keep_far_attrs_in_main_day", () => {
+    const pool = [PINK, SCULPTURE, PENA, CABO];
+    const out = ensureFarClustersOwnDays(mixedDay, pool, undefined, 1);
+    expect(out.skeleton.days).toHaveLength(1);
+    const attrNames = out.skeleton.days[0]!.stops
+      .filter((s) => s.kind === "attraction")
+      .map((s) => s.name);
+    expect(attrNames).toContain("佩纳宫");
+    expect(attrNames).toContain("罗卡角");
+    expect(attrNames).toContain("Pink Street");
   });
 });

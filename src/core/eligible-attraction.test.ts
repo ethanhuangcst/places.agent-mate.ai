@@ -3,6 +3,7 @@ import {
   degradeMustInclude,
   filterEligibleAttractions,
   isEligibleAttraction,
+  isEligibilityNoiseCategory,
   isIneligibleMustIncludeToken,
   isNoiseCategory,
   isVagueAreaName,
@@ -162,6 +163,15 @@ describe("isVagueAreaName", () => {
     expect(isVagueAreaName("Praça do Comércio")).toBe(false);
     expect(isVagueAreaName("雷峰塔景区")).toBe(false);
   });
+
+  it("should_reject_common_cn_shopping_and_area_labels", () => {
+    expect(isVagueAreaName("田子坊")).toBe(true);
+    expect(isVagueAreaName("城隍庙")).toBe(true);
+    expect(isVagueAreaName("豫园商城")).toBe(true);
+    expect(isVagueAreaName("南京路")).toBe(true);
+    expect(isVagueAreaName("新天地")).toBe(true);
+    expect(isVagueAreaName("朱家角古镇")).toBe(true);
+  });
 });
 
 describe("sharedProperToken", () => {
@@ -186,5 +196,79 @@ describe("sharedProperToken", () => {
       card({ name: "Jerónimos Monastery", category: "Tourist attraction" }),
     ]);
     expect(picked?.name).toBe("Jerónimos Monastery");
+  });
+});
+
+describe("eligibility leakage (agent-itinerary-108)", () => {
+  it("should_reject_theme_park_parking_spot (TC-T3-108-01)", () => {
+    expect(
+      isEligibleAttraction(
+        card({
+          name: "张江主题公园停车点",
+          category: "交通设施服务;停车场;公共停车场",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("should_reject_ev_charging_station_near_park (TC-T3-108-02)", () => {
+    expect(
+      isEligibleAttraction(
+        card({
+          name: "小鹏超级充电站(上海张江主题公园站)",
+          category: "汽车服务;充电站;充电站",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("should_reject_bus_stop_named_after_museum (TC-T3-108-03)", () => {
+    expect(
+      isEligibleAttraction(
+        card({
+          name: "上海博物馆站(公交站)",
+          category: "交通设施服务;公交车站;公交车站相关",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("should_accept_disney_leyuan_under_entertainment (TC-T3-108-04)", () => {
+    expect(
+      isEligibleAttraction(
+        card({ name: "上海迪士尼乐园", category: "娱乐场所" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("should_accept_happy_valley_under_entertainment (TC-T3-108-05)", () => {
+    expect(
+      isEligibleAttraction(card({ name: "上海欢乐谷", category: "娱乐场所" })),
+    ).toBe(true);
+  });
+
+  it("should_accept_museum_under_culture_category (TC-T3-108-06)", () => {
+    expect(
+      isEligibleAttraction(
+        card({
+          name: "上海博物馆",
+          category: "科教文化服务;博物馆;博物馆",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("should_not_treat_entertainment_as_eligibility_noise_category", () => {
+    expect(
+      isEligibilityNoiseCategory(card({ name: "上海迪士尼乐园", category: "娱乐场所" })),
+    ).toBe(false);
+    expect(
+      isEligibilityNoiseCategory(
+        card({ name: "x", category: "交通设施服务;停车场;公共停车场" }),
+      ),
+    ).toBe(true);
+    expect(
+      isEligibilityNoiseCategory(card({ name: "x", category: "汽车服务;充电站;充电站" })),
+    ).toBe(true);
   });
 });

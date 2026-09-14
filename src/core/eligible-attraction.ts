@@ -57,7 +57,13 @@ export function isVagueAreaName(name: string): boolean {
   if (/(?:风景名胜区|風景名勝區|风景区|風景區|名胜区|名勝區|景区|公園|公园|广场|廣場)$/u.test(t)) {
     return false;
   }
-  return /(?:District|Area|Quarter|Neighborhood|街区|新城|[湖街城区])$/iu.test(t);
+  // Common area / shopping labels that do not pin to one visit stop.
+  // Destination-agnostic bare-area markers only (ADR-042); city-specific POI
+  // names are not enumerated here — the generic suffix regex below catches them.
+  if (/^(田子坊|城隍庙|南京路|淮海路|新天地|银座|涩谷|秋叶原|上野|浅草)$/u.test(t)) {
+    return true;
+  }
+  return /(?:District|Area|Quarter|Neighborhood|街区|古镇|新城|商城|[湖街城区])$/iu.test(t);
 }
 
 /** Generic venue-type / structural words — not proper nouns. Destination-agnostic
@@ -121,12 +127,26 @@ function effectiveName(card: PlaceCard): string {
   return unwrapScenicChildName(raw) ?? raw;
 }
 
+/**
+ * Category noise for skeleton/eligible pool (agent-itinerary-108).
+ * Narrower than `isNoiseCategory`: never matches 娱乐场所 (ADR-066 / 105).
+ * Destination-agnostic AMAP top-level templates only (ADR-042).
+ */
+const ELIGIBILITY_CATEGORY_NOISE = /交通设施|汽车服务/i;
+
+export function isEligibilityNoiseCategory(card: PlaceCard): boolean {
+  const cat = (card.category ?? "").trim();
+  if (!cat) return false;
+  return ELIGIBILITY_CATEGORY_NOISE.test(cat);
+}
+
 export function isEligibleAttraction(card: PlaceCard): boolean {
   const name = effectiveName(card);
   if (!name) return false;
   if (isCollectionPlaceName(name)) return false;
   if (isAttractionServiceFragment(name)) return false;
   if (isAttractionServiceFragment(card.name?.trim() ?? "")) return false;
+  if (isEligibilityNoiseCategory(card)) return false;
   if (!hasPlottableLocation(card)) return false;
   if (!hasNativeIdIfSourced(card)) return false;
   if (filterDiningPlaces([{ ...card, name }]).length > 0) return false;

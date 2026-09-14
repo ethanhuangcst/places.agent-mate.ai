@@ -135,3 +135,27 @@ describe("place filters", () => {
     expect(placeIdentity(nameless)).toBe("name:thecoffee");
   });
 });
+
+describe("theme-park eligibility (agent-itinerary-105)", () => {
+  it("should_keep_resort_tourist_attraction_out_of_lodging (TC-T3-105-01)", () => {
+    const disneyResort = card("Shanghai Disney Resort", "tourist_attraction");
+    expect(isLodgingPlace(disneyResort)).toBe(false);
+    expect(filterAttractionPlaces([disneyResort]).map((p) => p.name)).toEqual([
+      "Shanghai Disney Resort",
+    ]);
+  });
+
+  it("should_keep_hilton_resort_hotel_as_lodging (TC-T3-105-02)", () => {
+    const hotel = card("Hilton Resort Hotel", "lodging");
+    expect(isLodgingPlace(hotel)).toBe(true);
+    expect(filterAttractionPlaces([hotel])).toEqual([]);
+  });
+
+  it("should_allow_cn_leyuan_under_entertainment_category (TC-T3-105-03)", () => {
+    const leyuan = card("上海迪士尼乐园", "娱乐场所");
+    const happyValley = card("上海欢乐谷", "娱乐场所");
+    expect(isLodgingPlace(leyuan)).toBe(false);
+    expect(filterAttractionPlaces([leyuan]).map((p) => p.name)).toEqual(["上海迪士尼乐园"]);
+    expect(filterAttractionPlaces([happyValley]).map((p) => p.name)).toEqual(["上海欢乐谷"]);
+  });
+});

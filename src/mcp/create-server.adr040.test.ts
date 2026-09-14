@@ -284,7 +284,6 @@ describe("MCP ADR-040 tools", () => {
         ],
         restaurants: [],
       },
-      inferred_must_see: ["Castle"],
     });
     const tools = registeredTools(createPlacesMcpServer());
     const res = await tools.discover_places.handler({
@@ -596,7 +595,6 @@ describe("MCP ADR-040 tools", () => {
     // ADR-045 §5 / F51: aliases repoint to intake → discover_places → make_itinerary.
     const discoverSpy = vi.spyOn(planner, "discoverPlaces").mockResolvedValue({
       candidates: { places: [], restaurants: [] },
-      inferred_must_see: [],
     });
     const makeSpy = vi.spyOn(makeItineraryMod, "makeItinerary").mockResolvedValue({
       skeleton: { days: [{ day_index: 1, day_theme: "t", stops: [] }] } as never,
@@ -636,7 +634,6 @@ describe("MCP ADR-040 tools", () => {
     for (const alias of ["plan_itinerary", "trip_plan", "trips"] as const) {
       const discoverSpy = vi.spyOn(planner, "discoverPlaces").mockResolvedValue({
         candidates: { places: [], restaurants: [] },
-        inferred_must_see: [],
       });
       const makeSpy = vi.spyOn(makeItineraryMod, "makeItinerary").mockResolvedValue({
         skeleton: { days: [{ day_index: 1, day_theme: "t", stops: [] }] } as never,

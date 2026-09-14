@@ -190,7 +190,7 @@ export async function commitPatch(opts: {
             places: incomingPool.places ?? [],
             restaurants: incomingPool.restaurants ?? [],
           }
-        : mergeCandidatesPreserveMustSee(
+        : mergeCandidates(
             current.candidates as CandidatePool | null | undefined,
             incomingPool,
           )
@@ -294,9 +294,7 @@ function mergeCandidatePool(
     if (!name) continue;
     const prev = byName.get(name);
     if (prev) {
-      const merged = { ...prev, ...card };
-      if (prev.must_see === true) merged.must_see = true;
-      byName.set(name, merged);
+      byName.set(name, { ...prev, ...card });
     } else {
       byName.set(name, { ...card });
     }
@@ -304,8 +302,8 @@ function mergeCandidatePool(
   return [...byName.values()];
 }
 
-/** F82: keep store `must_see` heat when make/discover patches a slimmer pool. */
-export function mergeCandidatesPreserveMustSee(
+/** Merge candidate pools by normalized name (ADR-069: no must_see heat to preserve). */
+export function mergeCandidates(
   current: CandidatePool | null | undefined,
   incoming: CandidatePool,
 ): { places: Array<Record<string, unknown>>; restaurants: Array<Record<string, unknown>> } {
@@ -317,6 +315,9 @@ export function mergeCandidatesPreserveMustSee(
   };
 }
 
+/** @deprecated ADR-069 — alias for mergeCandidates. */
+export const mergeCandidatesPreserveMustSee = mergeCandidates;
+
 /** Slim candidates for PG — keep pointers + one photo for itinerary thumbs (do not strip sources). */
 export function slimCandidatesForStore(candidates: {
   places?: Array<Record<string, unknown>>;
@@ -326,7 +327,6 @@ export function slimCandidatesForStore(candidates: {
     const out: Record<string, unknown> = {};
     if (typeof c.name === "string") out.name = c.name;
     if (c.location && typeof c.location === "object") out.location = c.location;
-    if (c.must_see !== undefined) out.must_see = c.must_see;
     if (c.user_requested !== undefined) out.user_requested = c.user_requested;
     if (typeof c.category === "string") out.category = c.category;
     if (typeof c.kind === "string") out.kind = c.kind;

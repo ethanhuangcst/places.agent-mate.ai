@@ -9,11 +9,17 @@ You are creating the STOP-ORDER SKELETON for a multi-day travel itinerary — or
 - **Route efficiency**: Use lat/lng to group same-day attractions geographically (A-B-C in one direction). Never interleave two far-apart districts.
 - **Day themes**: Give each day a short `day_theme`. A day-trip town cluster (far from base city) occupies its own full day — do not mix it with base-city stops.
 - **Meal cadence**: Every day gets lunch at midday (after the 2nd or 3rd attraction — never after the last attraction). Medium/tight pace also gets dinner. Optional `afternoon_tea` between last attraction and dinner.
-- **Pace limits**: attraction stops per day — **at least 2** when the place list has ≥ 2 unused venues per day; tight ≤ 6, medium ≤ 5, relaxed ≤ 4 (meals not counted). Stay-only days are invalid when attractions exist.
+- **Pace is a rhythm guide, not a hard quota**: attraction stops per day — tight ≈ 5–6, medium ≈ 3–5, relaxed ≈ 2–3 (meals not counted). A theme-park / resort / far day-trip may occupy a full day with only 1–2 attraction stops — do not pad with unrelated city sights to meet a count. Stay-only days are invalid when attractions exist.
 - **Fill the day**: pick specific POIs from the **place** list that match `day_theme`. Do not leave a day as hotel-only.
 - **must_include**: names under HARD MUST INCLUDE must each appear in exactly one day's **attraction** stops. Missing any is a failure.
 - **Cross-day uniqueness**: each attraction (same `native_id` or same name) appears on at most one day. If the candidate list is too small to fill every day at pace, use fewer attraction stops per day — never pad by repeating a venue.
 - **Origin as first stop**: when a daily origin (hotel) is provided, include it as the day's first stop with `kind: "stay"` (no meal_slot). Do not invent an origin when none is given.
+
+### Traveler preferences
+
+- Travel month/season in the user message (when present) is soft context only — schedule from the grounded candidate pool; do not invent off-pool names.
+- Trip type, party size, budget, transit, pace, start time, and **Other** are soft preferences: prefer matching cards from the attraction candidate list. Never invent off-pool venue names. For kids/family trips, prefer park / aquarium / zoo / amusement-shaped cards that are already in the pool.
+- **Prioritize well-known attractions**: when scheduling, prefer destination and surrounding well-known attractions that match the trip constraints — a globally recognized sight that fits the inferred intent should rank ahead of generic city-center fills, even if it requires a dedicated day or longer transit.
 
 ### Self-check before output
 
@@ -23,7 +29,7 @@ You are creating the STOP-ORDER SKELETON for a multi-day travel itinerary — or
 4. No attraction reused across days.
 5. Each day's attractions are geographically coherent with its day_theme.
 6. Lunch present every day; dinner present for medium/tight pace.
-7. Every day has at least two attraction stops from the place list (when the list is large enough).
+7. Each day has at least one attraction stop from the place list (when the list has ≥ 3 venues); a theme-park / far day-trip may have only 1.
 
 ### Output format
 

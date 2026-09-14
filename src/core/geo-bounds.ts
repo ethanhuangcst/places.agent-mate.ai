@@ -122,3 +122,106 @@ export function trimThemedDayOutliers<T extends { days: ThemeDay[] }>(
   });
   return { ...skeleton, days };
 }
+
+type LocatedStop = {
+  stop: ThemeDay["stops"][number];
+  loc: { lat: number; lng: number };
+};
+
+function clusterLocatedStops(
+  items: LocatedStop[],
+  clusterKm: number,
+): LocatedStop[][] {
+  const n = items.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (i: number): number => {
+    let x = i;
+    while (parent[x] !== x) x = parent[x]!;
+    let y = i;
+    while (parent[y] !== y) {
+      const next = parent[y]!;
+      parent[y] = x;
+      y = next;
+    }
+    return x;
+  };
+  const unite = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (haversineKm(items[i]!.loc, items[j]!.loc) <= clusterKm) {
+        unite(i, j);
+      }
+    }
+  }
+  const groups = new Map<number, LocatedStop[]>();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    const g = groups.get(r) ?? [];
+    g.push(items[i]!);
+    groups.set(r, g);
+  }
+  return [...groups.values()];
+}
+
+/** Transparent non-conformance recorded on the skeleton (agent-discover-110c). */
+export type SkeletonDeviation = {
+  field: string;
+  expected: string;
+  actual: string;
+  reason: string;
+};
+
+export type EnsureFarClustersResult<T extends { days: ThemeDay[] }> = {
+  skeleton: T;
+  deviations: SkeletonDeviation[];
+};
+
+/**
+ * Detect when a day mixes geographically far attraction clusters (coords from pool).
+ * 110c validate-don't-repair: never peel clusters onto new days (no silent day-add);
+ * record deviations instead. maxDays retained for call-site compat only.
+ * Never invents POIs that were not already scheduled (agent-itinerary-104).
+ */
+export function ensureFarClustersOwnDays<T extends { days: ThemeDay[] }>(
+  skeleton: T,
+  pool: PlaceCard[],
+  clusterKm = DAY_THEME_CLUSTER_KM,
+  /** @deprecated 110c: never mutates day count; kept for call-site compat. */
+  maxDays?: number,
+): EnsureFarClustersResult<T> {
+  void maxDays;
+  const deviations: SkeletonDeviation[] = [];
+
+  for (const day of skeleton.days) {
+    const attractionStops = day.stops.filter((s) => s.kind === "attraction");
+    const located: LocatedStop[] = [];
+    for (const stop of attractionStops) {
+      const loc = locOf(stop.name, pool);
+      if (loc) located.push({ stop, loc });
+    }
+    if (located.length < 2) continue;
+
+    const clusters = clusterLocatedStops(located, clusterKm);
+    if (clusters.length <= 1) continue;
+
+    clusters.sort((a, b) => b.length - a.length);
+    const [, ...far] = clusters;
+    const farNames = far
+      .flatMap((c) => c.map((x) => x.stop.name).filter(Boolean))
+      .join(", ");
+    const dayLabel = day.day_index ?? "?";
+    deviations.push({
+      field: "far_cluster",
+      expected: "far attraction clusters on their own days within numDays",
+      actual: `day ${dayLabel} co-schedules far cluster(s): ${farNames || "(unnamed)"}`,
+      reason:
+        "geographically far attraction clusters share a day; validate-don't-repair left the LLM day layout unchanged (no silent day-add)",
+    });
+  }
+
+  return { skeleton, deviations };
+}

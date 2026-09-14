@@ -60,8 +60,6 @@ import {
   type MustIncludeCoverageSnapshot,
 } from "./must-include-coverage";
 import { enrichArrangeDayWithTransit } from "./enrich-arrange-transit";
-import { findIconicPlaces } from "./find-iconic-places";
-import { applyNominatedMustSee } from "./pool-heat-must-see";
 import {
   dropFarOriginCoords,
   filterCardsNearAnchor,
@@ -675,7 +673,6 @@ export type LlmPlanInput = {
   /** Injected for testing — skips real OpenAI */
   _testChatCreate?: ItineraryChatCreate;
   /** Injected for testing — replace arrangeDay (ADR-040 Story C) */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids forward-ref to arrangeDay
   _testArrangeDay?: (input: any) => Promise<any>;
 };
 
@@ -931,7 +928,7 @@ export type DiscoverPlacesInput = {
   providers?: string[];
   /** User must_include tokens — supplementary-searched into the pool when uncovered. */
   must_include?: string[];
-  /** Cap for heat-on-pool must_see marks (F41 S2). Default 5. */
+  /** Cap for nominated/discovery pool size hints. Default 5. */
   max_number?: number;
   trip_type?: string;
   pace?: string;
@@ -943,8 +940,6 @@ export type DiscoverPlacesInput = {
 export type DiscoverPlacesResult = {
   candidates: { places: PlaceCard[]; restaurants: PlaceCard[] };
   weather?: Array<{ date: string; label: string; temp_max_c?: number }>;
-  /** ADR-042 Update: LLM-inferred must-see names (destination-agnostic, pool-validated). */
-  inferred_must_see?: string[];
 };
 
 export type DiscoverStreamEvent =
@@ -997,8 +992,10 @@ export function slimArrangeCandidate(card: PlaceCard): PlaceCard {
         Object.entries(s.deeplinks ?? {}).map(([k, v]) => [k, sanitizePublicUrl(v)]),
       ),
     })),
-    must_see: card.must_see,
-    user_requested: card.user_requested,
+    // ADR-069: do not echo must_see heat; omit the key when absent.
+    ...(card.user_requested !== undefined
+      ? { user_requested: card.user_requested }
+      : {}),
   };
 }
 
@@ -1077,7 +1074,10 @@ export function slimArrangeCandidates(
       provider: withoutPhotos.provider,
       name: withoutPhotos.name,
       location: withoutPhotos.location,
-      must_see: withoutPhotos.must_see,
+      // ADR-069: omit must_see heat from compact echo.
+      ...(withoutPhotos.user_requested !== undefined
+        ? { user_requested: withoutPhotos.user_requested }
+        : {}),
       sources: [
         {
           provider: src?.provider ?? withoutPhotos.provider,
@@ -1318,6 +1318,8 @@ export async function nominateMustSeeViaLlm(input: {
   origin_name?: string;
   must_include?: string[];
   other?: string;
+  start_time?: string;
+  maxPerCluster?: number;
   _testChatCreate?: ItineraryChatCreate;
   _testSuggestPlaces?: typeof suggestPlaces;
   _testSearchPlaces?: typeof searchPlaces;
@@ -1530,17 +1532,15 @@ export async function discoverPlaces(
     must_include: input.must_include,
   });
 
-  const iconicLimit = Math.min(12, Math.max(1, input.max_number ?? 5));
+  // ADR-069: merge LLM nominations into the pool without must_see heat marking.
   if (nominatedCards.length > 0) {
-    applyNominatedMustSee(places, nominatedCards, iconicLimit);
-  } else if (places.length > 0) {
-    await findIconicPlaces({
-      city: input.city,
-      locale,
-      pool: places,
-      limit: iconicLimit,
-      numDays,
-    });
+    const existingNames = new Set(places.map((p) => normalizeMustIncludeToken(p.name)));
+    for (const card of nominatedCards) {
+      const key = normalizeMustIncludeToken(card.name);
+      if (!key || existingNames.has(key)) continue;
+      existingNames.add(key);
+      places.push(card);
+    }
   }
 
   // Phase C: user must_include — supplement pool; orthogonal to heat flags (F82).
@@ -1616,11 +1616,7 @@ export async function discoverPlaces(
     counts: { places: places.length, restaurants: restaurants.length },
   });
 
-  const inferred_must_see = places
-    .filter((p) => p.must_see === true)
-    .map((p) => p.name);
-
-  return { candidates: { places, restaurants }, inferred_must_see };
+  return { candidates: { places, restaurants } };
 }
 
 export type ArrangeDayInput = {

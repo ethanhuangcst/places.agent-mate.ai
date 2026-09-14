@@ -286,7 +286,6 @@ async function seedCity(key: CityKey): Promise<void> {
   const listedWithPhoto = listed.filter(
     (c) => Array.isArray(c.photos) && c.photos[0]?.startsWith("https://"),
   );
-  const withMustSee = listed.filter((c) => c.must_see === true);
 
   const summary = {
     ok: listed.length >= TARGET,
@@ -294,7 +293,6 @@ async function seedCity(key: CityKey): Promise<void> {
     destinationId,
     pois: listed.length,
     with_photos: listedWithPhoto.length,
-    with_must_see: withMustSee.length,
     photo_pct: listed.length ? Math.round((listedWithPhoto.length / listed.length) * 100) : 0,
   };
   process.stdout.write(JSON.stringify(summary, null, 2) + "\n");

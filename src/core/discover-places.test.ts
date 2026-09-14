@@ -1,8 +1,6 @@
 /**
- * TC-M12-49-04 / TC-M19-79-01 / TC-M20-41-10 — discoverPlaces pool-then-heat.
- *
- * Isolates discoverPlaces by mocking the query assembler and vendor search.
- * Phase B uses real findIconicPlaces (heat on the existing pool).
+ * ADR-069: discoverPlaces builds the pool via search + nominate merge —
+ * no heat must_see marking, no inferred_must_see, no iconic-places-cache.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -24,7 +22,6 @@ vi.mock("./tools", () => ({
 }));
 
 import { discoverPlaces } from "./itinerary-planner";
-import { clearIconicCache } from "./iconic-places-cache";
 import type { PlaceCard } from "./types";
 
 function card(
@@ -44,11 +41,10 @@ function card(
 beforeEach(() => {
   searchPlacesMock.mockReset();
   searchRestaurantsMock.mockReset();
-  clearIconicCache();
 });
 
-describe("TC-M20-41-10 discoverPlaces heat-on-pool after Phase A", () => {
-  it("should_mark_must_see_from_existing_pool_heat_and_cap_at_max_number", async () => {
+describe("ADR-069 discoverPlaces pool without must_see heat", () => {
+  it("should_return_search_pool_without_must_see_or_inferred_must_see", async () => {
     searchPlacesMock.mockResolvedValue({
       data: [
         card("Low Signal", { user_ratings_total: 200 }),
@@ -67,14 +63,16 @@ describe("TC-M20-41-10 discoverPlaces heat-on-pool after Phase A", () => {
     });
 
     expect(searchPlacesMock).toHaveBeenCalledTimes(1);
-    expect(result.inferred_must_see).toEqual(["Hot Alpha", "Hot Beta"]);
-    expect(result.candidates.places.find((p) => p.name === "Hot Alpha")?.must_see).toBe(true);
-    expect(result.candidates.places.find((p) => p.name === "Hot Beta")?.must_see).toBe(true);
-    expect(result.candidates.places.find((p) => p.name === "Mid Spot")?.must_see).toBeUndefined();
-    expect(result.candidates.places.filter((p) => p.must_see).length).toBe(2);
+    expect(result).not.toHaveProperty("inferred_must_see");
+    expect(result.candidates.places.map((p) => p.name)).toEqual(
+      expect.arrayContaining(["Hot Alpha", "Hot Beta", "Mid Spot", "Low Signal"]),
+    );
+    for (const p of result.candidates.places) {
+      expect((p as { must_see?: boolean }).must_see).toBeUndefined();
+    }
   });
 
-  it("should_skip_heat_mark_when_pool_empty", async () => {
+  it("should_return_empty_places_when_pool_empty", async () => {
     searchPlacesMock.mockResolvedValue({ data: [] });
 
     const result = await discoverPlaces({
@@ -84,12 +82,13 @@ describe("TC-M20-41-10 discoverPlaces heat-on-pool after Phase A", () => {
       numDays: 4,
     });
 
-    expect(result.inferred_must_see).toEqual([]);
+    expect(result).not.toHaveProperty("inferred_must_see");
+    expect(result.candidates.places).toEqual([]);
   });
 });
 
 describe("TC-M12-49-06 discoverPlaces user must_include supplement", () => {
-  it("should_add_user_requested_without_overwriting_iconic_marks", async () => {
+  it("should_add_user_requested_without_must_see_marks", async () => {
     searchPlacesMock.mockImplementation(async (input: { query: string }) =>
       input.query === "User Pick"
         ? { data: [card("User Pick Spot", { user_ratings_total: 50 })] }
@@ -104,9 +103,11 @@ describe("TC-M12-49-06 discoverPlaces user must_include supplement", () => {
       must_include: ["User Pick"],
     });
 
-    expect(result.candidates.places.find((p) => p.name === "Hot Alpha")?.must_see).toBe(true);
     const userPick = result.candidates.places.find((p) => p.name === "User Pick Spot");
     expect(userPick?.user_requested).toBe(true);
-    expect(userPick?.must_see).toBeUndefined();
+    expect((userPick as { must_see?: boolean } | undefined)?.must_see).toBeUndefined();
+    for (const p of result.candidates.places) {
+      expect((p as { must_see?: boolean }).must_see).toBeUndefined();
+    }
   });
 });

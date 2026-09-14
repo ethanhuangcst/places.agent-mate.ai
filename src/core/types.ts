@@ -41,9 +41,7 @@ export type PlaceCard = {
     review_count?: number;
     url?: string;
   };
-  /** ADR-045 §4: marks pool cards identified as must-see / iconic. Signal travels with the card. */
-  must_see?: boolean;
-  /** F82: user-typed must_include — orthogonal to discover heat (`must_see`). */
+  /** F82: user-typed must_include (orthogonal to discovery nominations — ADR-069). */
   user_requested?: boolean;
   user_ratings_total?: number;
   /** LLM nominate short name; chip label prefers this over vendor `name`. */

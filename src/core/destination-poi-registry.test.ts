@@ -272,15 +272,31 @@ describe("destination-poi-registry (TC-M22-87)", () => {
     expect(slim.photos).toEqual(["https://cdn.example.com/belem.jpg"]);
   });
 
-  it("should_not_store_must_see_in_cardSlim", () => {
+  it("should_not_store_must_see_in_cardSlim (ADR-069 field removed)", () => {
     const slim = cardSlimFromPlace(
       card("Torre de Belém", {
         nativeId: "ChIJlisbon",
-        must_see: true,
         photos: ["https://cdn.example.com/belem.jpg"],
       }),
     );
-    expect(slim.must_see).toBeUndefined();
+    expect(slim).not.toHaveProperty("must_see");
     expect(slim.photos?.[0]).toBe("https://cdn.example.com/belem.jpg");
+  });
+
+  it("TC-T3-110a-04 should_upsert_facts_only_without_must_see_on_miss", async () => {
+    const store = createMemoryPoiRegistryStore();
+    const withFlag = card("Mosteiro dos Jerónimos", {
+      nativeId: "ChIJjer",
+      photos: ["https://cdn.example.com/jer.jpg"],
+    });
+    const { destinationId, poiIds } = await upsertEligiblePois(
+      [withFlag],
+      { city: "Lisbon", lat: 38.722, lng: -9.139 },
+      store,
+    );
+    expect(poiIds).toHaveLength(1);
+    const row = (await store.listPois(destinationId))[0]!;
+    expect(row.cardSlim).not.toHaveProperty("must_see");
+    expect(row.cardSlim.name).toBe("Mosteiro dos Jerónimos");
   });
 });

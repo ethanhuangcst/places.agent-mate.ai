@@ -49,7 +49,6 @@ import {
   mustIncludeCoverageKey,
   peekMissingMustInclude,
 } from "../core/must-include-coverage";
-import { mergeMustInclude } from "../core/must-include-merge";
 import {
   dualWriteTrip,
   dualWriteTripIfPresent,
@@ -290,7 +289,6 @@ async function runPlanItinerary(args: Record<string, unknown>) {
     ok: true,
     data: {
       skeleton: skeleton.skeleton,
-      inferred_must_see: discover.inferred_must_see,
       ...skeletonFillHandoff(skeleton.skeleton, locale),
     },
   });
@@ -448,11 +446,8 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
         providers: args.providers,
         must_include: args.must_include,
       });
-      // ADR-043 D9 P0 + ADR-042 Update: register must_include in the session so later
-      // arrange_day calls stay sticky even if the host omits preferences.must_include.
-      // Merge user-provided must_include with LLM-inferred must-see (user takes precedence).
-      const inferred = result.inferred_must_see ?? [];
-      const mergedMustInclude = mergeMustInclude(args.must_include ?? [], inferred);
+      // ADR-043 D9 P0 + ADR-069: must_include is user-typed only (no inferred heat merge).
+      const mergedMustInclude = (args.must_include ?? []).map((s) => s.trim()).filter(Boolean);
       if (mergedMustInclude.length) {
         const key = mustIncludeCoverageKey({
           city: intake.city,
@@ -503,7 +498,6 @@ export function createPlacesMcpServer(opts: CreatePlacesMcpOptions = {}): McpSer
             omitPhotos: true,
             compactEcho: true,
           }),
-          inferred_must_see: inferred,
           num_days: intake.numDays,
           pace: intake.pace,
           spend_level: intake.spend_level,

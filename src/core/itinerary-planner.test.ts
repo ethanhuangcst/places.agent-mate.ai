@@ -271,7 +271,8 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
     expect(slim.category).toBe("museum");
     expect(slim.rating).toBe(4.5);
     expect(slim.location).toEqual(fat.location);
-    expect(slim.photos).toEqual(["https://example.com/a.jpg"]);
+    // ADR-051: photos with ?key= are not displayable; first displayable wins.
+    expect(slim.photos).toEqual(["https://example.com/b.jpg"]);
     expect(slim.hours).toBeUndefined();
     expect(slim.sources?.[0]?.deeplinks?.google).toBe("https://maps.google.com/?cid=1");
     expect(JSON.stringify(slim)).not.toMatch(/SECRET/);
@@ -339,7 +340,6 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
           },
         },
       ],
-      must_see: true,
     };
     const slim = slimArrangeCandidates(
       { places: [fat], restaurants: [] },
@@ -347,9 +347,9 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
     );
     expect(slim.places[0]).toMatchObject({
       name: "贝伦塔",
-      must_see: true,
       location: fat.location,
     });
+    expect((slim.places[0] as { must_see?: boolean }).must_see).toBeUndefined();
     expect(slim.places[0]?.photos).toBeUndefined();
     expect(slim.places[0]?.address).toBeUndefined();
     expect(slim.places[0]?.sources?.[0]?.deeplinks).toEqual({

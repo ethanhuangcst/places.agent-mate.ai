@@ -30,9 +30,11 @@ import {
 } from "./llm-chat-config";
 import {
   DISCOVER_GEO_MAX_KM,
+  ensureFarClustersOwnDays,
   filterCardsNearAnchor,
   pickSupplementaryMustIncludeHit,
   trimThemedDayOutliers,
+  type SkeletonDeviation,
 } from "./geo-bounds";
 import { haversineKm } from "./must-include-coverage";
 import {
@@ -40,7 +42,9 @@ import {
   filterEligibleAttractions,
   isIneligibleMustIncludeToken,
 } from "./eligible-attraction";
-import { listPoisForDestination, mergeRegistryPlaces } from "./destination-poi-registry";
+import { formatTripPrefsForPrompt, buildConstraintGlossary } from "./places-ontology";
+
+export type { SkeletonDeviation };
 
 // --- Schema ---
 
@@ -68,13 +72,67 @@ const SkeletonDaySchema = z.object({
   stops: z.array(SkeletonStopSchema).min(1),
 });
 
+export const SkeletonDeviationSchema = z.object({
+  field: z.string().min(1),
+  expected: z.string(),
+  actual: z.string(),
+  reason: z.string(),
+});
+
 export const ItinerarySkeletonSchema = z.object({
   days: z.array(SkeletonDaySchema).min(1),
+  /** Optional LLM or post-make boundary non-conformances (agent-discover-110c). */
+  deviations: z.array(SkeletonDeviationSchema).optional(),
 });
 
 export type SkeletonStop = z.infer<typeof SkeletonStopSchema>;
 export type SkeletonDay = z.infer<typeof SkeletonDaySchema>;
 export type ItinerarySkeleton = z.infer<typeof ItinerarySkeletonSchema>;
+
+/** Merge deviations without dropping distinct facts (same field+actual collapses). */
+export function mergeSkeletonDeviations(
+  ...groups: Array<SkeletonDeviation[] | undefined>
+): SkeletonDeviation[] | undefined {
+  const out: SkeletonDeviation[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    if (!group?.length) continue;
+    for (const d of group) {
+      const key = `${d.field}\0${d.actual}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(d);
+    }
+  }
+  return out.length ? out : undefined;
+}
+
+/** Thin pool: fewer grounded attractions than trip days (agent-discover-110c). */
+export function thinPoolDeviation(
+  attractionCount: number,
+  numDays: number,
+): SkeletonDeviation | null {
+  if (!(numDays > 0) || attractionCount >= numDays) return null;
+  return {
+    field: "attraction_pool",
+    expected: `>= ${numDays} attractions for ${numDays} days`,
+    actual: String(attractionCount),
+    reason: "insufficient grounded attractions for requested trip length",
+  };
+}
+
+export function dayCountDeviation(
+  dayCount: number,
+  numDays: number,
+): SkeletonDeviation | null {
+  if (!(numDays > 0) || dayCount === numDays) return null;
+  return {
+    field: "day_count",
+    expected: String(numDays),
+    actual: String(dayCount),
+    reason: "skeleton day count does not match requested numDays",
+  };
+}
 
 export type SkeletonStreamEvent =
   | { type: "skeleton_start"; total_days: number }
@@ -87,9 +145,17 @@ export type MakeItineraryInput = {
   candidates: { places: PlaceCard[]; restaurants: PlaceCard[] };
   origin?: { name?: string; lat?: number; lng?: number };
   pace?: "tight" | "medium" | "relaxed";
-  budget?: "budget" | "premium";
+  /** Catalog key (`economy`/`mid`/`comfort`/…) or legacy `budget`/`premium`. */
+  budget?: string;
   must_include?: string[];
+  /** Legacy free-text notes; prefer structured prefs (agent-itinerary-102). */
   natural_language?: string;
+  trip_type?: string;
+  party_size?: number;
+  transit_preference?: string;
+  start_time?: string;
+  other?: string;
+  bounds?: { start?: string; end?: string };
   dayStart?: string;
   dayEnd?: string;
   locale: Locale;
@@ -107,6 +173,13 @@ function paceStopLimit(pace?: string): number {
   if (pace === "relaxed") return 4;
   return 5;
 }
+
+/**
+ * 110e: pace is a soft signal. `trimPaceOverages` only trims **extreme** overage
+ * (attractions > limit + margin) to stop egregious cramming; near-cap days
+ * (e.g. 6 at medium cap 5) are left for the LLM to decide.
+ */
+const PACE_SOFT_MARGIN = 2;
 
 export function normalizeStopNameKey(name: string): string {
   return name.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
@@ -184,13 +257,15 @@ export function trimPaceOverages(raw: unknown, pace?: string): unknown {
   const parsed = ItinerarySkeletonSchema.safeParse(raw);
   if (!parsed.success) return raw;
   const limit = paceStopLimit(pace);
+  // 110e: only trim extreme overage (> limit + PACE_SOFT_MARGIN).
+  const maxAllowed = limit + PACE_SOFT_MARGIN;
   return {
     ...parsed.data,
     days: parsed.data.days.map((day) => {
       let attractions = day.stops.filter((s) => s.kind === "attraction").length;
-      if (attractions <= limit) return day;
+      if (attractions <= maxAllowed) return day;
       const stops = [...day.stops];
-      for (let i = stops.length - 1; i >= 0 && attractions > limit; i--) {
+      for (let i = stops.length - 1; i >= 0 && attractions > maxAllowed; i--) {
         if (stops[i]?.kind === "attraction") {
           stops.splice(i, 1);
           attractions--;
@@ -352,6 +427,8 @@ export function validateSkeleton(
   pace?: string,
   city?: string,
   densityPlaces?: number,
+  /** 110e: hard safety rail — skeleton day count must match the requested trip length. */
+  numDays?: number,
 ): SkeletonValidationResult {
   const parsed = ItinerarySkeletonSchema.safeParse(raw);
   if (!parsed.success) {
@@ -372,9 +449,18 @@ export function validateSkeleton(
     ...pool.stays,
   ]);
   const errors: string[] = [];
+  // 110e: day count is a hard safety rail (not a pace quota). The LLM may
+  // soften density per rhythm, but it must not emit more or fewer days than
+  // the trip length requested by the caller.
+  if (typeof numDays === "number" && numDays > 0 && skeleton.days.length !== numDays) {
+    errors.push(
+      `skeleton day count ${skeleton.days.length} does not match requested numDays ${numDays}`,
+    );
+  }
   const seen = new Map<string, number>();
   const stayNames = new Set(pool.stays);
   const limit = paceStopLimit(pace);
+  const softLimit = limit + PACE_SOFT_MARGIN;
   const requireLunch = true;
   const requireDinner = true;
   const cityNorm = city ? normalizeMustIncludeToken(city) : "";
@@ -455,22 +541,16 @@ export function validateSkeleton(
     ) {
       errors.push(`day ${day.day_index} is stay-only while attraction candidates exist`);
     }
-    const minAttr =
-      skeleton.days.length >= 2 && nPlaces >= skeleton.days.length * 2
-        ? 2
-        : nPlaces >= 3
-          ? 1
-          : 0;
+    // 110e: pace is a soft signal. Only a degenerate empty day (0 attractions
+    // when the pool has >= 3) is hard-rejected; a 1-attraction theme-park day
+    // or a near-cap city day is allowed. Extreme overage is trimmed upstream.
+    const minAttr = nPlaces >= 3 ? 1 : 0;
     if (attractions < minAttr) {
       errors.push(
         `day ${day.day_index} has ${attractions} attraction stops; need at least ${minAttr} from the place list`,
       );
     }
-    if (attractions > limit) {
-      errors.push(
-        `day ${day.day_index} has ${attractions} attraction stops > pace limit ${limit}`,
-      );
-    }
+    void softLimit;
     if (
       requireLunch &&
       !day.stops.some((s) => s.kind === "meal" && s.meal_slot === "lunch")
@@ -535,8 +615,7 @@ function candidateLine(card: PlaceCard): string {
   const loc = card.location;
   const coord = loc?.lat != null && loc?.lng != null ? ` (${loc.lat}, ${loc.lng})` : "";
   const rating = typeof card.rating === "number" ? ` rating ${card.rating}` : "";
-  const mustSee = card.must_see ? " [must-see]" : "";
-  return `- ${card.name}${coord}${rating}${mustSee}`;
+  return `- ${card.name}${coord}${rating}`;
 }
 
 export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
@@ -546,8 +625,11 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
       `Order only — NO times, NO transit. Only choose attraction and stay names from the lists below.`,
   );
   parts.push(
-    `Pace: ${input.pace ?? "medium"} (attraction stops/day: at least 2 when the place list is large enough, tight ≤ 6, medium ≤ 5, relaxed ≤ 4). ` +
-      `Every day needs a lunch meal slot at midday (after the 2nd or 3rd attraction — never after the last attraction). ` +
+    `Pace: ${input.pace ?? "medium"} — this is a rhythm guide, not a hard quota ` +
+      `(tight ~5–6 stops/day, medium ~3–5, relaxed ~2–3). ` +
+      `A theme park / resort / far day-trip may occupy a whole day with a single stop; do not pad it with unrelated city POIs. ` +
+      `If the candidate list is smaller than needed, schedule fewer stops — do not repeat venues. ` +
+      `Every day needs a lunch meal slot at midday (after the 2nd or 3rd attraction, or after the sole attraction on a single-stop day — never before it). ` +
       `Every day also needs a dinner meal slot (including relaxed pace). Do not pick or name restaurants.`,
   );
   parts.push(`Never schedule the city name "${input.city}" as a stop.`);
@@ -578,11 +660,42 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
         input.must_include.map((s) => s.trim()).filter(Boolean).join("; "),
     );
   }
+  const travelerBlock = formatTripPrefsForPrompt({
+    trip_type: input.trip_type,
+    pace: input.pace,
+    budget: input.budget,
+    locale: input.locale,
+    party_size: input.party_size,
+    transit_preference: input.transit_preference,
+    bounds: input.bounds,
+    origin_name: input.origin?.name,
+    other: input.other,
+    start_time: input.start_time,
+  });
+  if (travelerBlock) {
+    parts.push(`\n${travelerBlock}`);
+  }
+  const glossary = buildConstraintGlossary(
+    {
+      trip_type: input.trip_type,
+      pace: input.pace,
+      budget: input.budget,
+      locale: input.locale,
+      party_size: input.party_size,
+      transit_preference: input.transit_preference,
+      bounds: input.bounds,
+      origin_name: input.origin?.name,
+      other: input.other,
+      start_time: input.start_time,
+    },
+    input.locale,
+    input.numDays,
+  );
+  if (glossary) {
+    parts.push(`\n${glossary}`);
+  }
   if (input.natural_language?.trim()) {
     parts.push(`\nTraveler notes: ${input.natural_language.trim()}`);
-  }
-  if (input.budget) {
-    parts.push(`Budget: ${input.budget}.`);
   }
 
   parts.push(`\nAttraction candidates:\n${input.candidates.places.map(candidateLine).join("\n")}`);
@@ -713,11 +826,7 @@ async function withAbortTimeout<T>(ms: number, fn: (signal: AbortSignal) => Prom
 
 export function buildFixtureSkeleton(input: MakeItineraryInput): ItinerarySkeleton {
   const days: SkeletonDay[] = [];
-  // ADR-045 §3 (F49): prefer must_see cards first so the fixture skeleton
-  // schedules iconic places ahead of generic pool entries.
-  const prioritizedPlaces = [...input.candidates.places].sort(
-    (a, b) => (b.must_see ? 1 : 0) - (a.must_see ? 1 : 0),
-  );
+  const prioritizedPlaces = [...input.candidates.places];
   let placeIdx = 0;
   const perDay = paceStopLimit(input.pace);
   for (let d = 1; d <= input.numDays; d++) {
@@ -778,34 +887,16 @@ export async function enrichMakeItineraryInput(
     searchRestaurants?: MakeItinerarySearchFn;
     searchPlaces?: MakeItinerarySearchFn;
     geocode?: (query: string) => Promise<{ lat: number; lng: number } | null>;
+    /** @deprecated ADR-067: enrich never merges whole-city registry (110a). Kept for call-site compat. */
     skipPoiRegistry?: boolean;
   },
 ): Promise<EnrichedMakeItinerary> {
+  // Registry is cache-only for grounding (ADR-067 / agent-discover-110a). Do not
+  // merge listPoisForDestination into the trip pool here.
+  void opts?.skipPoiRegistry;
   let places = filterEligibleAttractions([...input.candidates.places]);
   let restaurants = [...input.candidates.restaurants];
   const city = input.city.trim();
-
-  if (!opts?.skipPoiRegistry && city) {
-    try {
-      const geocodeFn =
-        opts?.geocode ??
-        (async (query: string) => {
-          const res = await geocode({ query, locale: input.locale });
-          const d = res.data;
-          if (!d || !Number.isFinite(d.lat) || !Number.isFinite(d.lng)) return null;
-          return { lat: d.lat, lng: d.lng };
-        });
-      const geo = await geocodeFn(city);
-      const registered = await listPoisForDestination({
-        city,
-        lat: geo?.lat,
-        lng: geo?.lng,
-      });
-      places = filterEligibleAttractions(mergeRegistryPlaces(places, registered));
-    } catch {
-      /* registry miss must not fail make */
-    }
-  }
 
   if (restaurants.length === 0 && city) {
     const searchR = opts?.searchRestaurants ?? searchRestaurants;
@@ -981,6 +1072,7 @@ export function attachNativeIdsToSkeleton(
 ): ItinerarySkeleton {
   const byName = new Map(places.map((p) => [p.name, p]));
   return {
+    ...skeleton,
     days: skeleton.days.map((day) => ({
       ...day,
       stops: day.stops.map((stop) => {
@@ -998,6 +1090,7 @@ export function attachNativeIdsToSkeleton(
  */
 export function splitSingleAttractionDays(skeleton: ItinerarySkeleton): ItinerarySkeleton {
   return {
+    ...skeleton,
     days: skeleton.days.map((day) => {
       const attrIndexes = day.stops
         .map((s, i) => (s.kind === "attraction" ? i : -1))
@@ -1048,14 +1141,18 @@ export async function makeItinerary(
     const systemPrompt = assembleSystemPrompt({
       locale,
       intent: "itinerary-skeleton",
-      budget: enriched.budget,
+      budget: enriched.budget?.trim() || undefined,
       glossary: loadGlossary(locale) ?? undefined,
     });
     const userMessage = buildSkeletonUserMessage({ ...enriched, locale });
 
     let lastError: string | null = null;
     let done = false;
-    for (let attempt = 0; attempt < 2 && !done; attempt++) {
+    let lastSchemaOk: ItinerarySkeleton | undefined;
+    const thinEarly = thinPoolDeviation(pool.places.length, enriched.numDays);
+    // Thin pool: at most one validation attempt — do not hang rewriting an under-filled destination.
+    const maxAttempts = thinEarly ? 1 : 2;
+    for (let attempt = 0; attempt < maxAttempts && !done; attempt++) {
       const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         { role: "system", content: systemPrompt },
         {
@@ -1113,6 +1210,10 @@ export async function makeItinerary(
       parsedJson = trimPaceOverages(parsedJson, enriched.pace);
       // Re-run after trims: dropping attrs/city/area can leave lunch after the last attraction again.
       parsedJson = reseatLateLunchStops(parsedJson);
+      const schemaParsed = ItinerarySkeletonSchema.safeParse(parsedJson);
+      if (schemaParsed.success) {
+        lastSchemaOk = schemaParsed.data;
+      }
       const validated = validateSkeleton(
         parsedJson,
         pool,
@@ -1120,6 +1221,7 @@ export async function makeItinerary(
         enriched.pace,
         enriched.city,
         placesBeforeGeo,
+        enriched.numDays,
       );
       if (validated.ok) {
         skeleton = validated.skeleton;
@@ -1128,45 +1230,60 @@ export async function makeItinerary(
         lastError = validated.error;
       }
     }
+    if (!done && thinEarly && lastSchemaOk) {
+      // 110c: thin pool — accept schema-valid skeleton with deviation rather than hang/retry.
+      skeleton = lastSchemaOk;
+      done = true;
+    }
     if (!done) {
       console.error("make_itinerary: skeleton validation failed", lastError);
       throw new Error(`make_itinerary: skeleton validation failed — ${lastError}`);
     }
   } else {
     // Fixture path (no OPENAI_API_KEY): deterministic skeleton, still pool-validated.
-    const validated = validateSkeleton(
-      reseatLateLunchStops(
-        trimPaceOverages(
-          dropCityNameStops(
-            reseatStayToDayOrigin(
-              reseatLateLunchStops(
-                trimAreaAliasStops(
-                  dropUnknownAttractionStops(
-                    normalizeMealSlotStops(
-                      remapStopNamesToPool(buildFixtureSkeleton(enriched), pool),
-                    ),
-                    pool,
+    const fixtureRaw = reseatLateLunchStops(
+      trimPaceOverages(
+        dropCityNameStops(
+          reseatStayToDayOrigin(
+            reseatLateLunchStops(
+              trimAreaAliasStops(
+                dropUnknownAttractionStops(
+                  normalizeMealSlotStops(
+                    remapStopNamesToPool(buildFixtureSkeleton(enriched), pool),
                   ),
-                  enriched.must_include ?? [],
-                  enriched.city,
+                  pool,
                 ),
+                enriched.must_include ?? [],
+                enriched.city,
               ),
             ),
-            enriched.city,
           ),
-          enriched.pace,
+          enriched.city,
         ),
+        enriched.pace,
       ),
+    );
+    const validated = validateSkeleton(
+      fixtureRaw,
       pool,
       enriched.must_include ?? [],
       enriched.pace,
       enriched.city,
       placesBeforeGeo,
+      enriched.numDays,
     );
-    if (!validated.ok) {
-      throw new Error(`make_itinerary: fixture skeleton invalid — ${validated.error}`);
+    if (validated.ok) {
+      skeleton = validated.skeleton;
+    } else {
+      const thinFixture = thinPoolDeviation(pool.places.length, enriched.numDays);
+      const schemaOk = ItinerarySkeletonSchema.safeParse(fixtureRaw);
+      if (thinFixture && schemaOk.success) {
+        // 110c: thin pool fixture — accept + deviation instead of hard-fail.
+        skeleton = schemaOk.data;
+      } else {
+        throw new Error(`make_itinerary: fixture skeleton invalid — ${validated.error}`);
+      }
     }
-    skeleton = validated.skeleton;
   }
 
   if (!skeleton) {
@@ -1181,6 +1298,26 @@ export async function makeItinerary(
       ? { lat: enriched.origin.lat, lng: enriched.origin.lng }
       : undefined,
   );
+  // 110c: validate-don't-repair — detect far clusters; never silently add days.
+  const far = ensureFarClustersOwnDays(
+    skeleton,
+    pool.places,
+    undefined,
+    enriched.numDays,
+  );
+  skeleton = far.skeleton;
+  const thin = thinPoolDeviation(pool.places.length, enriched.numDays);
+  const dayCount = dayCountDeviation(skeleton.days.length, enriched.numDays);
+  skeleton = {
+    ...skeleton,
+    deviations: mergeSkeletonDeviations(
+      skeleton.deviations,
+      far.deviations,
+      thin ? [thin] : undefined,
+      dayCount ? [dayCount] : undefined,
+    ),
+  };
+  skeleton = reseatLateLunchStops(skeleton) as typeof skeleton;
   skeleton = attachNativeIdsToSkeleton(skeleton, pool.places);
   skeleton = splitSingleAttractionDays(skeleton);
 

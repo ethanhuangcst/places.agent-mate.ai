@@ -2,15 +2,11 @@ import { describe, expect, it } from "vitest";
 import { travelTips, TravelTipsTimeoutError } from "./travel-tips";
 import type { ItinerarySkeleton } from "./make-itinerary";
 
-/** One injected create serves both LLM calls; distinguish by prompt shape. */
-function dualChat(iconicContent: string, tipsContent: string) {
-  return (async (params: { messages: Array<{ content: string }> }) => {
-    const user = params.messages[params.messages.length - 1]?.content ?? "";
-    if (user.includes("JSON array")) {
-      return { choices: [{ message: { content: iconicContent } }] };
-    }
-    return { choices: [{ message: { content: tipsContent } }] };
-  }) as never;
+/** Tips-prose only — ADR-069: iconic_places come from skeleton/pool, not an LLM. */
+function tipsChat(tipsContent: string) {
+  return (async () => ({
+    choices: [{ message: { content: tipsContent } }],
+  })) as never;
 }
 
 function tipsJson(o: Record<string, string>): string {
@@ -30,15 +26,15 @@ const skeleton: ItinerarySkeleton = {
   ],
 };
 
-describe("travelTips (ADR-045 §4)", () => {
+describe("travelTips (ADR-045 §4 / ADR-069)", () => {
   it("TC-M12-50-01: should_return_structured_fields_and_weather", async () => {
     const out = await travelTips({
       destination: "Lisbon",
       bounds: { start: "2026-09-01", end: "2026-09-03" },
       locale: "EN",
+      skeleton,
       _testGeo: { lat: 38.72, lng: -9.14 },
-      _testChatCreate: dualChat(
-        '["Belém Tower", "Jerónimos Monastery", "Pena Palace"]',
+      _testChatCreate: tipsChat(
         tipsJson({
           intro: "Lisbon is a sunlit coastal capital of seven hills and fado.",
           transit: "Trams and metro cover the center; walk the hills.",
@@ -47,8 +43,8 @@ describe("travelTips (ADR-045 §4)", () => {
         }),
       ),
     });
-    expect(out.iconic_places).toEqual(["Belém Tower", "Jerónimos Monastery", "Pena Palace"]);
-    expect(out.iconic_grounded).toBe(false);
+    expect(out.iconic_places).toEqual(["Torre de Belém"]);
+    expect(out.iconic_grounded).toBe(true);
     expect(out.intro).toMatch(/Lisbon/i);
     expect(out.transit.length).toBeGreaterThan(0);
     expect(out.clothing.length).toBeGreaterThan(0);
@@ -63,22 +59,20 @@ describe("travelTips (ADR-045 §4)", () => {
       destination: "X",
       locale: "EN",
       _testGeo: { lat: 38.72, lng: -9.14 },
-      _testChatCreate: dualChat("[]", tipsJson({
-        intro: "x".repeat(200),
-        transit: "t",
-        clothing: "c",
-        safety: "s",
-      })),
+      _testChatCreate: tipsChat(
+        tipsJson({
+          intro: "x".repeat(200),
+          transit: "t",
+          clothing: "c",
+          safety: "s",
+        }),
+      ),
     });
     expect(out.intro.length).toBeLessThanOrEqual(80);
   });
 
   it("TC-M18-76-01: should_return_iconic_when_tips_prose_aborts", async () => {
-    const mixedChat = (async (params: { messages: Array<{ content: string }> }) => {
-      const user = params.messages[params.messages.length - 1]?.content ?? "";
-      if (user.includes("JSON array")) {
-        return { choices: [{ message: { content: '["Pena Palace"]' } }] };
-      }
+    const abortChat = (async () => {
       const e = new Error("The user aborted the request");
       e.name = "AbortError";
       throw e;
@@ -86,17 +80,20 @@ describe("travelTips (ADR-045 §4)", () => {
     const out = await travelTips({
       destination: "X",
       locale: "EN",
+      skeleton,
       _testGeo: { lat: 38.72, lng: -9.14 },
-      _testChatCreate: mixedChat,
+      _testChatCreate: abortChat,
     });
-    expect(out.iconic_places).toEqual(["Pena Palace"]);
+    // Skeleton attractions survive tips-prose abort (ADR-069).
+    expect(out.iconic_places).toEqual(["Torre de Belém"]);
+    expect(out.iconic_grounded).toBe(true);
     expect(out.intro).toBe("");
     expect(out.transit).toBe("");
     expect(out.clothing).toBe("");
     expect(out.safety).toBe("");
   });
 
-  it("TC-M12-50-03: should_throw_travel_tips_timeout_when_iconic_and_prose_abort", async () => {
+  it("TC-M12-50-03: should_throw_travel_tips_timeout_when_prose_aborts_without_iconic", async () => {
     const abortChat = (async () => {
       const e = new Error("The user aborted the request");
       e.name = "AbortError";
@@ -118,62 +115,70 @@ describe("travelTips (ADR-045 §4)", () => {
       locale: "EN",
       // fixture weather adapter returns null for lat=0,lng=0
       _testGeo: { lat: 0, lng: 0 },
-      _testChatCreate: dualChat("[]", tipsJson({
-        intro: "i",
-        transit: "t",
-        clothing: "c",
-        safety: "s",
-      })),
+      _testChatCreate: tipsChat(
+        tipsJson({
+          intro: "i",
+          transit: "t",
+          clothing: "c",
+          safety: "s",
+        }),
+      ),
     });
     expect(out.weather).toBeNull();
     expect(out.weather_unavailable).toBe(true);
     expect(out.intro).toBe("i");
   });
 
-  it("TC-M12-50-06: should_seed_iconic_pool_from_skeleton_and_ground", async () => {
+  it("TC-M12-50-06: should_seed_iconic_from_skeleton_stops", async () => {
     const out = await travelTips({
       destination: "Lisbon",
       locale: "EN",
       skeleton,
       _testGeo: { lat: 38.72, lng: -9.14 },
-      _testChatCreate: dualChat(
-        '["Torre de Belém"]',
+      _testChatCreate: tipsChat(
         tipsJson({ intro: "i", transit: "t", clothing: "c", safety: "s" }),
       ),
     });
-    // skeleton attraction names seed the pool → heat-on-pool (no iconic LLM).
     expect(out.iconic_grounded).toBe(true);
     expect(out.iconic_places).toEqual(["Torre de Belém"]);
   });
 
-  it("TC-M12-50-08: should_produce_prose_when_weather_fails_but_iconic_succeeds", async () => {
+  it("TC-M12-50-08: should_produce_prose_when_weather_fails_with_skeleton_iconic", async () => {
     const out = await travelTips({
       destination: "X",
       locale: "EN",
+      skeleton: {
+        days: [
+          {
+            day_index: 1,
+            day_theme: "Sintra",
+            stops: [{ name: "Pena Palace", kind: "attraction" }],
+          },
+        ],
+      },
       _testGeo: { lat: 0, lng: 0 }, // weather null
-      _testChatCreate: dualChat(
-        '["Pena Palace"]',
+      _testChatCreate: tipsChat(
         tipsJson({ intro: "i", transit: "t", clothing: "c", safety: "s" }),
       ),
     });
     expect(out.weather).toBeNull();
     expect(out.weather_unavailable).toBe(true);
     expect(out.iconic_places).toEqual(["Pena Palace"]);
+    expect(out.iconic_grounded).toBe(true);
     expect(out.intro).toBe("i");
   });
 
-  it("TC-M12-50-11: should_return_ungrounded_iconic_without_secondary_verification", async () => {
-    // No skeleton/pool → ungrounded; names returned as-is (grounded:false), no throw.
+  it("TC-M12-50-11: should_return_empty_grounded_iconic_without_skeleton_or_pool", async () => {
+    // No skeleton/pool → empty iconic_places; still grounded (no LLM inference).
     const out = await travelTips({
       destination: "Lisbon",
       locale: "EN",
       _testGeo: { lat: 38.72, lng: -9.14 },
-      _testChatCreate: dualChat(
-        '["Pena Palace", "Belém Tower", "Castelo de São Jorge"]',
+      _testChatCreate: tipsChat(
         tipsJson({ intro: "i", transit: "t", clothing: "c", safety: "s" }),
       ),
     });
-    expect(out.iconic_grounded).toBe(false);
-    expect(out.iconic_places.length).toBe(3);
+    expect(out.iconic_grounded).toBe(true);
+    expect(out.iconic_places).toEqual([]);
   });
 });

@@ -11,7 +11,6 @@ import { arrangeDay, discoverPlaces, enrichArrangeTransit } from "../core/itiner
 import { makeItinerary, createSkeletonChatCreate } from "../core/make-itinerary";
 import { planNextStopFill } from "../core/plan-next-stop";
 import { visaRequirement } from "../core/visa-requirement";
-import { mergeMustInclude } from "../core/must-include-merge";
 import { travelTips, TravelTipsTimeoutError } from "../core/travel-tips";
 import { getTripOrThrow } from "../core/trip-store";
 import {
@@ -172,11 +171,8 @@ export async function dispatchTool(
         must_include: parsed.data.must_include,
         max_number: parsed.data.max_number,
       });
-      // ADR-045 §2: merge user must_include with inferred must-see (HTTP parity with MCP).
-      const merged = mergeMustInclude(parsed.data.must_include ?? [], result.inferred_must_see ?? []);
-      const envelopeData = merged.length
-        ? { ...result, inferred_must_see: merged }
-        : result;
+      // ADR-045 §2 / ADR-069: must_include is user-typed only (no inferred_must_see heat).
+      const envelopeData = result;
       const trip = await dualWriteTrip({
         callerKey: auth.keyId,
         tripId: parsed.data.trip_id,
@@ -598,7 +594,6 @@ export async function dispatchTool(
             places: places.map((p) => ({
               name: p.name,
               kind: "attraction" as const,
-              must_see: Boolean(p.must_see),
               provider: p.provider ?? p.sources?.[0]?.provider,
             })),
           },
@@ -629,8 +624,17 @@ export async function dispatchTool(
         budget: parsed.data.budget,
         transit_preference: parsed.data.transit_preference,
         trip_type: parsed.data.trip_type,
+        party_size: parsed.data.party_size,
+        start_time: parsed.data.start_time,
+        other: parsed.data.other,
+        skeleton_only: parsed.data.skeleton_only,
         bounds: parsed.data.bounds,
         must_include: parsed.data.must_include,
+        answers: parsed.data.answers
+          ? {
+              expand_radius: parsed.data.answers.expand_radius,
+            }
+          : undefined,
       });
       const status = result.status === "failed" ? 502 : 200;
       return {

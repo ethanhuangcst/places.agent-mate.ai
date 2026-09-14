@@ -409,6 +409,11 @@ export const planTripBody = z.object({
   budget: z.string().min(1).optional(),
   transit_preference: z.string().min(1).optional(),
   trip_type: z.string().min(1).optional(),
+  party_size: z.number().int().min(1).max(20).optional(),
+  start_time: z.string().min(1).optional(),
+  other: z.string().optional(),
+  /** where2play MVP-T3: stop after skeleton make/commit. */
+  skeleton_only: z.boolean().optional(),
   bounds: z
     .object({
       start: z.string().min(1),
@@ -416,6 +421,16 @@ export const planTripBody = z.object({
     })
     .optional(),
   must_include: z.array(z.string().min(1)).optional(),
+  /**
+   * Prior need_input answers (same trip_id).
+   * `expand_radius`: "yes" | "no" — agent-discover-110d.
+   */
+  answers: z
+    .object({
+      expand_radius: z.union([z.string(), z.boolean()]).optional(),
+    })
+    .passthrough()
+    .optional(),
   ...shared,
 });
 

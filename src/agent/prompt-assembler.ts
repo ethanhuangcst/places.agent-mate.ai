@@ -5,7 +5,8 @@ import { type Locale } from "../core/locales";
 export interface PromptContext {
   locale: Locale;
   intent: "meal" | "place" | "itinerary" | "itinerary-skeleton" | "travel-tips" | "chat";
-  budget?: "budget" | "premium";
+  /** Catalog key or legacy budget/premium — aliases normalized in BUDGET_HINTS lookup. */
+  budget?: string;
   timeOfDay?: "morning" | "afternoon" | "evening";
   glossary?: string;
 }
@@ -38,13 +39,28 @@ function loadOverlay(intent: string): string | null {
   return path ? loadFile(path) : null;
 }
 
-// Budget and time-of-day are short enough to inline as constants
+// Budget keys: catalog + legacy aliases (agent-itinerary-109)
 const BUDGET_HINTS: Record<string, string> = {
+  economy:
+    "The user has an economy budget. Prioritize affordable, good-value options. Avoid fine dining and premium venues.",
   budget:
     "The user has a limited budget. Prioritize affordable, good-value options. Avoid fine dining and premium venues.",
+  mid:
+    "The user has a mid-range budget. Prefer solid quality and fair prices; avoid extremes of backpacker-only or luxury-only picks.",
+  comfort:
+    "The user prefers comfortable, quality experiences without requiring ultra-luxury. Favor pleasant venues over bare-bones options.",
+  luxury:
+    "The user prefers premium experiences. Prioritize fine dining, Michelin-starred, and high-end venues.",
   premium:
     "The user prefers premium experiences. Prioritize fine dining, Michelin-starred, and high-end venues.",
 };
+
+function resolveBudgetHintKey(raw?: string): string | undefined {
+  const k = (raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (!k) return undefined;
+  if (BUDGET_HINTS[k]) return k;
+  return undefined;
+}
 
 const TIME_HINTS: Record<string, string> = {
   morning: "It is morning. Consider breakfast/brunch options and venues that open early.",
@@ -69,8 +85,9 @@ export function assembleSystemPrompt(ctx: PromptContext): string {
   if (overlay) parts.push(overlay);
 
   // 3. Budget hint (inline)
-  if (ctx.budget && BUDGET_HINTS[ctx.budget]) {
-    parts.push(BUDGET_HINTS[ctx.budget]);
+  const budgetKey = resolveBudgetHintKey(ctx.budget);
+  if (budgetKey && BUDGET_HINTS[budgetKey]) {
+    parts.push(BUDGET_HINTS[budgetKey]);
   }
 
   // 4. Time-of-day hint (inline)

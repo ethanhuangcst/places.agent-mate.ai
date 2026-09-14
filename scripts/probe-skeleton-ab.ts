@@ -75,8 +75,7 @@ function candidateLine(card: PlaceCard): string {
   const loc = card.location;
   const coord = loc?.lat != null && loc?.lng != null ? ` (${loc.lat}, ${loc.lng})` : "";
   const rating = typeof card.rating === "number" ? ` rating ${card.rating}` : "";
-  const mustSee = card.must_see ? " [must-see]" : "";
-  return `- ${card.name}${coord}${rating}${mustSee}`;
+  return `- ${card.name}${coord}${rating}`;
 }
 
 function paceLimit(pace?: string): number {
@@ -94,13 +93,9 @@ function assignMustInclude(must: string[], numDays: number): string[][] {
   return out;
 }
 
-/** Slice attraction pool into per-day focus lists (sorted must_see / rating). */
+/** Slice attraction pool into per-day focus lists (sorted by rating). */
 function focusSlices(places: PlaceCard[], numDays: number): PlaceCard[][] {
-  const sorted = [...places].sort((a, b) => {
-    const ms = Number(!!b.must_see) - Number(!!a.must_see);
-    if (ms !== 0) return ms;
-    return (b.rating ?? 0) - (a.rating ?? 0);
-  });
+  const sorted = [...places].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
   const slices = Array.from({ length: numDays }, () => [] as PlaceCard[]);
   sorted.forEach((p, i) => slices[i % numDays]!.push(p));
   return slices;
@@ -555,7 +550,7 @@ async function main() {
       pace: sc.pace,
       budget: "budget",
       locale: "EN",
-      must_include: sc.must_include ?? disc.inferred_must_see,
+      must_include: sc.must_include,
     };
 
     const a = await armA(input, create);
