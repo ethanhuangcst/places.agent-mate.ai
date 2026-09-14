@@ -5,7 +5,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../db/client";
 import { generateCallerSecret, hashPassword } from "./crypto";
-import { planTrip, skeletonPoolQueries } from "./plan-trip";
+import {
+  buildFullLoopSystemPrompt,
+  FULL_LOOP_STOP_TOOL_DESCRIPTION,
+  planTrip,
+  skeletonPoolQueries,
+} from "./plan-trip";
 import type { PlanTripInput } from "./plan-trip";
 import { fetchTripDetails } from "./fetch-trip-details";
 import { clearTripMemoryForTests } from "./trip-store";
@@ -1924,5 +1929,31 @@ describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
     expect(makeNames).not.toContain("Óbidos Castle");
     expect(makeNames).not.toContain("Nazaré Beach");
     expect(second.itinerary?.skeleton).toBeTruthy();
+  });
+});
+
+describe("MVP-T5 S1 A+B full-loop stop policy (TD-3)", () => {
+  it("should_require_trip_complete_before_stop_in_tool_description", () => {
+    expect(FULL_LOOP_STOP_TOOL_DESCRIPTION).toMatch(/trip_complete/i);
+    expect(FULL_LOOP_STOP_TOOL_DESCRIPTION).toMatch(/partial/i);
+    expect(FULL_LOOP_STOP_TOOL_DESCRIPTION).not.toBe(
+      "Stop when the itinerary is filled.",
+    );
+  });
+
+  it("should_forbid_early_stop_in_full_loop_system_prompt", () => {
+    const prompt = buildFullLoopSystemPrompt(
+      {
+        city: "Shanghai",
+        numDays: 3,
+        origin: { name: "Hotel", lat: 31.2, lng: 121.5 },
+        locale: "EN",
+      } as PlanTripInput,
+      "EN",
+    );
+    expect(prompt).toMatch(/Never stop early/i);
+    expect(prompt).toMatch(/stop only after trip_complete/i);
+    expect(prompt).not.toMatch(/Stop when filled/);
+    expect(prompt).toMatch(/unfilled skeleton stops remain/i);
   });
 });

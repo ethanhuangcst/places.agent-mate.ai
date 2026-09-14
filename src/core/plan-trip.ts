@@ -273,6 +273,32 @@ const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   },
 ];
 
+/** S1 / TD-3 A: stop only after full fill (trip_complete). */
+export const FULL_LOOP_STOP_TOOL_DESCRIPTION =
+  "Stop only after every non-stay skeleton stop has been filled with plan_next_stop and the last plan_next_stop returned trip_complete. Do not stop after a partial day or a few stops. Call commit_artifacts before stop when tips/visa are ready.";
+
+/** S1 / TD-3 B: full-loop system prompt builder (exported for unit tests). */
+export function buildFullLoopSystemPrompt(
+  input: PlanTripInput,
+  locale: Locale,
+): string {
+  return [
+    "You are places-agent scheduling. Trip bounds: city, numDays, origin, pace, budget.",
+    `City: ${input.city}. Days: ${input.numDays}. Origin: ${input.origin?.name ?? "unknown"}. Locale: ${locale}.`,
+    placesOntologyPrompt(locale),
+    "Candidates pool already has must_see chips. Build a complete itinerary:",
+    "1. resolve_origin_stay (once).",
+    "2. search_places to widen pool if density low.",
+    "3. make_itinerary to lay skeleton.",
+    "4. Call plan_next_stop once per remaining skeleton stop (day by day, stop by stop) until plan_next_stop returns trip_complete. Do not call stop or commit_artifacts while unfilled skeleton stops remain.",
+    "5. commit_artifacts for tips/visa only after trip_complete.",
+    "6. stop only after trip_complete and commit_artifacts.",
+    "You choose the next tool each turn. Do not skip make_itinerary.",
+    "Do not repeat the same physical place (ADR-058).",
+    "Never stop early with only a few stops filled. Partial fill is not done.",
+  ].join("\n");
+}
+
 const FULL_TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
@@ -326,7 +352,7 @@ const FULL_TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "stop",
-      description: "Stop when the itinerary is filled.",
+      description: FULL_LOOP_STOP_TOOL_DESCRIPTION,
       parameters: { type: "object", properties: {} },
     },
   },
@@ -760,20 +786,7 @@ function systemPrompt(city: string, locale: Locale): string {
 }
 
 function fullSystemPrompt(input: PlanTripInput, locale: Locale): string {
-  return [
-    "You are places-agent scheduling. Trip bounds: city, numDays, origin, pace, budget.",
-    `City: ${input.city}. Days: ${input.numDays}. Origin: ${input.origin?.name ?? "unknown"}. Locale: ${locale}.`,
-    placesOntologyPrompt(locale),
-    "Candidates pool already has must_see chips. Build a complete itinerary:",
-    "1. resolve_origin_stay (once).",
-    "2. search_places to widen pool if density low.",
-    "3. make_itinerary to lay skeleton.",
-    "4. plan_next_stop for each stop until trip_complete.",
-    "5. commit_artifacts for tips/visa.",
-    "6. stop.",
-    "You choose the next tool each turn. Do not skip make_itinerary.",
-    "Do not repeat the same physical place (ADR-058). Stop when filled.",
-  ].join("\n");
+  return buildFullLoopSystemPrompt(input, locale);
 }
 
 function defaultFullLoopTurns(): PlanTripTurn[] {
