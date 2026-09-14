@@ -914,7 +914,7 @@ describe("validateSkeleton", () => {
           field: "attraction_pool",
           expected: ">= 3 attractions for 3 days",
           actual: "1",
-          reason: "insufficient grounded attractions for requested trip length",
+          reason: "attraction_pool_thin",
         },
       ],
     };

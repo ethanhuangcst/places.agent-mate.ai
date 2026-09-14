@@ -218,8 +218,8 @@ export function ensureFarClustersOwnDays<T extends { days: ThemeDay[] }>(
       field: "far_cluster",
       expected: "far attraction clusters on their own days within numDays",
       actual: `day ${dayLabel} co-schedules far cluster(s): ${farNames || "(unnamed)"}`,
-      reason:
-        "geographically far attraction clusters share a day; validate-don't-repair left the LLM day layout unchanged (no silent day-add)",
+      // Stable machine key — caller apps localize (legacy sentence kept for back-compat readers).
+      reason: "far_cluster_shared_day",
     });
   }
 

@@ -117,7 +117,8 @@ export function thinPoolDeviation(
     field: "attraction_pool",
     expected: `>= ${numDays} attractions for ${numDays} days`,
     actual: String(attractionCount),
-    reason: "insufficient grounded attractions for requested trip length",
+    // Stable machine key — caller apps localize.
+    reason: "attraction_pool_thin",
   };
 }
 
@@ -130,7 +131,8 @@ export function dayCountDeviation(
     field: "day_count",
     expected: String(numDays),
     actual: String(dayCount),
-    reason: "skeleton day count does not match requested numDays",
+    // Stable machine key — caller apps localize.
+    reason: "day_count_mismatch",
   };
 }
 

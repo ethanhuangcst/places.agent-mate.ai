@@ -1907,7 +1907,7 @@ describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
                   field: "attraction_pool",
                   expected: ">= 3 attractions for 3 days",
                   actual: "1",
-                  reason: "insufficient grounded attractions for requested trip length",
+                  reason: "attraction_pool_thin",
                 },
               ],
             },
