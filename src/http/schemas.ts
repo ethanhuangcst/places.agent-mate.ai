@@ -424,10 +424,12 @@ export const planTripBody = z.object({
   /**
    * Prior need_input answers (same trip_id).
    * `expand_radius`: "yes" | "no" — agent-discover-110d.
+   * `hotel`: stay name, or "skip" / "__skip__" / "" — MVP-T5 TD-4.
    */
   answers: z
     .object({
       expand_radius: z.union([z.string(), z.boolean()]).optional(),
+      hotel: z.string().optional(),
     })
     .passthrough()
     .optional(),

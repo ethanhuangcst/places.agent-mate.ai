@@ -132,9 +132,11 @@ export type PlanTripInput = {
   /**
    * Answers to prior `need_input` questions (same trip_id).
    * `expand_radius`: `"yes"` / `"no"` (or option ids) — agent-discover-110d.
+   * `hotel`: stay name, or `"skip"` / `"__skip__"` / `""` — MVP-T5 TD-4.
    */
   answers?: {
     expand_radius?: string | boolean;
+    hotel?: string;
     [key: string]: string | boolean | string[] | undefined;
   };
   bounds?: { start: string; end: string };
@@ -476,6 +478,23 @@ export function resolveExpandRadiusAnswer(
   if (["yes", "y", "true", "1", "affirm", "expand"].includes(s)) return "yes";
   if (["no", "n", "false", "0", "decline", "skip", "local"].includes(s)) return "no";
   return undefined;
+}
+
+/** MVP-T5 TD-4: parse hotel answer — name, skip, or unanswered. */
+export type HotelAnswer =
+  | { kind: "name"; name: string }
+  | { kind: "skip" }
+  | { kind: "unanswered" };
+
+export function resolveHotelAnswer(
+  answers: PlanTripInput["answers"] | undefined,
+): HotelAnswer {
+  if (answers == null || answers.hotel === undefined) return { kind: "unanswered" };
+  const raw = String(answers.hotel).trim();
+  if (raw === "" || raw.toLowerCase() === "skip" || raw === "__skip__") {
+    return { kind: "skip" };
+  }
+  return { kind: "name", name: raw };
 }
 
 function expandRadiusNeedInput(locale: Locale, radiusKm: number): PlanTripNeedInput {
@@ -1243,6 +1262,23 @@ async function runIntakeLoop(
   }
 }
 
+/** Name-only stay when lodging search/pick fails — keeps full loop moving (TD-5). */
+function nameOnlyOriginStay(input: PlanTripInput, state: LoopState): PlaceCard | null {
+  if (!input.origin?.name) return null;
+  return {
+    // Destination-agnostic default (ADR-026 "other" → Google); not a China AMAP assumption.
+    provider: "GOOGLE_MAPS",
+    name: input.origin.name,
+    location:
+      input.origin.lat != null && input.origin.lng != null
+        ? { lat: input.origin.lat, lng: input.origin.lng, crs: "WGS84" }
+        : state.anchor
+          ? { lat: state.anchor.lat, lng: state.anchor.lng, crs: "WGS84" }
+          : { lat: 0, lng: 0, crs: "WGS84" },
+    sources: [],
+  };
+}
+
 async function resolveOriginStay(
   input: PlanTripInput,
   locale: Locale,
@@ -1323,8 +1359,22 @@ async function executeFullTool(
     return { stopped: true };
   }
   if (name === "resolve_origin_stay") {
+    // Once-guard: do not re-search / burn iterations when stay already settled (TD-5).
+    if (ctx.originStay) {
+      return {
+        name: ctx.originStay.name,
+        lat: ctx.originStay.location?.lat,
+        lng: ctx.originStay.location?.lng,
+        already_resolved: true,
+      };
+    }
     const tOrigin = Date.now();
-    const originStay = await resolveOriginStay(input, locale, state);
+    let originStay = await resolveOriginStay(input, locale, state);
+    let degraded = false;
+    if (!originStay) {
+      originStay = nameOnlyOriginStay(input, state);
+      degraded = Boolean(originStay);
+    }
     if (!originStay) return { error: "origin_stay_unresolved" };
     ctx.originStay = originStay;
     const originWritten = await dualWriteTrip({
@@ -1353,7 +1403,12 @@ async function executeFullTool(
     });
     revisionRef.current = originWritten.revision;
     timing.origin_s = secondsSince(tOrigin);
-    return { name: originStay.name, lat: originStay.location?.lat, lng: originStay.location?.lng };
+    return {
+      name: originStay.name,
+      lat: originStay.location?.lat,
+      lng: originStay.location?.lng,
+      ...(degraded ? { degraded: true, reason: "origin_stay_name_only" } : {}),
+    };
   }
   if (name === "search_places") {
     const doc = await getTripOrThrow(input.callerKey, tripId);
@@ -1386,7 +1441,8 @@ async function executeFullTool(
   }
   if (name === "make_itinerary") {
     if (!ctx.originStay) {
-      const origin = await resolveOriginStay(input, locale, state);
+      const origin =
+        (await resolveOriginStay(input, locale, state)) ?? nameOnlyOriginStay(input, state);
       if (!origin) return { error: "origin_stay_required" };
       ctx.originStay = origin;
     }
@@ -1801,19 +1857,9 @@ async function runFullLoop(
   let originStay: PlaceCard | null = null;
   if (input.origin?.name) {
     originStay = await resolveOriginStay(input, locale, state);
-    // Name-only fallback: lodging search miss must not abort skeleton (Xi'an / custom hotel).
+    // Name-only fallback: lodging search miss must not abort skeleton (Tokyo CN title / custom hotel).
     if (!originStay) {
-      originStay = {
-        provider: "AMAP",
-        name: input.origin.name,
-        location:
-          input.origin.lat != null && input.origin.lng != null
-            ? { lat: input.origin.lat, lng: input.origin.lng, crs: "WGS84" }
-            : state.anchor
-              ? { lat: state.anchor.lat, lng: state.anchor.lng, crs: "WGS84" }
-              : { lat: 0, lng: 0, crs: "WGS84" },
-        sources: [],
-      };
+      originStay = nameOnlyOriginStay(input, state);
     }
   }
   if (!originStay && !opts?.stopAfterSkeleton) {
@@ -2274,11 +2320,28 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
   await runIntakeLoop(input, locale, ensured.trip_id, revisionRef, state, toolCalls);
   timing.intake_s = secondsSince(tIntake);
 
-  const wantsFull = Boolean(input.numDays && input.origin?.name);
+  // MVP-T5 TD-4: apply answers.hotel before origin gate.
+  const hotelAns = resolveHotelAnswer(input.answers);
+  let effective: PlanTripInput = input;
+  let hotelSkipped = false;
+  if (hotelAns.kind === "name") {
+    effective = {
+      ...input,
+      origin: {
+        name: hotelAns.name,
+        ...(input.origin?.lat != null ? { lat: input.origin.lat } : {}),
+        ...(input.origin?.lng != null ? { lng: input.origin.lng } : {}),
+      },
+    };
+  } else if (hotelAns.kind === "skip") {
+    hotelSkipped = true;
+  }
+
+  const wantsFull = Boolean(effective.numDays && effective.origin?.name);
   if (!state.committed) {
     timing.total_s = secondsSince(t0);
     // Intake (no origin yet): still ask hotel / time / must-see. Do not 502 the assistant.
-    if (!wantsFull) {
+    if (!wantsFull && !hotelSkipped) {
       return {
         trip_id: ensured.trip_id,
         revision: revisionRef.current ?? ensured.revision,
@@ -2287,6 +2350,16 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
           state.asked ?? defaultNeedInput(locale),
           state.collected,
         ),
+        tool_calls: toolCalls,
+        timing,
+      };
+    }
+    if (!wantsFull && hotelSkipped) {
+      // Hotel skipped but intake never committed — still cannot schedule.
+      return {
+        trip_id: ensured.trip_id,
+        revision: revisionRef.current ?? ensured.revision,
+        status: "failed",
         tool_calls: toolCalls,
         timing,
       };
@@ -2301,6 +2374,65 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
   }
 
   if (!wantsFull) {
+    if (hotelSkipped && effective.numDays) {
+      // TD-4: skip hotel → skeleton without origin (no full fill claim).
+      try {
+        const itinerary = await runFullLoop(
+          effective,
+          locale,
+          ensured.trip_id,
+          revisionRef,
+          state,
+          toolCalls,
+          timing,
+          { stopAfterSkeleton: true },
+        );
+        timing.total_s = secondsSince(t0);
+        if (state.asked?.questions.some((q) => q.id === EXPAND_RADIUS_QUESTION_ID)) {
+          return {
+            trip_id: ensured.trip_id,
+            revision: revisionRef.current ?? ensured.revision,
+            status: "needs_input",
+            need_input: state.asked,
+            tool_calls: toolCalls,
+            timing,
+          };
+        }
+        if (!itinerary?.skeleton) {
+          return {
+            trip_id: ensured.trip_id,
+            revision: revisionRef.current ?? ensured.revision,
+            status: "failed",
+            tool_calls: toolCalls,
+            timing,
+          };
+        }
+        return {
+          trip_id: ensured.trip_id,
+          revision: revisionRef.current ?? ensured.revision,
+          status: "ready",
+          tool_calls: toolCalls,
+          timing,
+          itinerary: {
+            skeleton: itinerary.skeleton,
+            filledStops: [],
+          },
+        };
+      } catch (err) {
+        console.error(
+          "plan_trip: hotel-skip skeleton failed",
+          err instanceof Error ? err.message : err,
+        );
+        timing.total_s = secondsSince(t0);
+        return {
+          trip_id: ensured.trip_id,
+          revision: revisionRef.current ?? ensured.revision,
+          status: "failed",
+          tool_calls: toolCalls,
+          timing,
+        };
+      }
+    }
     timing.total_s = secondsSince(t0);
     return {
       trip_id: ensured.trip_id,
@@ -2319,7 +2451,7 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
     const useLegacy = process.env.PLAN_TRIP_LEGACY_FULL_LOOP === "1";
     const itinerary = useLegacy
       ? await runFullLoop(
-          input,
+          effective,
           locale,
           ensured.trip_id,
           revisionRef,
@@ -2328,7 +2460,7 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
           timing,
         )
       : await runFullLoopAgent(
-          input,
+          effective,
           locale,
           ensured.trip_id,
           revisionRef,

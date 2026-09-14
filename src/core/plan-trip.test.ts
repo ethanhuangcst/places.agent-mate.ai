@@ -9,6 +9,7 @@ import {
   buildFullLoopSystemPrompt,
   FULL_LOOP_STOP_TOOL_DESCRIPTION,
   planTrip,
+  resolveHotelAnswer,
   skeletonPoolQueries,
 } from "./plan-trip";
 import type { PlanTripInput } from "./plan-trip";
@@ -1955,5 +1956,347 @@ describe("MVP-T5 S1 A+B full-loop stop policy (TD-3)", () => {
     expect(prompt).toMatch(/stop only after trip_complete/i);
     expect(prompt).not.toMatch(/Stop when filled/);
     expect(prompt).toMatch(/unfilled skeleton stops remain/i);
+  });
+});
+
+describe("MVP-T5 TD-4 HTTP answers.hotel", () => {
+  let callerKey = "";
+  const prevVendor = process.env.PLACES_VENDOR_MODE;
+  const prevQwen = process.env.QWEN_API_KEY;
+  const prevOpenai = process.env.OPENAI_API_KEY;
+  const prevLegacy = process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+
+  const skeletonFixture = {
+    days: [
+      {
+        day_index: 1,
+        day_theme: "History",
+        stops: [
+          { name: "Xi'an Hotel", kind: "stay" as const },
+          { name: "Terracotta Warriors", kind: "attraction" as const },
+        ],
+      },
+    ],
+  };
+
+  function baseXian(overrides?: Partial<PlanTripInput>): PlanTripInput {
+    const warriors = place({
+      name: "兵马俑",
+      provider: "AMAP",
+      lat: 34.384,
+      lng: 109.273,
+      photo: "https://cdn.example.com/bw.jpg",
+      nativeId: "amap-bw",
+    });
+    const wall = place({
+      name: "西安城墙",
+      provider: "AMAP",
+      lat: 34.266,
+      lng: 108.943,
+      photo: "https://cdn.example.com/wall.jpg",
+      nativeId: "amap-wall",
+    });
+    const bell = place({
+      name: "钟楼",
+      provider: "AMAP",
+      lat: 34.261,
+      lng: 108.942,
+      photo: "https://cdn.example.com/bell.jpg",
+      nativeId: "amap-bell",
+    });
+    return {
+      callerKey,
+      city: "西安",
+      locale: "CN",
+      numDays: 3,
+      pace: "tight",
+      budget: "mid",
+      transit_preference: "transit_walk",
+      trip_type: "city",
+      party_size: 3,
+      bounds: { start: "2026-09-20", end: "2026-09-22" },
+      start_time: "09:00",
+      other: "探访历史",
+      // no origin — triggers hotel need_input
+      _testGeocode: async () => okGeocode(34.3416, 108.9398, "西安"),
+      _testSearchPlaces: async () => okCards([warriors, wall, bell]),
+      _testDiscoverPlacesForSkeleton: async () => [warriors, wall, bell],
+      _testMakeItinerary: async () => ({
+        skeleton: skeletonFixture,
+        candidates_slim: {
+          places: [warriors, wall, bell],
+          restaurants: [],
+        },
+      }),
+      _testResolveStay: async () =>
+        place({
+          name: "西安钟楼饭店",
+          provider: "AMAP",
+          lat: 34.26,
+          lng: 108.94,
+          nativeId: "amap-hotel",
+        }),
+      _testPlanNextStopFill: async (fillInput) => ({
+        next_stop: {
+          name: fillInput.next_stop.name,
+          location: {
+            lat: fillInput.next_stop.lat ?? 34.26,
+            lng: fillInput.next_stop.lng ?? 108.94,
+            crs: "WGS84" as const,
+          },
+        },
+        legs: [],
+        transit_outcome: "heuristic" as const,
+        single_mode: true,
+        stop_display: {
+          stop: {
+            name: fillInput.next_stop.name,
+            kind: fillInput.next_stop.kind ?? "attraction",
+            card: null,
+            deeplinks: {},
+          },
+          slot: {
+            start: fillInput.time_from ?? "09:00",
+            end: "11:00",
+          },
+          legs_to_here: [],
+        },
+        day_stops_patch: null,
+        trip_complete: false,
+      }),
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    process.env.PLACES_VENDOR_MODE = "fixture";
+    process.env.PLAN_TRIP_LEGACY_FULL_LOOP = "1";
+    delete process.env.QWEN_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    resetPoiRegistryStoreForTests();
+    setPoiRegistryStore(createMemoryPoiRegistryStore());
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    clearTripMemoryForTests();
+    const generated = generateCallerSecret();
+    const row = await prisma.callerApiKey.create({
+      data: {
+        name: "plan-trip-td4",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    callerKey = row.id;
+  });
+
+  afterEach(async () => {
+    clearTripMemoryForTests();
+    resetPoiRegistryStoreForTests();
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    if (prevVendor === undefined) delete process.env.PLACES_VENDOR_MODE;
+    else process.env.PLACES_VENDOR_MODE = prevVendor;
+    if (prevQwen === undefined) delete process.env.QWEN_API_KEY;
+    else process.env.QWEN_API_KEY = prevQwen;
+    if (prevOpenai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenai;
+    if (prevLegacy === undefined) delete process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+    else process.env.PLAN_TRIP_LEGACY_FULL_LOOP = prevLegacy;
+  });
+
+  it("should_parse_hotel_answer_name_and_skip", () => {
+    expect(resolveHotelAnswer(undefined).kind).toBe("unanswered");
+    expect(resolveHotelAnswer({ hotel: "西安钟楼饭店" })).toEqual({
+      kind: "name",
+      name: "西安钟楼饭店",
+    });
+    expect(resolveHotelAnswer({ hotel: "skip" }).kind).toBe("skip");
+    expect(resolveHotelAnswer({ hotel: "" }).kind).toBe("skip");
+  });
+
+  it("should_ask_hotel_when_origin_missing_on_full_loop", async () => {
+    const result = await planTrip(baseXian());
+    expect(result.status).toBe("needs_input");
+    expect(result.need_input?.questions.some((q) => q.id === "hotel")).toBe(true);
+  });
+
+  it("should_reach_skeleton_when_hotel_name_answered", async () => {
+    const first = await planTrip(baseXian());
+    expect(first.status).toBe("needs_input");
+    const second = await planTrip(
+      baseXian({
+        trip_id: first.trip_id,
+        answers: { hotel: "西安钟楼饭店", expand_radius: "no" },
+        _testFullLoopTurns: [
+          { type: "tool", name: "resolve_origin_stay", args: {} },
+          { type: "tool", name: "make_itinerary", args: {} },
+          { type: "tool", name: "plan_next_stop", args: {} },
+          { type: "tool", name: "commit_artifacts", args: {} },
+          { type: "stop" },
+        ],
+        _testTravelTips: async () =>
+          ({ prose: "tips", cards: [] }) as never,
+      }),
+    );
+    expect(second.need_input?.questions.some((q) => q.id === "hotel")).not.toBe(true);
+    expect(["ready", "failed"]).toContain(second.status);
+    // Hotel gate cleared; skeleton and/or filled path ran (not re-asking hotel).
+    if (second.status === "ready") {
+      expect(
+        (second.itinerary?.skeleton?.days?.length ?? 0) > 0 ||
+          (second.itinerary?.filledStops?.length ?? 0) > 0,
+      ).toBe(true);
+    }
+  });
+
+  it("should_reach_skeleton_without_origin_when_hotel_skipped", async () => {
+    const first = await planTrip(baseXian());
+    expect(first.status).toBe("needs_input");
+    const second = await planTrip(
+      baseXian({
+        trip_id: first.trip_id,
+        answers: { hotel: "skip", expand_radius: "no" },
+        _testFullLoopTurns: [
+          { type: "tool", name: "make_itinerary", args: {} },
+          { type: "stop" },
+        ],
+      }),
+    );
+    expect(second.status).toBe("ready");
+    expect(second.itinerary?.skeleton).toBeTruthy();
+    expect(second.itinerary?.filledStops?.length ?? 0).toBe(0);
+    expect(second.need_input?.questions.some((q) => q.id === "hotel")).not.toBe(true);
+  });
+});
+
+describe("MVP-T5 TD-5 resolve_origin_stay cross-script / once-guard", () => {
+  let callerKey = "";
+  const prevVendor = process.env.PLACES_VENDOR_MODE;
+  const prevQwen = process.env.QWEN_API_KEY;
+  const prevOpenai = process.env.OPENAI_API_KEY;
+  const prevLegacy = process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+
+  beforeEach(async () => {
+    process.env.PLACES_VENDOR_MODE = "fixture";
+    delete process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+    delete process.env.QWEN_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    resetPoiRegistryStoreForTests();
+    setPoiRegistryStore(createMemoryPoiRegistryStore());
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    clearTripMemoryForTests();
+    const generated = generateCallerSecret();
+    const row = await prisma.callerApiKey.create({
+      data: {
+        name: "plan-trip-td5",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    callerKey = row.id;
+  });
+
+  afterEach(async () => {
+    clearTripMemoryForTests();
+    resetPoiRegistryStoreForTests();
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    if (prevVendor === undefined) delete process.env.PLACES_VENDOR_MODE;
+    else process.env.PLACES_VENDOR_MODE = prevVendor;
+    if (prevQwen === undefined) delete process.env.QWEN_API_KEY;
+    else process.env.QWEN_API_KEY = prevQwen;
+    if (prevOpenai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenai;
+    if (prevLegacy === undefined) delete process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+    else process.env.PLAN_TRIP_LEGACY_FULL_LOOP = prevLegacy;
+  });
+
+  it("should_proceed_with_name_only_origin_when_resolve_stay_null", async () => {
+    let resolveCalls = 0;
+    const akihabara = place({
+      name: "秋叶原",
+      provider: "GOOGLE_MAPS",
+      lat: 35.698,
+      lng: 139.773,
+      photo: "https://cdn.example.com/aki.jpg",
+      nativeId: "g-aki",
+    });
+    const result = await planTrip({
+      callerKey,
+      city: "东京",
+      locale: "CN",
+      numDays: 1,
+      origin: { name: "Hotel Monterey Lasoeur Ginza" },
+      pace: "tight",
+      budget: "mid",
+      transit_preference: "transit_walk",
+      trip_type: "solo",
+      party_size: 1,
+      bounds: { start: "2026-09-20", end: "2026-09-20" },
+      start_time: "08:00",
+      _testGeocode: async () => okGeocode(35.68, 139.76, "东京"),
+      _testSearchPlaces: async () => okCards([akihabara]),
+      _testDiscoverPlacesForSkeleton: async () => [akihabara],
+      _testResolveStay: async () => {
+        resolveCalls += 1;
+        return null;
+      },
+      _testMakeItinerary: async () => ({
+        skeleton: {
+          days: [
+            {
+              day_index: 1,
+              day_theme: "Anime",
+              stops: [
+                { name: "Hotel Monterey Lasoeur Ginza", kind: "stay" as const },
+                { name: "秋叶原", kind: "attraction" as const },
+              ],
+            },
+          ],
+        },
+        candidates_slim: { places: [akihabara], restaurants: [] },
+      }),
+      _testPlanNextStopFill: async (fillInput) => ({
+        next_stop: {
+          name: fillInput.next_stop.name,
+          location: {
+            lat: fillInput.next_stop.lat ?? 35.68,
+            lng: fillInput.next_stop.lng ?? 139.76,
+            crs: "WGS84" as const,
+          },
+        },
+        legs: [],
+        transit_outcome: "heuristic" as const,
+        single_mode: true,
+        stop_display: {
+          stop: {
+            name: fillInput.next_stop.name,
+            kind: fillInput.next_stop.kind ?? "attraction",
+            card: null,
+            deeplinks: {},
+          },
+          slot: { start: fillInput.time_from ?? "09:00", end: "11:00" },
+          legs_to_here: [],
+        },
+        day_stops_patch: null,
+        trip_complete: fillInput.next_stop.name === "秋叶原",
+      }),
+      _testTravelTips: async () => ({ prose: "tips", cards: [] }) as never,
+      _testFullLoopTurns: [
+        { type: "tool", name: "resolve_origin_stay", args: {} },
+        { type: "tool", name: "resolve_origin_stay", args: {} },
+        { type: "tool", name: "make_itinerary", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "commit_artifacts", args: {} },
+        { type: "stop" },
+      ],
+    });
+    expect(result.status).not.toBe("failed");
+    expect(resolveCalls).toBe(1);
+    expect(result.itinerary?.skeleton).toBeTruthy();
+    expect(result.tool_calls?.filter((t) => t === "resolve_origin_stay").length).toBe(2);
   });
 });

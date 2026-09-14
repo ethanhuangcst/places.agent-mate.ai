@@ -472,7 +472,10 @@ export function pickLodgingStayCard(query: string, cards: PlaceCard[]): PlaceCar
       return n.length >= 2 && core.toLowerCase().includes(n.toLowerCase());
     })
     .sort((a, b) => (a.name?.length ?? 99) - (b.name?.length ?? 99));
-  return reverse[0] ?? tokenHits[0];
+  if (reverse[0]) return reverse[0];
+  // Cross-script sole hit: EN query vs CN Google title (e.g. Monterey Ginza).
+  if (lodging.length === 1) return lodging[0];
+  return tokenHits[0];
 }
 
 /**

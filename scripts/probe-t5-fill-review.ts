@@ -94,22 +94,80 @@ function dayMetrics(stops: FilledStop[]) {
 
 async function runOne(c: Case, secret: string) {
   const t0 = Date.now();
-  const res = await postJson("/v1/plan_trip", secret, bodyFor(c));
-  const env = res.json as { ok?: boolean; data?: { trip_id?: string; status?: string; need_input?: { questions?: Array<{ id: string }> }; deviations?: unknown[]; itinerary?: { filledStops?: FilledStop[]; skeleton?: { days?: SkeletonDay[] } }; tool_calls?: string[]; timing?: Record<string, number> } };
-  const elapsed = +((Date.now() - t0) / 1000).toFixed(1);
-  const data = env.data;
+  let res = await postJson("/v1/plan_trip", secret, bodyFor(c));
+  let env = res.json as {
+    ok?: boolean;
+    data?: {
+      trip_id?: string;
+      status?: string;
+      need_input?: { questions?: Array<{ id: string }> };
+      deviations?: unknown[];
+      itinerary?: { filledStops?: FilledStop[]; skeleton?: { days?: SkeletonDay[] } };
+      tool_calls?: string[];
+      timing?: Record<string, number>;
+    };
+  };
+  let elapsed = +((Date.now() - t0) / 1000).toFixed(1);
+  let data = env.data;
   if (res.httpStatus >= 400 || !env.ok || !data?.trip_id) {
     return { id: c.id, error: "plan_trip failed", httpStatus: res.httpStatus, body: env, elapsed };
   }
-  if (data.status === "needs_input") {
-    return { id: c.id, status: "needs_input", tripId: data.trip_id, question: data.need_input?.questions?.[0]?.id, elapsed };
+
+  // MVP-T5 TD-4: resume hotel / expand_radius answers on same trip_id.
+  const HOTEL_BY_CITY: Record<string, string> = {
+    // Prefer skip for reliable skeleton path; named hotels may loop on resolve_origin_stay (provider).
+    xian: "skip",
+    jiangyin: "skip",
+  };
+  let guard = 0;
+  while (data.status === "needs_input" && guard < 3) {
+    guard += 1;
+    const qid = data.need_input?.questions?.[0]?.id;
+    const answers: Record<string, string> = {};
+    if (qid === "hotel") {
+      answers.hotel = HOTEL_BY_CITY[c.id] ?? "skip";
+    } else if (qid === "expand_radius") {
+      answers.expand_radius = "no";
+    } else {
+      return {
+        id: c.id,
+        status: "needs_input",
+        tripId: data.trip_id,
+        question: qid,
+        elapsed,
+      };
+    }
+    res = await postJson("/v1/plan_trip", secret, {
+      ...bodyFor(c),
+      trip_id: data.trip_id,
+      answers,
+    });
+    env = res.json as typeof env;
+    elapsed = +((Date.now() - t0) / 1000).toFixed(1);
+    data = env.data;
+    if (res.httpStatus >= 400 || !env.ok || !data?.trip_id) {
+      return { id: c.id, error: "plan_trip failed on answers resume", httpStatus: res.httpStatus, body: env, elapsed };
+    }
   }
+
+  if (data.status === "needs_input") {
+    return {
+      id: c.id,
+      status: "needs_input",
+      tripId: data.trip_id,
+      question: data.need_input?.questions?.[0]?.id,
+      elapsed,
+    };
+  }
+
   const filled = data.itinerary?.filledStops ?? [];
   const skDays = data.itinerary?.skeleton?.days ?? [];
   const skeletonStopTotal = skDays.reduce((n, d) => n + (d.stops?.length ?? 0), 0);
   const byDay = new Map<number, FilledStop[]>();
   for (const f of filled) {
-    const arr = byDay.get(f.day_index) ?? []; arr.push(f); byDay.set(f.day_index, arr);
+    const arr = byDay.get(f.day_index) ?? [];
+    arr.push(f);
+    byDay.set(f.day_index, arr);
   }
   const perDay = [...byDay.keys()].sort((a, b) => a - b).map((di) => ({
     day: di,
@@ -117,9 +175,17 @@ async function runOne(c: Case, secret: string) {
     metrics: dayMetrics(byDay.get(di) ?? []),
   }));
   return {
-    id: c.id, city: c.city, status: data.status, tripId: data.trip_id, elapsed,
+    id: c.id,
+    city: c.city,
+    status: data.status,
+    tripId: data.trip_id,
+    elapsed,
     timing: data.timing,
-    fillCompleteness: { filledStops: filled.length, skeletonStops: skeletonStopTotal, pct: skeletonStopTotal ? +((filled.length / skeletonStopTotal) * 100).toFixed(0) : 0 },
+    fillCompleteness: {
+      filledStops: filled.length,
+      skeletonStops: skeletonStopTotal,
+      pct: skeletonStopTotal ? +((filled.length / skeletonStopTotal) * 100).toFixed(0) : 0,
+    },
     toolCalls: data.tool_calls,
     deviations: data.deviations,
     days: perDay,
@@ -148,13 +214,46 @@ async function main() {
   writeFileSync(join(outDir, "probe-t5-fill-review.json"), JSON.stringify(results, null, 2));
   process.stdout.write("\n=== SUMMARY ===\n");
   for (const r of results) {
-    const rr = r as { id: string; status?: string; error?: string; elapsed?: number; fillCompleteness?: { filledStops: number; skeletonStops: number; pct: number }; timing?: Record<string, number>; days?: Array<{ day: number; theme?: string; metrics: { filledStops: number; attractions: number; meals: number; lastEndTime?: string; totalTransitMin: number; reversals: number; hasLunch: boolean; hasDinner: boolean } }> };
-    if (rr.error) { process.stdout.write(`${rr.id}: ERROR ${rr.error.slice(0, 100)}\n`); continue; }
-    const fc = rr.fillCompleteness!;
-    process.stdout.write(`${rr.id}: ${rr.status} elapsed=${rr.elapsed}s fill=${fc.filledStops}/${fc.skeletonStops}(${fc.pct}%) skeleton=${rr.timing?.skeleton_s ?? "?"}s fill_t=${rr.timing?.fill_s ?? "?"}s\n`);
+    const rr = r as {
+      id: string;
+      status?: string;
+      error?: string;
+      elapsed?: number;
+      question?: string;
+      fillCompleteness?: { filledStops: number; skeletonStops: number; pct: number };
+      timing?: Record<string, number>;
+      days?: Array<{
+        day: number;
+        theme?: string;
+        metrics: {
+          filledStops: number;
+          attractions: number;
+          meals: number;
+          lastEndTime?: string;
+          totalTransitMin: number;
+          reversals: number;
+          hasLunch: boolean;
+          hasDinner: boolean;
+        };
+      }>;
+    };
+    if (rr.error) {
+      process.stdout.write(`${rr.id}: ERROR ${rr.error.slice(0, 100)}\n`);
+      continue;
+    }
+    if (rr.status === "needs_input") {
+      process.stdout.write(`${rr.id}: needs_input question=${rr.question ?? "?"} elapsed=${rr.elapsed}s\n`);
+      continue;
+    }
+    const fc = rr.fillCompleteness ?? { filledStops: 0, skeletonStops: 0, pct: 0 };
+    process.stdout.write(
+      `${rr.id}: ${rr.status} elapsed=${rr.elapsed}s fill=${fc.filledStops}/${fc.skeletonStops}(${fc.pct}%) skeleton=${rr.timing?.skeleton_s ?? "?"}s fill_t=${rr.timing?.fill_s ?? "?"}s\n`,
+    );
     for (const d of rr.days ?? []) {
       const m = d.metrics;
-      process.stdout.write(`  D${d.day} [${d.theme ?? "?"}]: filled=${m.filledStops} attr=${m.attractions} meals=${m.meals} lastEnd=${m.lastEndTime ?? "?"} transit=${m.totalTransitMin}min reversals=${m.reversals} lunch=${m.hasLunch} dinner=${m.hasDinner}\n`);
+      process.stdout.write(
+        `  D${d.day} [${d.theme ?? "?"}]: filled=${m.filledStops} attr=${m.attractions} meals=${m.meals} lastEnd=${m.lastEndTime ?? "?"} transit=${m.totalTransitMin}min reversals=${m.reversals} lunch=${m.hasLunch} dinner=${m.hasDinner}\n`,
+      );
     }
   }
 }

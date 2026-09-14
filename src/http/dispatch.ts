@@ -633,6 +633,10 @@ export async function dispatchTool(
         answers: parsed.data.answers
           ? {
               expand_radius: parsed.data.answers.expand_radius,
+              hotel:
+                typeof parsed.data.answers.hotel === "string"
+                  ? parsed.data.answers.hotel
+                  : undefined,
             }
           : undefined,
       });

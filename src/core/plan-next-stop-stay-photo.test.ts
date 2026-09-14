@@ -210,4 +210,25 @@ describe("pickLodgingStayCard", () => {
     const picked = pickLodgingStayCard("西湖大华饭店", cards);
     expect(picked?.name).toBe("大华饭店");
   });
+
+  it("should_accept_sole_lodging_hit_when_en_query_vs_cn_google_title (TD-5)", () => {
+    const cards: PlaceCard[] = [
+      {
+        provider: "GOOGLE_MAPS",
+        name: "银座蒙特利拉苏瑞酒店",
+        category: "hotel",
+        location: { lat: 35.671, lng: 139.765, crs: "WGS84" },
+        sources: [
+          {
+            provider: "GOOGLE_MAPS",
+            native_id: "places/monterey-ginza",
+            deeplinks: {},
+          },
+        ],
+      },
+    ];
+    const picked = pickLodgingStayCard("Hotel Monterey Lasoeur Ginza", cards);
+    expect(picked?.name).toBe("银座蒙特利拉苏瑞酒店");
+    expect(picked?.sources?.[0]?.native_id).toBe("places/monterey-ginza");
+  });
 });
