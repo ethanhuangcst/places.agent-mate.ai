@@ -22,7 +22,7 @@ function place(name: string, lat = 38.7, lng = -9.1): PlaceCard {
     sources: [
       {
         provider: "GOOGLE_MAPS",
-        native_id: "g1",
+        native_id: `g-${name}`,
         deeplinks: { google_web: "https://maps.google.com/?q=1" },
       },
     ],

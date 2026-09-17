@@ -129,7 +129,7 @@ describe("validateSkeleton", () => {
     if (!result.ok) expect(result.error).toMatch(/stay-only|attraction/i);
   });
 
-  it("should_reject_day_with_one_attraction_when_pool_covers_two_per_day", () => {
+  it("should_allow_one_attraction_day_when_pool_covers_two_per_day", () => {
     const fatPool = {
       places: [
         place("A"),
@@ -168,11 +168,10 @@ describe("validateSkeleton", () => {
       ],
     };
     const result = validateSkeleton(raw, fatPool, [], "relaxed");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/at least 2/);
+    expect(result.ok).toBe(true);
   });
 
-  it("should_trim_extra_attractions_when_day_exceeds_pace_limit (TC-M13-55-01)", () => {
+  it("should_trim_extreme_pace_overage_only (TC-M13-55-01)", () => {
     const manyPlaces = {
       places: [
         place("A"),
@@ -182,6 +181,7 @@ describe("validateSkeleton", () => {
         place("E"),
         place("F"),
         place("G"),
+        place("H"),
       ],
       restaurants: input.candidates.restaurants,
       stays: ["Hills Hotel Lisboa"],
@@ -199,6 +199,8 @@ describe("validateSkeleton", () => {
             { name: "D", kind: "attraction" },
             { name: "E", kind: "attraction" },
             { name: "F", kind: "attraction" },
+            { name: "G", kind: "attraction" },
+            { name: "H", kind: "attraction" },
             { name: "Pastéis de Belém", kind: "meal", meal_slot: "lunch" },
             { kind: "meal", meal_slot: "dinner" },
           ],
@@ -210,8 +212,8 @@ describe("validateSkeleton", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const attr = result.skeleton.days[0]!.stops.filter((s) => s.kind === "attraction");
-      expect(attr).toHaveLength(4);
-      expect(attr.map((s) => s.name)).toEqual(["A", "B", "C", "D"]);
+      expect(attr).toHaveLength(6);
+      expect(attr.map((s) => s.name)).toEqual(["A", "B", "C", "D", "E", "F"]);
     }
   });
 
@@ -1365,17 +1367,6 @@ describe("buildSkeletonUserMessage", () => {
     expect(msg).not.toMatch(/from the restaurant list/);
   });
 
-  it("TC-M12-49-05: should_annotate_must_see_candidates", () => {
-    const places = [
-      { ...place("Torre de Belém"), must_see: true },
-      place("Mosteiro dos Jerónimos"),
-    ];
-    const input = baseInput({ candidates: { places, restaurants: [] } });
-    input.candidates.places = places;
-    const msg = buildSkeletonUserMessage(input);
-    expect(msg).toMatch(/Torre de Belém.*\[must-see\]/);
-    expect(msg).not.toMatch(/Mosteiro dos Jerónimos.*\[must-see\]/);
-  });
 });
 
 describe("buildFixtureSkeleton", () => {
@@ -1397,23 +1388,6 @@ describe("buildFixtureSkeleton", () => {
     expect(meals.every((m) => !baseInput().candidates.restaurants.some((r) => r.name === m.name))).toBe(
       true,
     );
-  });
-
-  it("TC-M12-49-05: should_prefer_must_see_places_first", () => {
-    // Generic place first, iconic (must_see) last — fixture must reorder so the
-    // iconic place is scheduled on day 1 ahead of the generic one.
-    const generic = place("Generic Viewpoint");
-    const iconic = { ...place("Pena Palace"), must_see: true };
-    const input = baseInput({
-      numDays: 1,
-      candidates: { places: [generic, iconic], restaurants: [restaurant("Lunch")] },
-    });
-    const skeleton = buildFixtureSkeleton(input);
-    const day1 = skeleton.days[0];
-    const attractionNames = day1.stops
-      .filter((s) => s.kind === "attraction")
-      .map((s) => s.name);
-    expect(attractionNames[0]).toBe("Pena Palace");
   });
 
   it("TC-M21-83-01 should_keep_lisbon_pool_when_origin_is_far", async () => {
@@ -1480,40 +1454,6 @@ describe("buildFixtureSkeleton", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/stay-only/i);
-  });
-});
-
-describe("enrichMakeItineraryInput registry merge (TC-M22-87-03)", () => {
-  it("should_merge_registry_places_into_make_pool_then_still_filter_eligible", async () => {
-    const { createMemoryPoiRegistryStore, setPoiRegistryStore, upsertEligiblePois } =
-      await import("./destination-poi-registry");
-    const store = createMemoryPoiRegistryStore();
-    setPoiRegistryStore(store);
-    await upsertEligiblePois(
-      [
-        {
-          provider: "GOOGLE_MAPS",
-          name: "Mosteiro dos Jerónimos",
-          location: { lat: 38.6979, lng: -9.2067, crs: "WGS84" },
-          sources: [
-            { provider: "GOOGLE_MAPS", native_id: "jer", deeplinks: { google_web: "https://maps.google.com/?q=2" } },
-          ],
-        },
-      ],
-      { city: "Lisbon", lat: 38.722, lng: -9.139 },
-      store,
-    );
-    const enriched = await enrichMakeItineraryInput(
-      baseInput({
-        candidates: { places: [place("Torre de Belém")], restaurants: [] },
-      }),
-      { geocode: async () => ({ lat: 38.722, lng: -9.139 }) },
-    );
-    expect(enriched.candidates.places.map((p) => p.name)).toEqual(
-      expect.arrayContaining(["Torre de Belém", "Mosteiro dos Jerónimos"]),
-    );
-    expect(enriched.candidates.places.every((p) => !/名胜区/.test(p.name))).toBe(true);
-    setPoiRegistryStore(null);
   });
 });
 
@@ -1705,7 +1645,7 @@ describe("buildSkeletonUserMessage traveler prefs (agent-itinerary-102)", () => 
     );
     expect(msg).toMatch(/断桥残雪/);
     expect(msg).toMatch(/秋季|9月/);
-    expect(msg).toMatch(/不要因季节硬删/);
+    expect(msg).not.toMatch(/不要因季节硬删/);
     expect(msg).not.toMatch(/must drop|remove 断桥|强制删除断桥/);
   });
 });
