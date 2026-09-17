@@ -71,7 +71,7 @@ import { resolveProviderStrategy } from "../adapters/provider-resolver";
 import { resolvedDirectionProviders } from "./direction-providers";
 import { geocode, searchPlaces, searchRestaurants, suggestPlaces } from "./tools";
 import {
-  isDisplayablePhotoUrl,
+  pickDisplayablePhotoUrl,
   resolveDisplayPhotosForCards,
 } from "./resolve-display-photo";
 
@@ -861,6 +861,8 @@ async function searchCandidatePools(input: {
           // Google searchText RankPreference is RELEVANCE | DISTANCE only.
           // POPULARITY is invalid (HTTP 400) and emptied the Lisbon attraction pool.
           rankPreference: "RELEVANCE",
+          // Destination-agnostic wider bias (default 5km is too narrow for thin Google cities).
+          bias_radius_m: 50_000,
         }),
       ),
     ),
@@ -972,7 +974,7 @@ function sanitizePublicUrl(url: string): string {
 
 export function slimArrangeCandidate(card: PlaceCard): PlaceCard {
   const sources = normalizePlaceSources(card.sources, card);
-  const photo = card.photos?.find((p) => isDisplayablePhotoUrl(p));
+  const photo = pickDisplayablePhotoUrl(card.photos);
   return {
     provider: card.provider,
     primary_provider: card.primary_provider,
@@ -1147,6 +1149,18 @@ function hasFiniteCoords(card: PlaceCard): boolean {
   );
 }
 
+function hasDisplayablePhoto(card: PlaceCard): boolean {
+  return (
+    Array.isArray(card.photos) &&
+    card.photos.some((p) => typeof p === "string" && /^https?:\/\//i.test(p))
+  );
+}
+
+/**
+ * Tips from inputtips often have coords + tip-only native_ids that `/place/detail`
+ * returns empty for (e.g. 龙井村 B023B08NUI) and no photos. Upgrade via search when
+ * the tip lacks a displayable photo; keep tip if search finds nothing usable.
+ */
 async function hydrateNominatedCard(
   tip: PlaceCard,
   input: {
@@ -1157,9 +1171,11 @@ async function hydrateNominatedCard(
   },
   search: typeof searchPlaces = searchPlaces,
 ): Promise<PlaceCard | undefined> {
-  if (hasFiniteCoords(tip)) return tip;
   const tipName = tip.name?.trim();
   if (!tipName) return undefined;
+  const tipPhoto = hasDisplayablePhoto(tip);
+  if (hasFiniteCoords(tip) && tipPhoto) return tip;
+
   const res = await search({
     address: input.city,
     query: tipName,
@@ -1168,10 +1184,15 @@ async function hydrateNominatedCard(
     near: input.near,
     rankPreference: "RELEVANCE",
   });
-  return pickNominatedGroundCard(
+  const grounded = pickNominatedGroundCard(
     tipName,
     mergePlaceCardsByName([res.data ?? []]),
   );
+  if (grounded && (!tipPhoto || hasDisplayablePhoto(grounded))) {
+    return grounded;
+  }
+  if (hasFiniteCoords(tip)) return tip;
+  return grounded;
 }
 
 export async function groundNominatedName(input: {
@@ -1271,6 +1292,7 @@ async function groundNominatedNameOnce(input: {
     providers: input.providers,
     near: input.near,
     rankPreference: "RELEVANCE",
+    bias_radius_m: 50_000,
   });
   const searchCards = mergePlaceCardsByName([searchRes.data ?? []]);
   const card = pickNominatedGroundCard(name, searchCards);
@@ -1286,6 +1308,7 @@ async function groundNominatedNameOnce(input: {
     providers: input.providers,
     near: input.near,
     rankPreference: "RELEVANCE",
+    bias_radius_m: 50_000,
   });
   const broadCards = mergePlaceCardsByName([broadRes.data ?? []]);
   const broadPick = pickNominatedGroundCard(core, broadCards, {
@@ -1350,32 +1373,42 @@ export async function nominateMustSeeViaLlm(input: {
     },
   );
 
-  // Call LLM with timeout
-  let raw: string | null = null;
-  try {
-    const completion = await withAbortTimeout(NOMINATE_TIMEOUT_MS, (signal) =>
-      create(
-        {
-          model: configuredChatModel(),
-          messages: [{ role: "user", content: userMessage }],
-          max_completion_tokens: NOMINATE_MAX_TOKENS,
-          temperature: NOMINATE_TEMPERATURE,
-        },
-        { signal },
-      ),
-    );
-    raw = extractChatCompletionText(completion);
-  } catch (err) {
-    if (isLlmAbortError(err)) {
-      console.error("nominateMustSeeViaLlm: LLM timed out");
-    } else {
-      console.error("nominateMustSeeViaLlm: LLM failed", err);
+  // Call LLM with timeout; retry once if fewer than 8 names (thin nominate → thin pool).
+  const runNominateChat = async (message: string): Promise<string[]> => {
+    try {
+      const completion = await withAbortTimeout(NOMINATE_TIMEOUT_MS, (signal) =>
+        create(
+          {
+            model: configuredChatModel(),
+            messages: [{ role: "user", content: message }],
+            max_completion_tokens: NOMINATE_MAX_TOKENS,
+            temperature: NOMINATE_TEMPERATURE,
+          },
+          { signal },
+        ),
+      );
+      return parseNominatePlaceNames(extractChatCompletionText(completion));
+    } catch (err) {
+      if (isLlmAbortError(err)) {
+        console.error("nominateMustSeeViaLlm: LLM timed out");
+      } else {
+        console.error("nominateMustSeeViaLlm: LLM failed", err);
+      }
+      return [];
     }
-    return [];
-  }
+  };
 
-  // Parse names
-  const names = parseNominatePlaceNames(raw);
+  let names = await runNominateChat(userMessage);
+  if (names.length === 0) return [];
+  if (names.length < 8) {
+    const retryMsg =
+      userMessage +
+      (input.locale === "EN"
+        ? " List at least 15 distinct pinable place names."
+        : " 请至少列出 15 个可在地图中搜索到的具体地点名称。");
+    const retryNames = await runNominateChat(retryMsg);
+    if (retryNames.length > names.length) names = retryNames;
+  }
   if (names.length === 0) return [];
 
   const grounded: PlaceCard[] = [];
@@ -1566,6 +1599,7 @@ export async function discoverPlaces(
             providers: input.providers,
             near,
             rankPreference: "RELEVANCE",
+            bias_radius_m: 50_000,
           }),
         ),
       );
@@ -1595,6 +1629,14 @@ export async function discoverPlaces(
   } else {
     places = filterEligibleAttractions(places);
   }
+
+  // Nomination / must_include search hits often only have google_photo_names — resolve before return.
+  const [resolvedPlaces, resolvedRestaurants] = await Promise.all([
+    resolveDisplayPhotosForCards(places),
+    resolveDisplayPhotosForCards(restaurants),
+  ]);
+  places = resolvedPlaces;
+  restaurants = resolvedRestaurants;
 
   if (!opts?.skipPoiRegistry) {
     const { poiIds } = await safeUpsertEligiblePois(places, {

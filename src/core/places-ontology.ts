@@ -560,7 +560,7 @@ export function buildThemeHint(
     typeKey === "food" ||
     /吃喝|美食|food_checkin|food\s*check/i.test(blob);
   const wantsHistory = /历史|歷史|historic|heritage|古迹/i.test(blob);
-  const wantsAnime = /动漫|動漫|anime|otaku|手办|秋叶原|吉卜力|宝可梦/i.test(blob);
+  const wantsAnime = /动漫|動漫|anime|otaku|手办|吉卜力|宝可梦/i.test(blob);
 
   if (catalogLoc === "EN") {
     if (wantsKids) {
@@ -693,8 +693,8 @@ export function buildNominateMustSeeUserMessage(
     ? loc === "EN"
       ? " Fit the travel month and season; do not list seasonal-only sights that are not typical or not visible then. Outside winter, do not list names that embed residual snow, rime ice, ice sculpture, or ski-only winter scenery. Do not list classic seasonal scenic couplets that do not match the travel season."
       : loc === "HK" || loc === "TW"
-        ? "符合出行月份與季節，不要列該季看不到或不宜遊的季節專屬景；非冬季不要列名稱含殘雪/霧凇/冰雕/冰雪/滑雪的景點；不要列與出行季節不符的西湖十景式季節專屬名（如斷橋殘雪、蘇堤春曉、曲院風荷、平湖秋月）。"
-        : "符合出行月份与季节，不要列该季看不到或不宜游的季节专属景；非冬季不要列名称含残雪/雾凇/冰雕/冰雪/滑雪的景点；不要列与出行季节不符的西湖十景式季节专属名（如断桥残雪、苏堤春晓、曲院风荷、平湖秋月）。"
+        ? "符合出行月份與季節，不要列該季看不到或不宜遊的季節專屬景；非冬季不要列名稱含殘雪/霧凇/冰雕/冰雪/滑雪的景點；不要列與出行季節不符的十景/八景式季節專屬名。"
+        : "符合出行月份与季节，不要列该季看不到或不宜游的季节专属景；非冬季不要列名称含残雪/雾凇/冰雕/冰雪/滑雪的景点；不要列与出行季节不符的十景/八景式季节专属名。"
     : "";
   const mix =
     loc === "EN"

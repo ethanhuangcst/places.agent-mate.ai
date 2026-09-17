@@ -121,6 +121,30 @@ describe("groundNominatedName", () => {
     expect(grounded?.nominated_name).toBe("断桥");
   });
 
+  it("should_upgrade_amap_tip_without_photos_via_search_poi", async () => {
+    // inputtips often return village AOI ids that place/detail returns empty for.
+    const tip = card("龙井村", {
+      sources: [{ provider: "AMAP", native_id: "B023B08NUI", deeplinks: {} }],
+    });
+    const grounded = await groundNominatedName({
+      name: "龙井村",
+      city: "杭州",
+      locale: "CN",
+      _testSuggestPlaces: async () => ok([tip]),
+      _testSearchPlaces: async () =>
+        ok([
+          card("龙井村牌坊", {
+            photos: ["https://store.is.autonavi.com/showpic/longjing"],
+            sources: [{ provider: "AMAP", native_id: "B0MG95PP15", deeplinks: {} }],
+          }),
+        ]),
+    });
+    expect(grounded?.name).toBe("龙井村牌坊");
+    expect(grounded?.photos?.[0]).toMatch(/^https:/);
+    expect(grounded?.sources?.[0]?.native_id).toBe("B0MG95PP15");
+    expect(grounded?.nominated_name).toBe("龙井村");
+  });
+
   it("should_broad_fallback_sintra_castle_to_palace_beyond_15km", async () => {
     const queries: string[] = [];
     const grounded = await groundNominatedName({

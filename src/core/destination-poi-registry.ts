@@ -4,6 +4,7 @@
  */
 
 import { isEligibleAttraction } from "./eligible-attraction";
+import { pickDisplayablePhotoUrl } from "./resolve-display-photo";
 import { getPlaceDetails } from "./tools";
 import { type PlaceCard, type PlaceSource } from "./types";
 
@@ -119,16 +120,7 @@ export function canRegisterAttraction(card: PlaceCard): boolean {
 
 /** First https displayable photo URL (ADR-051 / ADR-056) — drop media stubs and keyed URLs. */
 export function firstDisplayablePhoto(photos: unknown): string | undefined {
-  if (!Array.isArray(photos)) return undefined;
-  const first = photos.find(
-    (p) =>
-      typeof p === "string" &&
-      p.startsWith("https://") &&
-      !/places\.googleapis\.com\/v1\/.+\/media/i.test(p) &&
-      !/[?&](?:api_)?key=/i.test(p) &&
-      !/skipHttpRedirect=true/i.test(p),
-  );
-  return typeof first === "string" ? first : undefined;
+  return pickDisplayablePhotoUrl(photos);
 }
 
 /**

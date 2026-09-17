@@ -164,13 +164,11 @@ describe("isVagueAreaName", () => {
     expect(isVagueAreaName("雷峰塔景区")).toBe(false);
   });
 
-  it("should_reject_common_cn_shopping_and_area_labels", () => {
-    expect(isVagueAreaName("田子坊")).toBe(true);
-    expect(isVagueAreaName("城隍庙")).toBe(true);
+  it("should_reject_suffix_area_labels_not_bare_poi_names", () => {
     expect(isVagueAreaName("豫园商城")).toBe(true);
-    expect(isVagueAreaName("南京路")).toBe(true);
-    expect(isVagueAreaName("新天地")).toBe(true);
     expect(isVagueAreaName("朱家角古镇")).toBe(true);
+    expect(isVagueAreaName("Alfama District")).toBe(true);
+    expect(isVagueAreaName("钱江新城")).toBe(true);
   });
 });
 
@@ -180,13 +178,30 @@ describe("sharedProperToken", () => {
     expect(sharedProperToken("Torre de Belém", "Belém Tower")).toBe(true);
   });
 
+  it("should_not_match_translated_saint_name_without_shared_spelling", () => {
+    expect(sharedProperToken("Castelo de São Jorge", "Saint George Castle")).toBe(false);
+    expect(sharedProperToken("Castelo de São Jorge", "São Jorge Castle")).toBe(true);
+  });
+
+  it("should_match_diacritic_folded_aliases", () => {
+    expect(sharedProperToken("Torre de Belém", "Belem Tower")).toBe(true);
+    expect(sharedProperToken("Castelo de São Jorge", "Castelo de Sao Jorge")).toBe(true);
+  });
+
+  it("should_reject_castle_vs_garden_same_patron", () => {
+    expect(
+      sharedProperToken("Castelo de São Jorge", "Garden of the Castle of São Jorge"),
+    ).toBe(false);
+  });
+
   it("should_not_match_unrelated_same_type_places", () => {
     expect(sharedProperToken("Queluz National Palace", "Sintra National Palace")).toBe(false);
     expect(sharedProperToken("Tower of London", "Eiffel Tower")).toBe(false);
   });
 
   it("should_drop_short_and_venue_type_tokens", () => {
-    expect(properNameTokens("Mosteiro dos Jerónimos").has("jerónimos")).toBe(true);
+    expect(properNameTokens("Mosteiro dos Jerónimos").has("jeronimos")).toBe(true);
+    expect(properNameTokens("Mosteiro dos Jerónimos").has("jerónimos")).toBe(false);
     expect(properNameTokens("Mosteiro dos Jerónimos").has("mosteiro")).toBe(false);
     expect(properNameTokens("Mosteiro dos Jerónimos").has("dos")).toBe(false);
   });

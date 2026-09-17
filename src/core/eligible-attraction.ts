@@ -57,12 +57,7 @@ export function isVagueAreaName(name: string): boolean {
   if (/(?:风景名胜区|風景名勝區|风景区|風景區|名胜区|名勝區|景区|公園|公园|广场|廣場)$/u.test(t)) {
     return false;
   }
-  // Common area / shopping labels that do not pin to one visit stop.
-  // Destination-agnostic bare-area markers only (ADR-042); city-specific POI
-  // names are not enumerated here — the generic suffix regex below catches them.
-  if (/^(田子坊|城隍庙|南京路|淮海路|新天地|银座|涩谷|秋叶原|上野|浅草)$/u.test(t)) {
-    return true;
-  }
+  // Generic area / shopping suffixes only (ADR-042). No per-city POI names.
   return /(?:District|Area|Quarter|Neighborhood|街区|古镇|新城|商城|[湖街城区])$/iu.test(t);
 }
 
@@ -75,32 +70,97 @@ const VENUE_TYPE_WORDS = new Set([
   "park", "square", "fortress", "cathedral", "church", "garden", "bridge",
   "memorial", "monument", "statue", "viewpoint", "lookout", "promenade",
   "avenue", "street", "road", "abbey", "basilica", "gallery", "university",
-  // PT
-  "castelo", "torre", "mosteiro", "palacio", "palácio", "museu", "museu",
-  "praca", "praça", "parque", "igreja", "jardim", "ponte", "miradouro",
-  "nacional", "estatua", "estátua", "memorial", "avenida",
+  // PT (diacritics folded; canonicalized via VENUE_TYPE_COGNATE_GROUPS below)
+  "castelo", "torre", "mosteiro", "palacio", "museu",
+  "praca", "parque", "igreja", "jardim", "ponte", "miradouro",
+  "nacional", "estatua", "memorial", "avenida",
   // CN (kept for symmetry; CJK substring usually already covers these)
   "广场", "博物馆", "教堂", "公园", "遗址", "纪念", "纪念馆", "博物院",
 ]);
 
-/** Tokenize a name into proper-noun tokens: lowercase, split on
+/**
+ * Cognate venue-type groups (destination-agnostic vocabulary, not POI lists).
+ * Used to reject "Castle of X" ↔ "Garden of X" false unique fuzzy hits.
+ */
+const VENUE_TYPE_COGNATE_GROUPS: string[][] = [
+  ["castle", "castelo", "fortress", "fortaleza"],
+  ["tower", "torre"],
+  ["monastery", "mosteiro", "abbey", "convent", "convento"],
+  ["palace", "palacio"],
+  ["museum", "museu"],
+  ["garden", "jardim", "park", "parque"],
+  ["church", "igreja", "cathedral", "basilica"],
+  ["bridge", "ponte"],
+  ["square", "praca", "plaza"],
+  ["viewpoint", "lookout", "miradouro"],
+];
+
+function buildCognateLookup(groups: string[][]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const group of groups) {
+    const canon = group[0]!;
+    for (const t of group) map.set(t, canon);
+  }
+  return map;
+}
+
+const VENUE_TYPE_CANON = buildCognateLookup(VENUE_TYPE_COGNATE_GROUPS);
+
+/** Strip combining marks so Belém↔Belem and São↔Sao share tokens. */
+export function foldDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function canonicalizeVenueType(token: string): string | undefined {
+  const folded = foldDiacritics(token);
+  if (VENUE_TYPE_CANON.has(folded)) return VENUE_TYPE_CANON.get(folded);
+  if (VENUE_TYPE_WORDS.has(folded)) return folded;
+  return undefined;
+}
+
+/** Leftmost venue-type canon (Garden of the Castle → garden, not castle). */
+export function primaryVenueType(name: string): string | undefined {
+  for (const raw of foldDiacritics(name).toLowerCase().split(/[\s\p{P}\p{S}]+/u)) {
+    const t = raw.trim();
+    if (!t) continue;
+    const canon = canonicalizeVenueType(t);
+    if (canon) return canon;
+  }
+  return undefined;
+}
+
+/**
+ * False when primary venue types conflict
+ * (castle vs garden of the same named site).
+ */
+export function venueTypesCompatible(a: string, b: string): boolean {
+  const pa = primaryVenueType(a);
+  const pb = primaryVenueType(b);
+  if (!pa || !pb) return true;
+  return pa === pb;
+}
+
+/** Tokenize a name into proper-noun tokens: lowercase, diacritic-fold, split on
  * whitespace/punctuation, drop tokens <4 chars and generic venue-type words.
- * Returns the set of significant tokens (destination-agnostic). */
+ * No saint/given-name translation table (ADR-042) — vendor search resolves
+ * cross-language aliases. */
 export function properNameTokens(name: string): Set<string> {
   const tokens = new Set<string>();
-  for (const raw of name.toLowerCase().split(/[\s\p{P}\p{S}]+/u)) {
+  for (const raw of foldDiacritics(name).toLowerCase().split(/[\s\p{P}\p{S}]+/u)) {
     const t = raw.trim();
     if (t.length < 4) continue;
-    if (VENUE_TYPE_WORDS.has(t)) continue;
+    if (VENUE_TYPE_WORDS.has(t) || VENUE_TYPE_CANON.has(t)) continue;
+    if (t === "saint" || t === "sao") continue;
     tokens.add(t);
   }
   return tokens;
 }
 
-/** True if query and card name share at least one significant proper-noun token.
- * Fallback for cross-language aliases where substring overlap fails
- * (e.g. "Mosteiro dos Jerónimos" ↔ "Jerónimos Monastery" share "jerónimos"). */
+/** True if query and card name share at least one significant proper-noun token
+ * after diacritic fold (e.g. Jerónimos ↔ Jeronimos). Translated names that do
+ * not share a token (PT Jorge vs EN George) are resolved by vendor search. */
 export function sharedProperToken(query: string, cardName: string): boolean {
+  if (!venueTypesCompatible(query, cardName)) return false;
   const qTokens = properNameTokens(query);
   if (qTokens.size === 0) return false;
   const cTokens = properNameTokens(cardName);

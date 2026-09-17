@@ -1845,6 +1845,33 @@ describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
     expect(result.need_input?.questions.some((q) => q.id === "expand_radius")).toBe(true);
   });
 
+  it("should_not_ask_expand_for_hangzhou_amap_titles_without_category", async () => {
+    // Hangzhou classic names often have no AMAP category and fail ATTRACTION_ALLOW
+    // (苏堤 / 灵隐寺 / 雷峰塔景区) — must still count as local attractions.
+    const hangzhouLocal = (name: string, nativeId: string, lat: number, lng: number): PlaceCard => ({
+      provider: "AMAP",
+      name,
+      location: { lat, lng, crs: "WGS84" },
+      sources: [{ provider: "AMAP", native_id: nativeId, deeplinks: {} }],
+    });
+    const result = await planTrip({
+      ...base110d({
+        city: "杭州",
+        locale: "CN",
+        numDays: 3,
+        _testGeocode: async () => okGeocode(30.2741, 120.1551, "杭州"),
+        _testDiscoverPlacesForSkeleton: async () => [
+          hangzhouLocal("苏堤", "B0FF苏堤", 30.2403, 120.1393),
+          hangzhouLocal("灵隐寺", "B0FF灵隐", 30.2408, 120.1014),
+          hangzhouLocal("雷峰塔景区", "B0FF雷峰", 30.2309, 120.1488),
+          hangzhouLocal("三潭印月", "B0FF三潭", 30.2388, 120.1454),
+        ],
+      }),
+    });
+    expect(result.need_input?.questions?.some((q) => q.id === "expand_radius")).toBeFalsy();
+    expect(result.status).toBe("ready");
+  });
+
   it("should_return_needs_input_expand_radius_when_local_pool_scarce (TC-T3-110d-01)", async () => {
     const result = await planTrip(base110d());
     expect(result.status).toBe("needs_input");
@@ -2060,6 +2087,8 @@ describe("MVP-T5 TD-4 HTTP answers.hotel", () => {
             end: "11:00",
           },
           legs_to_here: [],
+          transit_outcome: "heuristic" as const,
+          notes: [] as string[],
         },
         day_stops_patch: null,
         trip_complete: false,
@@ -2280,6 +2309,8 @@ describe("MVP-T5 TD-5 resolve_origin_stay cross-script / once-guard", () => {
           },
           slot: { start: fillInput.time_from ?? "09:00", end: "11:00" },
           legs_to_here: [],
+          transit_outcome: "heuristic" as const,
+          notes: [] as string[],
         },
         day_stops_patch: null,
         trip_complete: fillInput.next_stop.name === "秋叶原",

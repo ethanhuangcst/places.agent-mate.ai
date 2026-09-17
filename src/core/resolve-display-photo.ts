@@ -56,10 +56,26 @@ function firstDisplayable(photos: unknown): string | undefined {
   return undefined;
 }
 
+/** Exported for slim/registry paths that must keep AMAP http→https thumbs (ADR-051). */
+export function pickDisplayablePhotoUrl(photos: unknown): string | undefined {
+  return firstDisplayable(photos);
+}
+
 function googlePhotoNames(card: PlaceCard): string[] {
   const named = card.google_photo_names;
   if (Array.isArray(named) && named.length) {
     return named.filter((n): n is string => typeof n === "string" && n.length > 0).slice(0, 3);
+  }
+  // Some adapters leave Places media resource paths in photos[] before resolve.
+  if (Array.isArray(card.photos)) {
+    const fromPhotos = card.photos
+      .filter((p): p is string => typeof p === "string")
+      .map((p) => {
+        const m = p.match(/places\/[^/]+\/photos\/[^/?]+/i);
+        return m?.[0];
+      })
+      .filter((n): n is string => Boolean(n));
+    if (fromPhotos.length) return fromPhotos.slice(0, 3);
   }
   return [];
 }
@@ -129,15 +145,19 @@ export async function resolveDisplayPhoto(
   }
 
   if (!resolved && deps.getDetails) {
-    const nativeId = googleNativeId(card);
-    if (nativeId && process.env.GOOGLE_PHOTOS_ENABLED !== "false") {
+    const googleId = googleNativeId(card);
+    const anyId =
+      googleId ??
+      card.sources?.find((s) => typeof s.native_id === "string" && s.native_id.trim())?.native_id?.trim();
+    const allowGoogle = process.env.GOOGLE_PHOTOS_ENABLED !== "false";
+    if (anyId && (!googleId || allowGoogle)) {
       try {
-        const detailed = await deps.getDetails(nativeId);
+        const detailed = await deps.getDetails(anyId);
         if (detailed) {
           const fromDetails = firstDisplayable(detailed.photos);
           if (fromDetails) {
             resolved = fromDetails;
-          } else {
+          } else if (googleId) {
             const detailNames = googlePhotoNames(detailed);
             if (detailNames.length) {
               resolved = await resolveFromGoogleNames(detailNames, deps);

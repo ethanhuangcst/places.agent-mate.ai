@@ -403,13 +403,20 @@ export async function dispatchTool(
       const slot = result.stop_display?.slot;
       const patch: Record<string, unknown> = {};
       if (!result.skeleton_patched) {
+        // ADR-051: filled SoT must carry stop_display.card.photos — not bare next_stop pointers.
+        const displayStop = result.stop_display?.stop;
         patch.filled = {
-          stop: {
-            ...parsed.data.next_stop,
-            name: result.next_stop.name,
-            ...(result.meal_skipped ? { meal_skipped: true } : {}),
-            ...(result.venue_card ? { kind: "meal" } : {}),
-          },
+          stop: displayStop
+            ? {
+                ...displayStop,
+                ...(result.meal_skipped ? { meal_skipped: true } : {}),
+              }
+            : {
+                ...parsed.data.next_stop,
+                name: result.next_stop.name,
+                ...(result.meal_skipped ? { meal_skipped: true } : {}),
+                ...(result.venue_card ? { kind: "meal" } : {}),
+              },
           slot,
           legs: result.legs,
         };

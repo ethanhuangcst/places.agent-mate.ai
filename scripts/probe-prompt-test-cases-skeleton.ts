@@ -1,10 +1,16 @@
 /**
- * End-to-end skeleton probe for specs/agent-specs/prompt-test-case.md (5 cases).
+ * End-to-end skeleton probe for specs/agent-specs/prompt-test-case.md (12 cases).
  * Validates 110e soft gates + 110a OptA discovery on real takeoff inputs.
+ * Covers provider routing (AMAP / Google / HK dual), POI density edge
+ * (expand-radius), cross-script name matching, locales (CN/EN), and
+ * no-origin geocode fallback.
+ *
+ * Cost strategy: 7 AMAP cases (free) + 5 Google cases (opt-in, probe cache).
+ * Run Google cases with PLACES_PROBE_CACHE_DIR + GOOGLE_DAILY_BUDGET_CALLS.
  *
  * Usage:
  *   npx tsx --env-file=.env.local scripts/probe-prompt-test-cases-skeleton.ts
- *   npx tsx --env-file=.env.local scripts/probe-prompt-test-cases-skeleton.ts test1
+ *   npx tsx --env-file=.env.local scripts/probe-prompt-test-cases-skeleton.ts test4
  *
  * Output: tmp/probe-prompt-test-cases-skeleton.json
  */
@@ -96,7 +102,7 @@ const CASES: Case[] = [
     locale: "CN",
     date: "2026-09-16",
     trip_type: "couple_romance",
-    numDays: 3,
+    numDays: 4,
     party_size: 2,
     budget: "luxury",
     pace: "medium",
@@ -120,6 +126,111 @@ const CASES: Case[] = [
     start_time: "08:00",
     other: "80年代动漫粉丝，动漫主题度假",
   },
+  {
+    id: "test6",
+    city: "成都",
+    locale: "CN",
+    date: "2026-09-16",
+    trip_type: "food_checkin",
+    numDays: 2,
+    party_size: 2,
+    budget: "mid",
+    pace: "medium",
+    transit: "transit_walk",
+    origin: "成都博舍",
+    start_time: "10:00",
+    other: "川菜和小吃探店",
+  },
+  {
+    id: "test7",
+    city: "北京",
+    locale: "CN",
+    date: "2026-09-16",
+    trip_type: "family_vacation",
+    numDays: 5,
+    party_size: 4,
+    budget: "comfort",
+    pace: "relaxed",
+    transit: "drive_walk",
+    origin: "北京王府井文华东方酒店",
+    start_time: "09:00",
+    other: "含老人，节奏慢",
+  },
+  {
+    id: "test8",
+    city: "厦门",
+    locale: "CN",
+    date: "2026-09-16",
+    trip_type: "friends",
+    numDays: 3,
+    party_size: 4,
+    budget: "economy",
+    pace: "medium",
+    transit: "transit_walk",
+    origin: "",
+    start_time: "09:30",
+    other: "海边和文艺景点",
+  },
+  {
+    id: "test9",
+    city: "深圳",
+    locale: "CN",
+    date: "2026-09-16",
+    trip_type: "business",
+    numDays: 2,
+    party_size: 1,
+    budget: "comfort",
+    pace: "tight",
+    transit: "drive_walk",
+    origin: "深圳柏悦酒店",
+    start_time: "08:00",
+    other: "白天会议，晚上自由",
+  },
+  {
+    id: "test10",
+    city: "香港",
+    locale: "CN",
+    date: "2026-09-16",
+    trip_type: "family_kids",
+    numDays: 3,
+    party_size: 3,
+    budget: "mid",
+    pace: "medium",
+    transit: "transit_walk",
+    origin: "香港中环文华东方酒店",
+    start_time: "09:00",
+    other: "8岁女孩",
+  },
+  {
+    id: "test11",
+    city: "曼谷",
+    locale: "EN",
+    date: "2026-09-16",
+    trip_type: "friends",
+    numDays: 4,
+    party_size: 3,
+    budget: "economy",
+    pace: "relaxed",
+    transit: "transit_walk",
+    origin: "",
+    start_time: "10:00",
+    other: "夜市和寺庙",
+  },
+  {
+    id: "test12",
+    city: "台北",
+    locale: "CN",
+    date: "2026-09-16",
+    trip_type: "city",
+    numDays: 3,
+    party_size: 2,
+    budget: "comfort",
+    pace: "medium",
+    transit: "transit_walk",
+    origin: "台北晶华酒店",
+    start_time: "09:00",
+    other: "",
+  },
 ];
 
 function endDate(start: string, numDays: number): string {
@@ -142,9 +253,17 @@ async function ensureCallerKey(): Promise<string> {
   return generated.secret;
 }
 
+function expandRadiusAsked(
+  result: { need_input?: { questions?: Array<{ id?: string }> } },
+): boolean {
+  return Boolean(
+    result.need_input?.questions?.some((q) => q.id === "expand_radius"),
+  );
+}
+
 async function runCase(tc: Case, callerKey: string) {
   const t0 = performance.now();
-  const result = await planTrip({
+  const baseInput = {
     callerKey,
     city: tc.city,
     locale: tc.locale,
@@ -158,8 +277,19 @@ async function runCase(tc: Case, callerKey: string) {
     bounds: { start: tc.date, end: endDate(tc.date, tc.numDays) },
     start_time: tc.start_time,
     other: tc.other,
-    skeleton_only: true,
-  });
+    skeleton_only: true as const,
+  };
+  let result = await planTrip(baseInput);
+  const expandAsked = expandRadiusAsked(result);
+  let expandAffirmed = false;
+  if (expandAsked && result.trip_id) {
+    result = await planTrip({
+      ...baseInput,
+      trip_id: result.trip_id,
+      answers: { expand_radius: "yes" },
+    });
+    expandAffirmed = true;
+  }
   const ms = Math.round(performance.now() - t0);
 
   const fetched = await fetchTripDetails({
@@ -167,7 +297,7 @@ async function runCase(tc: Case, callerKey: string) {
     trip_id: result.trip_id,
     fields: ["skeleton", "candidates"],
   });
-  const skeleton = (fetched.data.skeleton ?? result.skeleton) as {
+  const skeleton = (fetched.data.skeleton ?? result.itinerary?.skeleton) as {
     days?: Array<{
       day_index: number;
       day_theme?: string;
@@ -180,8 +310,22 @@ async function runCase(tc: Case, callerKey: string) {
     }>;
   } | undefined;
   const places =
-    (fetched.data.candidates as { places?: Array<{ name?: string }> } | undefined)?.places ??
-    [];
+    (fetched.data.candidates as {
+      places?: Array<{
+        name?: string;
+        sources?: Array<{ provider?: string; native_id?: string }>;
+      }>;
+    } | undefined)?.places ?? [];
+  const poolProviders = [
+    ...new Set(
+      places.flatMap((p) =>
+        (p.sources ?? []).map((s) => s.provider).filter((x): x is string => Boolean(x)),
+      ),
+    ),
+  ];
+  const poolNativeIds = places.filter((p) =>
+    (p.sources ?? []).some((s) => Boolean(s.native_id)),
+  ).length;
 
   const days = (skeleton?.days ?? []).map((d) => {
     const stops = d.stops ?? [];
@@ -224,7 +368,11 @@ async function runCase(tc: Case, callerKey: string) {
     status: result.status,
     trip_id: result.trip_id,
     ms,
+    expand_asked: expandAsked,
+    expand_affirmed: expandAffirmed,
     pool_places: places.length,
+    pool_native_ids: poolNativeIds,
+    pool_providers: poolProviders,
     pool_theme_parks: places
       .filter((p) => p.name && looksLikeThemePark(p.name))
       .map((p) => p.name),
@@ -266,7 +414,9 @@ async function main() {
           id: row.id,
           status: row.status,
           ms: row.ms,
+          expand_asked: row.expand_asked,
           pool: row.pool_places,
+          providers: row.pool_providers,
           days: row.days.map((d) => ({
             i: d.day_index,
             attrs: d.attraction_count,
@@ -290,9 +440,12 @@ async function main() {
     JSON.stringify({ as_of: new Date().toISOString(), cases: rows }, null, 2),
   );
   console.log(`\nwrote ${out}`);
+  await prisma.$disconnect();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .then(() => process.exit(0));

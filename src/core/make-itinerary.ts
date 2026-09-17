@@ -37,10 +37,12 @@ import {
   type SkeletonDeviation,
 } from "./geo-bounds";
 import { haversineKm } from "./must-include-coverage";
+import { isResolvablePlaceNativeId } from "./place-native-id";
 import {
   degradeMustInclude,
   filterEligibleAttractions,
   isIneligibleMustIncludeToken,
+  sharedProperToken,
 } from "./eligible-attraction";
 import { formatTripPrefsForPrompt, buildConstraintGlossary } from "./places-ontology";
 
@@ -234,7 +236,54 @@ export function normalizeMealSlotStops(raw: unknown): unknown {
   };
 }
 
-/** Remove invented attraction stops so LLM pool-miss does not 502 the whole skeleton. */
+/** True when stopName is the daily origin / stay (exact, normalized, or near-equal CJK variant).
+ * Handles traditional/simplified hotel-name diffs (e.g. 公園 vs 公园, 萬豪 vs 万豪). */
+export function stayNameMatches(stopName: string | undefined, stays: string[]): boolean {
+  if (!stopName?.trim() || !stays.length) return false;
+  const raw = stopName.trim();
+  const norm = normalizeMustIncludeToken(raw);
+  for (const s of stays) {
+    if (!s?.trim()) continue;
+    if (s === raw) return true;
+    const sNorm = normalizeMustIncludeToken(s);
+    if (sNorm === norm) return true;
+    if (sharedProperToken(raw, s)) return true;
+    // Near-equal CJK variants (few traditional/simplified char swaps).
+    if (
+      norm.length >= 4 &&
+      sNorm.length >= 4 &&
+      Math.abs(norm.length - sNorm.length) <= 2 &&
+      cjkEditDistance(norm, sNorm) <= 2
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Bounded Levenshtein for short CJK hotel-name variants (destination-agnostic). */
+function cjkEditDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (Math.abs(m - n) > 2) return 3;
+  const prev = Array.from({ length: n + 1 }, (_, j) => j);
+  const cur = new Array<number>(n + 1);
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    let rowMin = cur[0]!;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + cost);
+      if (cur[j]! < rowMin) rowMin = cur[j]!;
+    }
+    if (rowMin > 2) return 3;
+    for (let j = 0; j <= n; j++) prev[j] = cur[j]!;
+  }
+  return prev[n]!;
+}
+
+/** Remove invented attraction stops so LLM pool-miss does not 502 the whole skeleton.
+ * Also drop attractions whose name matches a stay (hotel misclassified as sightseeing). */
 export function dropUnknownAttractionStops(
   raw: unknown,
   pool: { places: PlaceCard[]; restaurants: PlaceCard[]; stays: string[] },
@@ -249,7 +298,11 @@ export function dropUnknownAttractionStops(
     ...parsed.data,
     days: parsed.data.days.map((day) => ({
       ...day,
-      stops: day.stops.filter((s) => s.kind !== "attraction" || (s.name != null && known.has(s.name))),
+      stops: day.stops.filter((s) => {
+        if (s.kind !== "attraction") return true;
+        if (stayNameMatches(s.name, pool.stays)) return false;
+        return s.name != null && known.has(s.name);
+      }),
     })),
   };
 }
@@ -460,7 +513,6 @@ export function validateSkeleton(
     );
   }
   const seen = new Map<string, number>();
-  const stayNames = new Set(pool.stays);
   const limit = paceStopLimit(pace);
   const softLimit = limit + PACE_SOFT_MARGIN;
   const requireLunch = true;
@@ -479,6 +531,7 @@ export function validateSkeleton(
     let stayCount = 0;
     for (let stopIdx = 0; stopIdx < day.stops.length; stopIdx++) {
       const stop = day.stops[stopIdx]!;
+      const isStay = stop.kind === "stay" || stayNameMatches(stop.name, pool.stays);
       if (stop.kind === "stay") {
         stayCount++;
         if (stopIdx !== 0) {
@@ -487,14 +540,20 @@ export function validateSkeleton(
           );
         }
       }
-      if (stop.kind !== "meal" && (!stop.name || !names.has(stop.name))) {
-        errors.push(`stop "${stop.name}" (day ${day.day_index}) not found in candidate list`);
+      // Stay / origin: accept CJK variants of pool.stays; attractions must be exact pool names.
+      if (stop.kind !== "meal") {
+        const inPool =
+          (stop.name != null && names.has(stop.name)) ||
+          (isStay && stayNameMatches(stop.name, pool.stays));
+        if (!stop.name || !inPool) {
+          errors.push(`stop "${stop.name}" (day ${day.day_index}) not found in candidate list`);
+        }
       }
       if (
         cityNorm &&
         stop.name &&
         normalizeMustIncludeToken(stop.name) === cityNorm &&
-        !stayNames.has(stop.name)
+        !stayNameMatches(stop.name, pool.stays)
       ) {
         errors.push(
           `stop "${stop.name}" (day ${day.day_index}) is the destination city, not a venue`,
@@ -513,7 +572,7 @@ export function validateSkeleton(
       // venues must be unique across the trip. Meal stops (restaurants) are
       // exempt. F91: AM/PM split of the same native_id on one day is allowed
       // via visit_part carve-out (uniq key includes visit_part).
-      if (stop.name && !stayNames.has(stop.name) && stop.kind !== "meal") {
+      if (stop.name && !stayNameMatches(stop.name, pool.stays) && stop.kind !== "meal") {
         const uniqKey =
           stop.visit_part && (stop.native_id || stop.name)
             ? `${stop.native_id ?? stop.name}#${stop.visit_part}`
@@ -624,7 +683,8 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
   const parts: string[] = [];
   parts.push(
     `Create the stop-order skeleton for a ${input.numDays}-day trip in ${input.city}. ` +
-      `Order only — NO times, NO transit. Only choose attraction and stay names from the lists below.`,
+      `Order only — NO times, NO transit. Only choose attraction and stay names from the lists below. ` +
+      `Copy each stop name verbatim from Attraction candidates — do not translate or localize place names.`,
   );
   parts.push(
     `Pace: ${input.pace ?? "medium"} — this is a rhythm guide, not a hard quota ` +
@@ -640,7 +700,7 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
       `If the candidate list is smaller than needed for every day, schedule fewer attraction stops per day — do not repeat venues.`,
   );
   parts.push(
-    `Never schedule a bare area or district name (e.g. "Belém", "Sintra") as an attraction — ` +
+    `Never schedule a bare area or district name (a neighborhood or suburb label) as an attraction — ` +
       `use specific POIs from the candidate list.`,
   );
   if (input.origin?.name) {
@@ -649,7 +709,9 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
         ? ` (${input.origin.lat}, ${input.origin.lng})`
         : "";
     parts.push(
-      `Daily origin: ${input.origin.name}${c} — include it as the FIRST stop of each day with kind "stay".`,
+      `Daily origin: ${input.origin.name}${c} — include it ONLY as the FIRST stop of each day with kind "stay". ` +
+        `Do NOT schedule it as an attraction. It is lodging, not a sightseeing venue. ` +
+        `Every day MUST also include at least one attraction name copied exactly from the Attraction candidates list below.`,
     );
   }
   if (input.must_include?.length) {
@@ -1079,8 +1141,15 @@ export function attachNativeIdsToSkeleton(
       ...day,
       stops: day.stops.map((stop) => {
         if (stop.kind !== "attraction" || !stop.name) return stop;
-        if (stop.native_id?.trim()) return stop;
-        return { ...stop, ...pointerFromCard(byName.get(stop.name)) };
+        const existing = stop.native_id?.trim();
+        // Keep only vendor-resolvable pointers; overwrite harness / LLM inventions from pool.
+        if (existing && isResolvablePlaceNativeId(stop.provider, existing)) return stop;
+        const exact = byName.get(stop.name);
+        if (exact) return { ...stop, ...pointerFromCard(exact) };
+        // Unique alias match only (avoid Belém Tower vs Pastéis de Belém both sharing "belém").
+        const fuzzy = places.filter((p) => sharedProperToken(stop.name!, p.name ?? ""));
+        if (fuzzy.length === 1) return { ...stop, ...pointerFromCard(fuzzy[0]) };
+        return stop;
       }),
     })),
   };

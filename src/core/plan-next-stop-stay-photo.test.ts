@@ -232,3 +232,147 @@ describe("pickLodgingStayCard", () => {
     expect(picked?.sources?.[0]?.native_id).toBe("places/monterey-ginza");
   });
 });
+
+describe("planNextStopFill attraction photo locale alias", () => {
+  it("should_resolve_photo_when_skeleton_pt_name_misses_en_pool_title", async () => {
+    const enPool: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "Belém Tower",
+      location: { lat: 38.6916, lng: -9.216, crs: "WGS84" },
+      sources: [
+        {
+          provider: "GOOGLE_MAPS",
+          native_id: "ChIJS5zCw0LLHg0RP1FSz63cAjA",
+          deeplinks: {},
+        },
+      ],
+    };
+    // Second Belém* card makes sharedProperToken ambiguous → forces search fallback.
+    const pasteis: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "Pastéis de Belém",
+      location: { lat: 38.697, lng: -9.203, crs: "WGS84" },
+      sources: [{ provider: "GOOGLE_MAPS", native_id: "ChIJ-pasteis", deeplinks: {} }],
+    };
+    const search = vi.fn(async () => [
+      {
+        ...enPool,
+        photos: ["https://lh3.googleusercontent.com/belem-tower"],
+      },
+    ]);
+
+    const result = await planNextStopFill({
+      current_stop: {
+        name: "Hills Hotel Lisboa",
+        kind: "stay",
+        lat: 38.73,
+        lng: -9.14,
+        end_time: "09:00",
+      },
+      next_stop: { name: "Torre de Belém", kind: "attraction" },
+      candidates: {
+        places: [enPool, pasteis],
+        restaurants: [],
+      },
+      city: "Lisbon",
+      locale: "EN",
+      day_stops: [
+        { name: "Hills Hotel Lisboa", kind: "stay" },
+        { name: "Torre de Belém", kind: "attraction" },
+      ],
+      _testSearchPlaces: search,
+      _testGeocode: async () => ({ lat: 38.6916, lng: -9.216 }),
+    });
+
+    expect(search).toHaveBeenCalled();
+    const card = result.stop_display?.stop.card;
+    expect(card?.photos?.[0]).toBe("https://lh3.googleusercontent.com/belem-tower");
+    expect(isDisplayablePhotoUrl(card?.photos?.[0])).toBe(true);
+  });
+
+  it("should_resolve_castelo_photo_when_skeleton_is_saint_george_castle", async () => {
+    const withPhotos: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "Castelo de São Jorge",
+      location: { lat: 38.7139, lng: -9.1335, crs: "WGS84" },
+      photos: ["https://lh3.googleusercontent.com/castelo"],
+      sources: [
+        {
+          provider: "GOOGLE_MAPS",
+          native_id: "ChIJm8MOtHc0GQ0R1zPkmUFwwLQ",
+          deeplinks: {},
+        },
+      ],
+    };
+    const search = vi.fn(async () => [withPhotos]);
+    const result = await planNextStopFill({
+      current_stop: {
+        name: "Hills Hotel Lisboa",
+        kind: "stay",
+        lat: 38.73,
+        lng: -9.14,
+        end_time: "09:00",
+      },
+      next_stop: { name: "Saint George Castle", kind: "attraction" },
+      candidates: { places: [withPhotos], restaurants: [] },
+      city: "Lisbon",
+      locale: "EN",
+      day_stops: [
+        { name: "Hills Hotel Lisboa", kind: "stay" },
+        { name: "Saint George Castle", kind: "attraction" },
+      ],
+      _testSearchPlaces: search,
+      _testGeocode: async () => ({ lat: 38.7139, lng: -9.1335 }),
+    });
+    expect(search).toHaveBeenCalled();
+    const card = result.stop_display?.stop.card;
+    expect(card?.name).toBe("Castelo de São Jorge");
+    expect(card?.photos?.[0]).toBe("https://lh3.googleusercontent.com/castelo");
+  });
+
+  it("should_not_bind_garden_when_stop_is_castelo_and_search_for_photo", async () => {
+    const garden: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "Garden of the Castle of São Jorge",
+      location: { lat: 38.7135, lng: -9.133, crs: "WGS84" },
+      sources: [{ provider: "GOOGLE_MAPS", native_id: "ChIJ-garden", deeplinks: {} }],
+    };
+    const casteloHit: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "Castelo de São Jorge",
+      location: { lat: 38.7139, lng: -9.1335, crs: "WGS84" },
+      photos: ["https://lh3.googleusercontent.com/castelo"],
+      sources: [
+        {
+          provider: "GOOGLE_MAPS",
+          native_id: "ChIJm8MOtHc0GQ0R1zPkmUFwwLQ",
+          deeplinks: {},
+        },
+      ],
+    };
+    const search = vi.fn(async () => [casteloHit]);
+    const result = await planNextStopFill({
+      current_stop: {
+        name: "Hills Hotel Lisboa",
+        kind: "stay",
+        lat: 38.73,
+        lng: -9.14,
+        end_time: "09:00",
+      },
+      next_stop: { name: "Castelo de São Jorge", kind: "attraction" },
+      candidates: { places: [garden], restaurants: [] },
+      city: "Lisbon",
+      locale: "EN",
+      day_stops: [
+        { name: "Hills Hotel Lisboa", kind: "stay" },
+        { name: "Castelo de São Jorge", kind: "attraction" },
+      ],
+      _testSearchPlaces: search,
+      _testGeocode: async () => ({ lat: 38.7139, lng: -9.1335 }),
+    });
+    expect(search).toHaveBeenCalled();
+    const card = result.stop_display?.stop.card;
+    expect(card?.name).toBe("Castelo de São Jorge");
+    expect(card?.photos?.[0]).toBe("https://lh3.googleusercontent.com/castelo");
+  });
+});

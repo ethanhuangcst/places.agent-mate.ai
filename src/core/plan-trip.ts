@@ -33,7 +33,7 @@ import {
   type MakeItineraryInput,
   type MakeItineraryResult,
 } from "./make-itinerary";
-import { filterAttractionPlaces, filterDiningPlaces, isLodgingPlace } from "./place-filters";
+import { filterDiningPlaces, isLodgingPlace } from "./place-filters";
 import {
   planNextStopFill,
   resolveStayDisplayCard,
@@ -525,12 +525,15 @@ function filterPlacesByRadius(
 }
 
 function countGroundedAttractions(cards: PlaceCard[]): number {
+  // Use eligibility (ADR-042 / nominate ground), NOT discover ATTRACTION_ALLOW.
+  // AMAP West Lake titles (苏堤 / 灵隐寺 / 雷峰塔景区) often lack category and
+  // fail ATTRACTION_ALLOW — that falsely triggered expand_radius for Hangzhou.
   return cards.filter(
     (c) =>
       hasMapPin(c) &&
       !isLodgingPlace(c) &&
       filterDiningPlaces([c]).length === 0 &&
-      isAttractionish(c),
+      filterEligibleAttractions([c]).length > 0,
   ).length;
 }
 
@@ -558,13 +561,6 @@ function normalizeName(name: string): string {
   return name.trim().toLowerCase();
 }
 
-function isAttractionish(card: PlaceCard): boolean {
-  if (filterAttractionPlaces([card]).length > 0) return true;
-  return /attraction|museum|park|landmark|temple|景点|名胜|博物館|博物馆|公园|乐园|游乐园|主题公园|theme.?park|amusement|water.?park|欢乐谷/i.test(
-    `${card.category ?? ""} ${card.name}`,
-  );
-}
-
 function intakeEligible(
   cards: PlaceCard[],
   anchor: { lat: number; lng: number } | null,
@@ -573,7 +569,6 @@ function intakeEligible(
     .filter((c) => hasMapPin(c))
     .filter((c) => !isLodgingPlace(c))
     .filter((c) => filterDiningPlaces([c]).length === 0)
-    .filter((c) => isAttractionish(c))
     .filter((c) => withinCityRadius(c, anchor));
 }
 
@@ -1302,6 +1297,7 @@ async function resolveOriginStay(
         ? { lat: input.origin.lat, lng: input.origin.lng, crs: "WGS84" }
         : null,
     locale,
+    providers: input.providers,
     _testSearchPlaces: input._testSearchPlaces
       ? async (opts) => {
           const res = await input._testSearchPlaces!({

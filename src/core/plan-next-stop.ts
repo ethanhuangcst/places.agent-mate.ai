@@ -23,6 +23,7 @@ import { resolvedDirectionProviders } from "./direction-providers";
 import { isDisplayablePhotoUrl, resolveDisplayPhoto } from "./resolve-display-photo";
 import { DISCOVER_GEO_MAX_KM } from "./geo-bounds";
 import { haversineKm } from "./must-include-coverage";
+import { foldDiacritics } from "./eligible-attraction";
 import {
   corridorSearchPoints,
   filterRestaurantsBySpend,
@@ -399,6 +400,12 @@ function cardNativeId(card: PlaceCard): string | undefined {
   return fromSources || undefined;
 }
 
+function foldedName(s: string): string {
+  return foldDiacritics(s).toLowerCase().trim();
+}
+
+/** Cheap pool lookup: native_id, exact name, then diacritic-folded substring.
+ * Translated aliases (no shared spelling) fall through to vendor search. */
 function matchCardByPointer(stop: PlanStopPoint, candidates: PlaceCard[]): PlaceCard | undefined {
   const nid = stop.native_id?.trim();
   if (nid) {
@@ -408,7 +415,22 @@ function matchCardByPointer(stop: PlanStopPoint, candidates: PlaceCard[]): Place
     });
     if (byId) return byId;
   }
-  return candidates.find((c) => c.name === stop.name);
+  const exact = candidates.find((c) => c.name === stop.name);
+  if (exact) return exact;
+  const q = foldedName(stop.name);
+  if (!q || q.length < 4) return undefined;
+  const foldedHits = candidates.filter((c) => {
+    const n = foldedName(c.name ?? "");
+    if (!n) return false;
+    return n === q || n.includes(q) || q.includes(n);
+  });
+  if (foldedHits.length === 1) return foldedHits[0];
+  if (foldedHits.length > 1) {
+    const withPhoto = foldedHits.filter((c) => cardHasDisplayablePhoto(c));
+    if (withPhoto.length >= 1) return withPhoto[0];
+    return foldedHits[0];
+  }
+  return undefined;
 }
 
 function cardHasDisplayablePhoto(card: PlaceCard | undefined): boolean {
@@ -1001,11 +1023,12 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
         }
       : undefined);
 
-  const restaurants = [
+  let restaurants = [
     ...input.candidates.restaurants,
     ...(planResult.venue_card ? [planResult.venue_card] : []),
   ];
   let places = [...input.candidates.places];
+  let enrichedStopPointer: { provider?: string; native_id?: string } | undefined;
   const isStayStop = originMode || input.next_stop.kind === "stay";
   if (isStayStop) {
     const stayCard = await resolveStayDisplayCard({
@@ -1024,6 +1047,91 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
     });
     if (stayCard) {
       places = [stayCard, ...places.filter((c) => c.name !== stayCard.name)];
+      const mid = cardNativeId(stayCard);
+      if (mid) {
+        enrichedStopPointer = {
+          provider: stayCard.provider,
+          native_id: mid,
+        };
+      }
+    }
+  } else {
+    // Attractions/meals: enrich AMAP http→https / details photos onto stop_display (list thumbs).
+    const pool = [...places, ...restaurants];
+    let matched =
+      matchCardByPointer(
+        {
+          ...input.next_stop,
+          name: planResult.next_stop.name,
+        },
+        pool,
+      ) ?? pool.find((c) => c.name === planResult.next_stop.name);
+
+    // Cross-locale Google titles (Torre de Belém ↔ Belém Tower): pool miss → search + resolve.
+    if (!matched && planResult.next_stop.name?.trim()) {
+      try {
+        const searched = input._testSearchPlaces
+          ? await input._testSearchPlaces({
+              query: planResult.next_stop.name,
+              near: planResult.next_stop.location ?? input.anchor ?? undefined,
+              address: input.city,
+            })
+          : ((
+              await searchPlaces({
+                query: planResult.next_stop.name,
+                address: input.city,
+                locale: input.locale,
+                providers: input.providers,
+                near: planResult.next_stop.location ?? input.anchor ?? undefined,
+                rankPreference: "RELEVANCE",
+              })
+            ).data ?? []);
+        matched =
+          searched.find((c) => c.name === planResult.next_stop.name) ??
+          searched[0];
+      } catch {
+        matched = undefined;
+      }
+    }
+
+    if (matched) {
+      let card = matched;
+      if (!cardHasDisplayablePhoto(card)) {
+        card = await resolveDisplayPhoto(card, {
+          getDetails: async (nativeId) => {
+            const res = await getPlaceDetails({
+              provider: matched.provider ?? input.next_stop.provider ?? "GOOGLE_MAPS",
+              native_id: nativeId,
+              locale: input.locale,
+              providers: input.providers,
+            });
+            return res.data ?? null;
+          },
+        });
+      }
+      const mid = cardNativeId(card);
+      const isMeal =
+        Boolean(matched.category?.includes("餐饮")) ||
+        restaurants.some((r) => r.name === matched.name || (mid != null && cardNativeId(r) === mid));
+      if (isMeal) {
+        restaurants = [
+          card,
+          ...restaurants.filter((c) => c.name !== card.name && (!mid || cardNativeId(c) !== mid)),
+        ];
+      } else {
+        places = [
+          card,
+          ...places.filter((c) => c.name !== card.name && (!mid || cardNativeId(c) !== mid)),
+        ];
+      }
+      // Stamp pointer so displayCurrentStop finds the resolved card even when
+      // skeleton title spelling differs from the vendor title.
+      if (mid) {
+        enrichedStopPointer = {
+          provider: card.provider ?? matched.provider,
+          native_id: mid,
+        };
+      }
     }
   }
   const recommendedWalkMin = planResult.legs.find(
@@ -1044,6 +1152,12 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
       name: planResult.next_stop.name,
       lat: planResult.next_stop.location?.lat,
       lng: planResult.next_stop.location?.lng,
+      ...(enrichedStopPointer?.provider
+        ? { provider: enrichedStopPointer.provider }
+        : {}),
+      ...(enrichedStopPointer?.native_id
+        ? { native_id: enrichedStopPointer.native_id }
+        : {}),
     },
     candidates: { places, restaurants },
     previous_stop,

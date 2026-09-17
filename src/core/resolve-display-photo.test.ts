@@ -79,6 +79,23 @@ describe("resolveDisplayPhoto (ADR-051)", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  it("should_fetch_amap_details_when_card_has_no_photos", async () => {
+    const card = googleCard({
+      provider: "AMAP",
+      photos: undefined,
+      sources: [{ provider: "AMAP", native_id: "B023B13PFT", deeplinks: {} }],
+    });
+    const out = await resolveDisplayPhoto(card, {
+      getDetails: async () =>
+        googleCard({
+          provider: "AMAP",
+          photos: ["http://store.is.autonavi.com/showpic/tea"],
+          sources: [{ provider: "AMAP", native_id: "B023B13PFT", deeplinks: {} }],
+        }),
+    });
+    expect(out.photos).toEqual(["https://store.is.autonavi.com/showpic/tea"]);
+  });
+
   it("should_resolve_google_photo_name_to_photoUri_cdn", async () => {
     const card = googleCard({
       google_photo_names: ["places/ChIJtower/photos/AAA"],

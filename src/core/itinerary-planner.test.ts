@@ -278,6 +278,19 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
     expect(JSON.stringify(slim)).not.toMatch(/SECRET/);
   });
 
+  it("should_upgrade_amap_http_cdn_in_slimArrangeCandidate", () => {
+    const fat: PlaceCard = {
+      provider: "AMAP",
+      name: "中国茶叶博物馆(双峰馆区)",
+      category: "风景名胜",
+      photos: ["http://store.is.autonavi.com/showpic/tea"],
+      location: { lat: 30.23, lng: 120.12, crs: "GCJ-02" },
+      sources: [{ provider: "AMAP", native_id: "B023B13PFT", deeplinks: {} }],
+    };
+    const slim = slimArrangeCandidate(fat);
+    expect(slim.photos).toEqual(["https://store.is.autonavi.com/showpic/tea"]);
+  });
+
   it("TC-M19-79-02 should_keep_user_ratings_total_in_slimArrangeCandidate", () => {
     const fat: PlaceCard = {
       provider: "GOOGLE_MAPS",
@@ -349,7 +362,8 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
       name: "贝伦塔",
       location: fat.location,
     });
-    expect((slim.places[0] as { must_see?: boolean }).must_see).toBeUndefined();
+    // ADR-069: must_see heat flag removed — slim must not invent it.
+    expect(slim.places[0]).not.toHaveProperty("must_see");
     expect(slim.places[0]?.photos).toBeUndefined();
     expect(slim.places[0]?.address).toBeUndefined();
     expect(slim.places[0]?.sources?.[0]?.deeplinks).toEqual({
