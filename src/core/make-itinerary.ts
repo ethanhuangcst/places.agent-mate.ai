@@ -484,7 +484,10 @@ export function validateSkeleton(
   densityPlaces?: number,
   /** 110e: hard safety rail — skeleton day count must match the requested trip length. */
   numDays?: number,
+  /** TD-9 post-fill: enforce hard gates only (skip per-day meal/pace skeleton quotas). */
+  opts?: { hardGatesOnly?: boolean },
 ): SkeletonValidationResult {
+  const hardGatesOnly = opts?.hardGatesOnly === true;
   const parsed = ItinerarySkeletonSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -595,50 +598,52 @@ export function validateSkeleton(
     if (stayCount > 1) {
       errors.push(`day ${day.day_index} has more than one stay stop`);
     }
-    if (
-      nPlaces >= 3 &&
-      day.stops.length > 0 &&
-      day.stops.every((s) => s.kind === "stay")
-    ) {
-      errors.push(`day ${day.day_index} is stay-only while attraction candidates exist`);
-    }
-    // 110e: pace is a soft signal. Only a degenerate empty day (0 attractions
-    // when the pool has >= 3) is hard-rejected; a 1-attraction theme-park day
-    // or a near-cap city day is allowed. Extreme overage is trimmed upstream.
-    const minAttr = nPlaces >= 3 ? 1 : 0;
-    if (attractions < minAttr) {
-      errors.push(
-        `day ${day.day_index} has ${attractions} attraction stops; need at least ${minAttr} from the place list`,
-      );
-    }
-    void softLimit;
-    if (
-      requireLunch &&
-      !day.stops.some((s) => s.kind === "meal" && s.meal_slot === "lunch")
-    ) {
-      errors.push(`day ${day.day_index} missing a lunch stop`);
-    }
-    if (
-      requireDinner &&
-      !day.stops.some((s) => s.kind === "meal" && s.meal_slot === "dinner")
-    ) {
-      errors.push(`day ${day.day_index} missing a dinner stop`);
-    }
-    const lunchIdx = day.stops.findIndex((s) => s.kind === "meal" && s.meal_slot === "lunch");
-    if (lunchIdx >= 0) {
-      let lastAttrIdx = -1;
-      let attrCount = 0;
-      for (let i = 0; i < day.stops.length; i++) {
-        if (day.stops[i]?.kind === "attraction") {
-          lastAttrIdx = i;
-          attrCount += 1;
-        }
+    if (!hardGatesOnly) {
+      if (
+        nPlaces >= 3 &&
+        day.stops.length > 0 &&
+        day.stops.every((s) => s.kind === "stay")
+      ) {
+        errors.push(`day ${day.day_index} is stay-only while attraction candidates exist`);
       }
-      // S8: sole attraction may have lunch after it — splitSingleAttractionDays rewrites to AM→lunch→PM.
-      if (lastAttrIdx >= 0 && lunchIdx > lastAttrIdx && attrCount > 1) {
+      // 110e: pace is a soft signal. Only a degenerate empty day (0 attractions
+      // when the pool has >= 3) is hard-rejected; a 1-attraction theme-park day
+      // or a near-cap city day is allowed. Extreme overage is trimmed upstream.
+      const minAttr = nPlaces >= 3 ? 1 : 0;
+      if (attractions < minAttr) {
         errors.push(
-          `lunch stop (day ${day.day_index}) must not follow the last attraction — place it at midday`,
+          `day ${day.day_index} has ${attractions} attraction stops; need at least ${minAttr} from the place list`,
         );
+      }
+      void softLimit;
+      if (
+        requireLunch &&
+        !day.stops.some((s) => s.kind === "meal" && s.meal_slot === "lunch")
+      ) {
+        errors.push(`day ${day.day_index} missing a lunch stop`);
+      }
+      if (
+        requireDinner &&
+        !day.stops.some((s) => s.kind === "meal" && s.meal_slot === "dinner")
+      ) {
+        errors.push(`day ${day.day_index} missing a dinner stop`);
+      }
+      const lunchIdx = day.stops.findIndex((s) => s.kind === "meal" && s.meal_slot === "lunch");
+      if (lunchIdx >= 0) {
+        let lastAttrIdx = -1;
+        let attrCount = 0;
+        for (let i = 0; i < day.stops.length; i++) {
+          if (day.stops[i]?.kind === "attraction") {
+            lastAttrIdx = i;
+            attrCount += 1;
+          }
+        }
+        // S8: sole attraction may have lunch after it — splitSingleAttractionDays rewrites to AM→lunch→PM.
+        if (lastAttrIdx >= 0 && lunchIdx > lastAttrIdx && attrCount > 1) {
+          errors.push(
+            `lunch stop (day ${day.day_index}) must not follow the last attraction — place it at midday`,
+          );
+        }
       }
     }
   }

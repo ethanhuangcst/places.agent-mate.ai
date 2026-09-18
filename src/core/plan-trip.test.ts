@@ -567,7 +567,6 @@ describe("planTrip POC intake", () => {
                 { name: "西湖大华饭店", kind: "stay" as const },
                 { name: "灵隐寺", kind: "attraction" as const },
                 { name: "lunch", kind: "meal" as const, meal_slot: "lunch" as const },
-                { name: "雷峰塔", kind: "attraction" as const },
               ],
             },
             {
@@ -730,6 +729,11 @@ describe("planTrip POC intake", () => {
         { type: "tool", name: "plan_next_stop", args: {} },
         { type: "tool", name: "plan_next_stop", args: {} },
         { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
         { type: "tool", name: "commit_artifacts", args: {} },
         { type: "stop" },
       ],
@@ -750,7 +754,8 @@ describe("planTrip POC intake", () => {
               day_theme: "湿地",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "灵隐寺", kind: "attraction" as const },
+                { name: "雷峰塔", kind: "attraction" as const },
+                { name: "dinner", kind: "meal" as const, meal_slot: "dinner" as const },
               ],
             },
             {
@@ -758,12 +763,33 @@ describe("planTrip POC intake", () => {
               day_theme: "返程",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "灵隐寺", kind: "attraction" as const },
+                { name: "西溪湿地", kind: "attraction" as const },
               ],
             },
           ],
         },
-        candidates_slim: { places: [lingyin], restaurants: [] },
+        candidates_slim: {
+          places: [
+            lingyin,
+            place({
+              name: "雷峰塔",
+              provider: "AMAP",
+              lat: 30.231,
+              lng: 120.148,
+              photo: "https://store.is.autonavi.com/leifeng.jpg",
+              nativeId: "amap_leifeng",
+            }),
+            place({
+              name: "西溪湿地",
+              provider: "AMAP",
+              lat: 30.2706,
+              lng: 120.0631,
+              photo: "https://store.is.autonavi.com/xixi.jpg",
+              nativeId: "amap_xixi",
+            }),
+          ],
+          restaurants: [],
+        },
       }),
       _testPlanNextStopFill: async (fillInput) => ({
         next_stop: {
@@ -809,6 +835,11 @@ describe("planTrip POC intake", () => {
     expect(fullCalls).toEqual([
       "resolve_origin_stay",
       "make_itinerary",
+      "plan_next_stop",
+      "plan_next_stop",
+      "plan_next_stop",
+      "plan_next_stop",
+      "plan_next_stop",
       "plan_next_stop",
       "plan_next_stop",
       "plan_next_stop",
@@ -2321,11 +2352,12 @@ describe("MVP-T5 TD-5 resolve_origin_stay cross-script / once-guard", () => {
         { type: "tool", name: "resolve_origin_stay", args: {} },
         { type: "tool", name: "make_itinerary", args: {} },
         { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
         { type: "tool", name: "commit_artifacts", args: {} },
         { type: "stop" },
       ],
     });
-    expect(result.status).not.toBe("failed");
+    expect(result.status).toBe("ready");
     expect(resolveCalls).toBe(1);
     expect(result.itinerary?.skeleton).toBeTruthy();
     expect(result.tool_calls?.filter((t) => t === "resolve_origin_stay").length).toBe(2);

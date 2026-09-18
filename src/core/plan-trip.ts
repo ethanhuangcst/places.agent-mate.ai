@@ -55,6 +55,7 @@ import { geocode, searchPlaces } from "./tools";
 import { travelTips, type TravelTipsInput, type TravelTipsResult } from "./travel-tips";
 import type { PlaceCard, SearchInput } from "./types";
 import { visaRequirement } from "./visa-requirement";
+import { resolveFillTripStatus } from "./fill-trip-status";
 
 const MAX_ITERATIONS = 8;
 const MAX_FULL_ITERATIONS = 40;
@@ -193,6 +194,13 @@ export type PlanTripResult = {
     skeleton: ItinerarySkeleton;
     filledStops: PlanTripFilledStop[];
     artifacts?: Record<string, unknown>;
+    /** TD-9: model reached trip_complete before applyFillTripStatusGate. */
+    fillReachedTripComplete?: boolean;
+    validationPool?: {
+      places: PlaceCard[];
+      restaurants: PlaceCard[];
+      stays: string[];
+    };
   };
   timing?: PlanTripTiming;
 };
@@ -1832,6 +1840,12 @@ async function runFullLoopAgent(
     skeleton: ctx.skeleton,
     filledStops: ctx.filledStops,
     artifacts: Object.keys(ctx.artifacts).length ? ctx.artifacts : undefined,
+    fillReachedTripComplete: ctx.tripComplete,
+    validationPool: {
+      places: ctx.pool.places,
+      restaurants: ctx.pool.restaurants,
+      stays: ctx.originStay?.name ? [ctx.originStay.name] : [],
+    },
   };
 }
 
@@ -2064,6 +2078,7 @@ async function runFullLoop(
 
   const tFill = Date.now();
   const filledStops: PlanTripFilledStop[] = [];
+  let fillReachedTripComplete = false;
   let skeletonWorking: ItinerarySkeleton = made.skeleton;
   const handoff = skeletonFillHandoff(
     skeletonWorking,
@@ -2215,6 +2230,7 @@ async function runFullLoop(
       input.city,
     );
     if (stepNext.next_action === "trip_complete") {
+      fillReachedTripComplete = true;
       nextArgs = undefined;
       break;
     }
@@ -2277,6 +2293,68 @@ async function runFullLoop(
     skeleton: skeletonWorking,
     filledStops,
     artifacts: Object.keys(artifacts).length ? artifacts : undefined,
+    fillReachedTripComplete,
+    validationPool: {
+      places: pool.places,
+      restaurants: pool.restaurants,
+      stays: originStay?.name ? [originStay.name] : input.origin?.name ? [input.origin.name] : [],
+    },
+  };
+}
+
+type FullLoopItinerary = NonNullable<PlanTripResult["itinerary"]> & {
+  fillReachedTripComplete?: boolean;
+  validationPool?: {
+    places: PlaceCard[];
+    restaurants: PlaceCard[];
+    stays: string[];
+  };
+};
+
+async function applyFillTripStatusGate(
+  input: PlanTripInput,
+  locale: Locale,
+  tripId: string,
+  revisionRef: { current?: number },
+  itinerary: FullLoopItinerary,
+): Promise<{ status: "ready" | "failed"; itinerary: FullLoopItinerary }> {
+  if (!itinerary.filledStops.length) {
+    return { status: "failed", itinerary };
+  }
+  const pool = itinerary.validationPool ?? {
+    places: [],
+    restaurants: [],
+    stays: input.origin?.name ? [input.origin.name] : [],
+  };
+  const resolved = resolveFillTripStatus({
+    skeleton: itinerary.skeleton,
+    filledStops: itinerary.filledStops.map((fs) => ({
+      day_index: fs.day_index,
+      stop_index: fs.stop_index,
+      stop: fs.stop as { kind?: string; meal_slot?: string; name?: string },
+    })),
+    pool,
+    mustInclude: input.must_include ?? [],
+    numDays: input.numDays,
+    pace: input.pace,
+    city: input.city,
+    fillReachedTripComplete: itinerary.fillReachedTripComplete === true,
+  });
+  if (resolved.deviations?.length) {
+    const skWrite = await dualWriteTrip({
+      callerKey: input.callerKey,
+      tripId,
+      expectedRevision: revisionRef.current,
+      locale,
+      patch: {
+        skeleton: resolved.skeleton as unknown as Record<string, unknown>,
+      },
+    });
+    revisionRef.current = skWrite.revision;
+  }
+  return {
+    status: resolved.status,
+    itinerary: { ...itinerary, skeleton: resolved.skeleton },
   };
 }
 
@@ -2485,13 +2563,24 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
         itinerary: itinerary ?? undefined,
       };
     }
+    const gated = await applyFillTripStatusGate(
+      effective,
+      locale,
+      ensured.trip_id,
+      revisionRef,
+      itinerary as FullLoopItinerary,
+    );
     return {
       trip_id: ensured.trip_id,
       revision: revisionRef.current ?? ensured.revision,
-      status: "ready",
+      status: gated.status,
       tool_calls: toolCalls,
       timing,
-      itinerary,
+      itinerary: {
+        skeleton: gated.itinerary.skeleton,
+        filledStops: gated.itinerary.filledStops,
+        artifacts: gated.itinerary.artifacts,
+      },
     };
   } catch (err) {
     console.error(

@@ -1146,7 +1146,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
           walkMinFromPrev: recommendedWalkMin,
         })
       : undefined;
-  const stop_display = displayCurrentStop({
+  let stop_display = displayCurrentStop({
     stop: {
       ...input.next_stop,
       name: planResult.next_stop.name,
@@ -1169,6 +1169,22 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
     pace: input.pace,
     ...(cluster_role ? { cluster_role } : {}),
   });
+
+  const qualityNotes: string[] = [...(stop_display.notes ?? [])];
+  const isMealStop =
+    input.next_stop.kind === "meal" || isAnonymousMealStop(input.next_stop);
+  if (isMealStop && !planResult.venue_card && !stop_display.stop.card) {
+    qualityNotes.push("meal_unresolved");
+  }
+  if (
+    planResult.legs.some((l) => l.source === "heuristic") &&
+    !qualityNotes.includes("transit_heuristic")
+  ) {
+    qualityNotes.push("transit_heuristic");
+  }
+  if (qualityNotes.length !== (stop_display.notes?.length ?? 0)) {
+    stop_display = { ...stop_display, notes: qualityNotes };
+  }
 
   return { ...planResult, stop_display };
 }
