@@ -621,7 +621,7 @@ export async function dispatchTool(
     try {
       const result = await planTrip({
         callerKey: auth.keyId,
-        city: parsed.data.city,
+        city: parsed.data.city ?? "",
         locale,
         trip_id: parsed.data.trip_id,
         revision: parsed.data.revision,
@@ -646,6 +646,7 @@ export async function dispatchTool(
                   : undefined,
             }
           : undefined,
+        refine: parsed.data.refine,
       });
       const status = result.status === "failed" ? 502 : 200;
       return {

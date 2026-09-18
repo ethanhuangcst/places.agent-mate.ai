@@ -394,8 +394,9 @@ export const travelTipsBody = z.object({
 export type VisaRequirementBody = z.infer<typeof visaRequirementBody>;
 export type TravelTipsBody = z.infer<typeof travelTipsBody>;
 
-export const planTripBody = z.object({
-  city: z.string().min(1),
+export const planTripBody = z
+  .object({
+  city: z.string().min(1).optional(),
   numDays: z.number().int().positive().max(14).optional(),
   origin: z
     .object({
@@ -433,8 +434,30 @@ export const planTripBody = z.object({
     })
     .passthrough()
     .optional(),
+  /** MVP-T9 agent-chat-93e — chat 改行程 on existing trip. */
+  refine: z
+    .object({
+      instruction: z.string().min(1).max(4000),
+    })
+    .optional(),
   ...shared,
-});
+})
+  .superRefine((data, ctx) => {
+    if (data.refine?.instruction && !data.trip_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "trip_id required when refine.instruction is set",
+        path: ["trip_id"],
+      });
+    }
+    if (!data.refine?.instruction && (!data.city || !data.city.trim())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "city required unless refine mode",
+        path: ["city"],
+      });
+    }
+  });
 
 export type PlanTripBody = z.infer<typeof planTripBody>;
 
