@@ -148,9 +148,6 @@ export type PlanTripInput = {
   _testTurns?: PlanTripTurn[];
   /** Scripted full-loop tool sequence (model-chosen order in tests). */
   _testFullLoopTurns?: PlanTripTurn[];
-  /** MVP-T9 refine loop (agent-chat-93e). */
-  refine?: { instruction: string };
-  _testRefineTurns?: PlanTripTurn[];
   _testGeocode?: typeof geocode;
   _testSearchPlaces?: typeof searchPlaces;
   _testListPois?: (anchor: DestinationAnchor) => Promise<PlaceCard[]>;
@@ -206,8 +203,6 @@ export type PlanTripResult = {
     };
   };
   timing?: PlanTripTiming;
-  /** Natural-language reply for refine mode (agent-chat-93e). */
-  reply?: string;
 };
 
 const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -2366,11 +2361,6 @@ async function applyFillTripStatusGate(
 export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
   const t0 = Date.now();
   const locale = parseLocale(input.locale);
-
-  if (input.refine?.instruction?.trim()) {
-    const { planTripRefine } = await import("./plan-trip-refine");
-    return planTripRefine(input, t0, locale);
-  }
 
   const city = input.city.trim();
   if (!city) {

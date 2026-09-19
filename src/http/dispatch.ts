@@ -646,7 +646,6 @@ export async function dispatchTool(
                   : undefined,
             }
           : undefined,
-        refine: parsed.data.refine,
       });
       const status = result.status === "failed" ? 502 : 200;
       return {

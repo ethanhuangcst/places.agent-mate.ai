@@ -434,26 +434,13 @@ export const planTripBody = z
     })
     .passthrough()
     .optional(),
-  /** MVP-T9 agent-chat-93e — chat 改行程 on existing trip. */
-  refine: z
-    .object({
-      instruction: z.string().min(1).max(4000),
-    })
-    .optional(),
   ...shared,
 })
   .superRefine((data, ctx) => {
-    if (data.refine?.instruction && !data.trip_id) {
+    if (!data.city || !data.city.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "trip_id required when refine.instruction is set",
-        path: ["trip_id"],
-      });
-    }
-    if (!data.refine?.instruction && (!data.city || !data.city.trim())) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "city required unless refine mode",
+        message: "city required",
         path: ["city"],
       });
     }
