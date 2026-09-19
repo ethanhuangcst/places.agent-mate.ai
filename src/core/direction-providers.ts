@@ -1,12 +1,13 @@
 /**
  * Directions provider list (ADR-052 D7).
  * Caller-explicit providers[] win; otherwise resolveProviderStrategy.
- * When AMAP is already in the list and locale is CN/HK/TW, try AMAP first.
+ * When reordering an explicit list, prefer the destination region's primary
+ * provider (from resolveProviderStrategy) — not UI locale.
  */
 
 import { resolveProviderStrategy } from "../adapters/provider-resolver";
 import { type ProviderId } from "./providers";
-import { parseLocale, type Locale } from "./locales";
+import { type Locale } from "./locales";
 
 export type DirectionProviderInput = {
   providers?: string[];
@@ -15,14 +16,20 @@ export type DirectionProviderInput = {
   locale?: string | Locale;
 };
 
-function orderForDirections(
+async function orderForDirections(
   providers: ProviderId[],
-  locale?: string | Locale,
-): ProviderId[] {
-  const loc = locale ? parseLocale(locale) : undefined;
-  const preferAmap = loc === "CN" || loc === "HK" || loc === "TW";
-  if (preferAmap && providers.includes("AMAP") && providers[0] !== "AMAP") {
-    return ["AMAP", ...providers.filter((p) => p !== "AMAP")];
+  input: DirectionProviderInput,
+): Promise<ProviderId[]> {
+  if (providers.length <= 1) return [...providers];
+
+  const strategy = await resolveProviderStrategy({
+    location: input.location,
+    near: input.near,
+    locale: input.locale,
+  });
+  const preferred = strategy.searchProviders[0];
+  if (preferred && providers.includes(preferred) && providers[0] !== preferred) {
+    return [preferred, ...providers.filter((p) => p !== preferred)];
   }
   return [...providers];
 }
@@ -31,12 +38,12 @@ export async function resolvedDirectionProviders(
   input: DirectionProviderInput,
 ): Promise<ProviderId[]> {
   if (input.providers?.length) {
-    return orderForDirections(input.providers as ProviderId[], input.locale);
+    return orderForDirections(input.providers as ProviderId[], input);
   }
   const strategy = await resolveProviderStrategy({
     location: input.location,
     near: input.near,
     locale: input.locale,
   });
-  return orderForDirections(strategy.searchProviders, input.locale);
+  return orderForDirections(strategy.searchProviders, input);
 }

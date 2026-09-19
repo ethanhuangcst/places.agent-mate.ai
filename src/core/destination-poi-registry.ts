@@ -4,6 +4,7 @@
  */
 
 import { isEligibleAttraction } from "./eligible-attraction";
+import { isResolvablePlaceNativeId } from "./place-native-id";
 import { pickDisplayablePhotoUrl } from "./resolve-display-photo";
 import { getPlaceDetails } from "./tools";
 import { type PlaceCard, type PlaceSource } from "./types";
@@ -111,7 +112,10 @@ export function registrableNative(card: PlaceCard): { provider: string; nativeId
     (s) => typeof s.native_id === "string" && s.native_id.trim().length > 0,
   );
   if (!hit) return null;
-  return { provider: hit.provider, nativeId: hit.native_id.trim() };
+  const nativeId = hit.native_id.trim();
+  const provider = hit.provider ?? card.provider;
+  if (!isResolvablePlaceNativeId(provider, nativeId)) return null;
+  return { provider, nativeId };
 }
 
 export function canRegisterAttraction(card: PlaceCard): boolean {
@@ -310,7 +314,9 @@ export async function listPoisForDestination(
     }
     rows = merged;
   }
-  return rows.map((r) => r.cardSlim);
+  return rows
+    .filter((r) => isResolvablePlaceNativeId(r.provider, r.nativeId))
+    .map((r) => r.cardSlim);
 }
 
 export function mergeRegistryPlaces(existing: PlaceCard[], registered: PlaceCard[]): PlaceCard[] {

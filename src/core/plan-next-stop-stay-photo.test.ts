@@ -46,6 +46,27 @@ describe("planNextStopFill stay photo (ADR-051 D1.3)", () => {
     expect(isDisplayablePhotoUrl(card?.photos?.[0])).toBe(true);
   });
 
+  it("should_reuse_pool_lodging_without_photos_and_skip_search", async () => {
+    const search = vi.fn(async () => {
+      throw new Error("search must not run when pool has lodging match");
+    });
+    const existing = hotelCard({ photos: undefined });
+
+    const result = await planNextStopFill({
+      origin_mode: true,
+      next_stop: { name: "Hills Hotel Lisboa", kind: "stay", lat: 38.72, lng: -9.14 },
+      candidates: { places: [existing], restaurants: [] },
+      city: "Lisbon",
+      time_from: "09:00",
+      stay_role: "day_origin",
+      locale: "EN",
+      _testSearchPlaces: search,
+    });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.stop_display?.stop.card?.name).toBe("Hills Hotel Lisboa");
+  });
+
   it("should_reuse_resolved_stay_card_when_photos0_already_displayable", async () => {
     const search = vi.fn(async () => {
       throw new Error("search must not run when card already has displayable photo");
@@ -233,33 +254,31 @@ describe("pickLodgingStayCard", () => {
   });
 });
 
-describe("planNextStopFill attraction photo locale alias", () => {
-  it("should_resolve_photo_when_skeleton_pt_name_misses_en_pool_title", async () => {
-    const enPool: PlaceCard = {
-      provider: "GOOGLE_MAPS",
-      name: "Belém Tower",
-      location: { lat: 38.6916, lng: -9.216, crs: "WGS84" },
-      sources: [
-        {
-          provider: "GOOGLE_MAPS",
-          native_id: "ChIJS5zCw0LLHg0RP1FSz63cAjA",
-          deeplinks: {},
-        },
-      ],
-    };
-    // Second Belém* card makes sharedProperToken ambiguous → forces search fallback.
-    const pasteis: PlaceCard = {
-      provider: "GOOGLE_MAPS",
-      name: "Pastéis de Belém",
-      location: { lat: 38.697, lng: -9.203, crs: "WGS84" },
-      sources: [{ provider: "GOOGLE_MAPS", native_id: "ChIJ-pasteis", deeplinks: {} }],
-    };
-    const search = vi.fn(async () => [
+describe("planNextStopFill attraction fill-by-id (ADR-072 / agent-fill-113)", () => {
+  const enPool: PlaceCard = {
+    provider: "GOOGLE_MAPS",
+    name: "Belém Tower",
+    location: { lat: 38.6916, lng: -9.216, crs: "WGS84" },
+    photos: ["https://lh3.googleusercontent.com/belem-pool-photo"],
+    sources: [
       {
-        ...enPool,
-        photos: ["https://lh3.googleusercontent.com/belem-tower"],
+        provider: "GOOGLE_MAPS",
+        native_id: "ChIJS5zCw0LLHg0RP1FSz63cAjA",
+        deeplinks: {},
       },
-    ]);
+    ],
+  };
+  const pasteis: PlaceCard = {
+    provider: "GOOGLE_MAPS",
+    name: "Pastéis de Belém",
+    location: { lat: 38.697, lng: -9.203, crs: "WGS84" },
+    sources: [{ provider: "GOOGLE_MAPS", native_id: "ChIJ-pasteis", deeplinks: {} }],
+  };
+
+  it("TC-F113-03: copies pool photo by native_id without search (CN locale, PT stop name)", async () => {
+    const search = vi.fn(async () => {
+      throw new Error("search must not run when pointer matches pool card");
+    });
 
     const result = await planNextStopFill({
       current_stop: {
@@ -269,13 +288,15 @@ describe("planNextStopFill attraction photo locale alias", () => {
         lng: -9.14,
         end_time: "09:00",
       },
-      next_stop: { name: "Torre de Belém", kind: "attraction" },
-      candidates: {
-        places: [enPool, pasteis],
-        restaurants: [],
+      next_stop: {
+        name: "Torre de Belém",
+        kind: "attraction",
+        provider: "GOOGLE_MAPS",
+        native_id: "ChIJS5zCw0LLHg0RP1FSz63cAjA",
       },
+      candidates: { places: [enPool, pasteis], restaurants: [] },
       city: "Lisbon",
-      locale: "EN",
+      locale: "CN",
       day_stops: [
         { name: "Hills Hotel Lisboa", kind: "stay" },
         { name: "Torre de Belém", kind: "attraction" },
@@ -284,13 +305,160 @@ describe("planNextStopFill attraction photo locale alias", () => {
       _testGeocode: async () => ({ lat: 38.6916, lng: -9.216 }),
     });
 
-    expect(search).toHaveBeenCalled();
-    const card = result.stop_display?.stop.card;
-    expect(card?.photos?.[0]).toBe("https://lh3.googleusercontent.com/belem-tower");
-    expect(isDisplayablePhotoUrl(card?.photos?.[0])).toBe(true);
+    expect(search).not.toHaveBeenCalled();
+    expect(result.stop_display?.stop.card?.photos?.[0]).toBe(
+      "https://lh3.googleusercontent.com/belem-pool-photo",
+    );
   });
 
-  it("should_resolve_castelo_photo_when_skeleton_is_saint_george_castle", async () => {
+  it("TC-F113-04: id-intersect binds one pool hit; ignores searched[0] when not in pool", async () => {
+    const searchMany = vi.fn(async () => [
+      {
+        provider: "GOOGLE_MAPS",
+        name: "Wrong POI",
+        location: { lat: 38.7, lng: -9.2, crs: "WGS84" as const },
+        photos: ["https://lh3.googleusercontent.com/wrong"],
+        sources: [{ provider: "GOOGLE_MAPS", native_id: "ChIJ-not-in-pool", deeplinks: {} }],
+      },
+      {
+        ...enPool,
+        photos: ["https://lh3.googleusercontent.com/belem-from-search"],
+      },
+      {
+        ...pasteis,
+        photos: ["https://lh3.googleusercontent.com/pasteis"],
+      },
+    ]);
+
+    const manyResult = await planNextStopFill({
+      current_stop: {
+        name: "Hills Hotel Lisboa",
+        kind: "stay",
+        lat: 38.73,
+        lng: -9.14,
+        end_time: "09:00",
+      },
+      next_stop: { name: "Torre de Belém", kind: "attraction" },
+      candidates: { places: [enPool, pasteis], restaurants: [] },
+      city: "Lisbon",
+      locale: "EN",
+      _testSearchPlaces: searchMany,
+      _testGeocode: async () => ({ lat: 38.6916, lng: -9.216 }),
+    });
+    expect(searchMany).toHaveBeenCalled();
+    expect(manyResult.stop_display?.stop.card?.photos?.[0]).not.toBe(
+      "https://lh3.googleusercontent.com/wrong",
+    );
+    expect(manyResult.stop_display?.stop.card?.photos?.[0]).toBeUndefined();
+
+    const searchOne = vi.fn(async () => [
+      {
+        provider: "GOOGLE_MAPS",
+        name: "Unrelated first hit",
+        location: { lat: 38.7, lng: -9.2, crs: "WGS84" as const },
+        photos: ["https://lh3.googleusercontent.com/wrong"],
+        sources: [{ provider: "GOOGLE_MAPS", native_id: "ChIJ-not-in-pool", deeplinks: {} }],
+      },
+      {
+        ...enPool,
+        photos: ["https://lh3.googleusercontent.com/belem-intersect"],
+      },
+    ]);
+
+    const oneResult = await planNextStopFill({
+      current_stop: {
+        name: "Hills Hotel Lisboa",
+        kind: "stay",
+        lat: 38.73,
+        lng: -9.14,
+        end_time: "09:00",
+      },
+      next_stop: { name: "Torre de Belém", kind: "attraction" },
+      candidates: { places: [enPool, pasteis], restaurants: [] },
+      city: "Lisbon",
+      locale: "EN",
+      _testSearchPlaces: searchOne,
+      _testGeocode: async () => ({ lat: 38.6916, lng: -9.216 }),
+    });
+    expect(oneResult.stop_display?.stop.card?.photos?.[0]).toBe(
+      "https://lh3.googleusercontent.com/belem-intersect",
+    );
+  });
+
+  it("TC-F113-05: Google Details writes zh display name once; AMAP name unchanged", async () => {
+    const details = vi.fn(async () => ({
+      provider: "GOOGLE_MAPS" as const,
+      name: "贝伦塔",
+      location: { lat: 38.6916, lng: -9.216, crs: "WGS84" as const },
+      photos: ["https://lh3.googleusercontent.com/belem-pool-photo"],
+      sources: [
+        {
+          provider: "GOOGLE_MAPS" as const,
+          native_id: "ChIJS5zCw0LLHg0RP1FSz63cAjA",
+          deeplinks: {},
+        },
+      ],
+    }));
+
+    const googleResult = await planNextStopFill({
+      current_stop: {
+        name: "Hills Hotel Lisboa",
+        kind: "stay",
+        lat: 38.73,
+        lng: -9.14,
+        end_time: "09:00",
+      },
+      next_stop: {
+        name: "Torre de Belém",
+        kind: "attraction",
+        provider: "GOOGLE_MAPS",
+        native_id: "ChIJS5zCw0LLHg0RP1FSz63cAjA",
+      },
+      candidates: { places: [enPool], restaurants: [] },
+      city: "Lisbon",
+      locale: "CN",
+      _testGetPlaceDetails: details,
+      _testGeocode: async () => ({ lat: 38.6916, lng: -9.216 }),
+    });
+    expect(details).toHaveBeenCalled();
+    expect(googleResult.stop_display?.stop.name).toBe("贝伦塔");
+
+    const amapCard: PlaceCard = {
+      provider: "AMAP",
+      name: "西安钟楼",
+      location: { lat: 34.26, lng: 108.94, crs: "WGS84" },
+      photos: ["https://store.is.autonavi.com/clock-tower.jpg"],
+      sources: [{ provider: "AMAP", native_id: "B000A87B", deeplinks: {} }],
+    };
+    const amapDetails = vi.fn(async () => {
+      throw new Error("AMAP must not fetch Google-style display rename");
+    });
+
+    const amapResult = await planNextStopFill({
+      current_stop: {
+        name: "酒店",
+        kind: "stay",
+        lat: 34.26,
+        lng: 108.94,
+        end_time: "09:00",
+      },
+      next_stop: {
+        name: "西安钟楼",
+        kind: "attraction",
+        provider: "AMAP",
+        native_id: "B000A87B",
+      },
+      candidates: { places: [amapCard], restaurants: [] },
+      city: "西安",
+      locale: "CN",
+      _testGetPlaceDetails: amapDetails,
+      _testGeocode: async () => ({ lat: 34.26, lng: 108.94 }),
+    });
+    expect(amapDetails).not.toHaveBeenCalled();
+    expect(amapResult.stop_display?.stop.name).toBe("西安钟楼");
+  });
+
+  it("should_bind_castelo_via_id_intersect_when_name_differs_from_pool", async () => {
     const withPhotos: PlaceCard = {
       provider: "GOOGLE_MAPS",
       name: "Castelo de São Jorge",
@@ -317,20 +485,16 @@ describe("planNextStopFill attraction photo locale alias", () => {
       candidates: { places: [withPhotos], restaurants: [] },
       city: "Lisbon",
       locale: "EN",
-      day_stops: [
-        { name: "Hills Hotel Lisboa", kind: "stay" },
-        { name: "Saint George Castle", kind: "attraction" },
-      ],
       _testSearchPlaces: search,
       _testGeocode: async () => ({ lat: 38.7139, lng: -9.1335 }),
     });
     expect(search).toHaveBeenCalled();
-    const card = result.stop_display?.stop.card;
-    expect(card?.name).toBe("Castelo de São Jorge");
-    expect(card?.photos?.[0]).toBe("https://lh3.googleusercontent.com/castelo");
+    expect(result.stop_display?.stop.card?.photos?.[0]).toBe(
+      "https://lh3.googleusercontent.com/castelo",
+    );
   });
 
-  it("should_not_bind_garden_when_stop_is_castelo_and_search_for_photo", async () => {
+  it("should_not_bind_search_hit_when_id_not_in_pool", async () => {
     const garden: PlaceCard = {
       provider: "GOOGLE_MAPS",
       name: "Garden of the Castle of São Jorge",
@@ -363,16 +527,10 @@ describe("planNextStopFill attraction photo locale alias", () => {
       candidates: { places: [garden], restaurants: [] },
       city: "Lisbon",
       locale: "EN",
-      day_stops: [
-        { name: "Hills Hotel Lisboa", kind: "stay" },
-        { name: "Castelo de São Jorge", kind: "attraction" },
-      ],
       _testSearchPlaces: search,
       _testGeocode: async () => ({ lat: 38.7139, lng: -9.1335 }),
     });
     expect(search).toHaveBeenCalled();
-    const card = result.stop_display?.stop.card;
-    expect(card?.name).toBe("Castelo de São Jorge");
-    expect(card?.photos?.[0]).toBe("https://lh3.googleusercontent.com/castelo");
+    expect(result.stop_display?.stop.card?.photos?.[0]).toBeUndefined();
   });
 });

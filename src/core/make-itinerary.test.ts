@@ -3,6 +3,8 @@ import {
   attachNativeIdsToSkeleton,
   buildFixtureSkeleton,
   buildSkeletonUserMessage,
+  candidateLine,
+  dropAttractionsWithoutPoolPointer,
   dropCityNameStops,
   dropUnknownAttractionStops,
   isAreaAliasStop,
@@ -18,11 +20,21 @@ import {
   trimAreaAliasStops,
   trimPaceOverages,
   validateSkeleton,
+  type ItinerarySkeleton,
   type MakeItineraryInput,
   type SkeletonChatCreate,
 } from "./make-itinerary";
 import { type PlaceCard } from "./types";
 import { type Locale } from "./locales";
+
+function testNativeId(name: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `ChIJ${Math.abs(h).toString(36).padStart(20, "0").slice(0, 20)}`;
+}
 
 function place(name: string, lat = 38.7, lng = -9.1): PlaceCard {
   return {
@@ -30,8 +42,44 @@ function place(name: string, lat = 38.7, lng = -9.1): PlaceCard {
     name,
     location: { lat, lng, crs: "WGS84" },
     rating: 4.5,
-    sources: [],
+    sources: [
+      { provider: "GOOGLE_MAPS", native_id: testNativeId(name), deeplinks: {} },
+    ],
   };
+}
+
+/** Mirror make_itinerary post-attach pipeline for unit tests (ADR-072 D2). */
+function withPoolPointers(
+  raw: unknown,
+  pool: { places: PlaceCard[] },
+): unknown {
+  const norm = normalizeMealSlotStops(raw) as ItinerarySkeleton;
+  const attached = attachNativeIdsToSkeleton(norm, pool.places);
+  return dropAttractionsWithoutPoolPointer(attached, pool.places);
+}
+
+type SkeletonPool = Parameters<typeof validateSkeleton>[1];
+
+function validateSkeletonAttached(
+  raw: unknown,
+  pool: SkeletonPool,
+  mustInclude: string[],
+  pace?: string,
+  city?: string,
+  densityPlaces?: number,
+  numDays?: number,
+  opts?: { hardGatesOnly?: boolean },
+) {
+  return validateSkeleton(
+    withPoolPointers(raw, pool),
+    pool,
+    mustInclude,
+    pace,
+    city,
+    densityPlaces,
+    numDays,
+    opts,
+  );
 }
 
 function restaurant(name: string): PlaceCard {
@@ -105,12 +153,12 @@ describe("validateSkeleton", () => {
   };
 
   it("should_accept_valid_skeleton_when_all_stops_in_pool", () => {
-    const result = validateSkeleton(skeletonJson(input), pool, [], "medium");
+    const result = validateSkeletonAttached(skeletonJson(input), pool, [], "medium");
     expect(result.ok).toBe(true);
   });
 
   it("TC-M22-84-02 should_not_fail_when_must_include_is_collection_name", () => {
-    const result = validateSkeleton(skeletonJson(input), pool, ["西湖十景"], "medium");
+    const result = validateSkeletonAttached(skeletonJson(input), pool, ["西湖十景"], "medium");
     expect(result.ok).toBe(true);
   });
 
@@ -124,7 +172,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(raw, pool, [], "medium");
+    const result = validateSkeletonAttached(raw, pool, [], "medium");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/stay-only|attraction/i);
   });
@@ -167,7 +215,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(raw, fatPool, [], "relaxed");
+    const result = validateSkeletonAttached(raw, fatPool, [], "relaxed");
     expect(result.ok).toBe(true);
   });
 
@@ -208,7 +256,7 @@ describe("validateSkeleton", () => {
       ],
     };
     const trimmed = reseatLateLunchStops(trimPaceOverages(crowded, "relaxed"));
-    const result = validateSkeleton(trimmed, manyPlaces, [], "relaxed");
+    const result = validateSkeletonAttached(trimmed, manyPlaces, [], "relaxed");
     expect(result.ok).toBe(true);
     if (result.ok) {
       const attr = result.skeleton.days[0]!.stops.filter((s) => s.kind === "attraction");
@@ -239,7 +287,7 @@ describe("validateSkeleton", () => {
       ],
     };
     const remapped = remapStopNamesToPool(raw, koreanPool);
-    const result = validateSkeleton(remapped, koreanPool, [], "medium");
+    const result = validateSkeletonAttached(remapped, koreanPool, [], "medium");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.skeleton.days[0]!.stops[1]!.name).toBe("Bukchon Hanok Village");
@@ -252,7 +300,7 @@ describe("validateSkeleton", () => {
     };
     raw.days[0]!.stops.splice(2, 0, { name: "白堤", kind: "attraction" });
     const trimmed = dropUnknownAttractionStops(raw, pool);
-    const result = validateSkeleton(trimmed, pool, [], "medium");
+    const result = validateSkeletonAttached(trimmed, pool, [], "medium");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.skeleton.days[0]!.stops.some((s) => s.name === "白堤")).toBe(false);
@@ -307,7 +355,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       raw,
       { places: [place("Torre de Belém"), place("A"), place("B")], restaurants: [], stays: [hotel] },
       [],
@@ -319,7 +367,11 @@ describe("validateSkeleton", () => {
   it("should_reject_stop_when_name_not_in_pool", () => {
     const bad = JSON.parse(JSON.stringify(skeletonJson(input)));
     bad.days[0].stops[2].name = "Invented Palace";
-    const result = validateSkeleton(bad, pool, [], "medium");
+    const prepared = attachNativeIdsToSkeleton(
+      normalizeMealSlotStops(bad) as ItinerarySkeleton,
+      pool.places,
+    );
+    const result = validateSkeleton(prepared, pool, [], "medium");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("not found in candidate list");
@@ -350,7 +402,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       stayOnly,
       { places: [place("贝伦塔"), place("辛特拉宫"), place("卡斯凯什老城")], restaurants: [], stays: pool.stays },
       ["贝伦塔"],
@@ -373,7 +425,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       stayOnly,
       { places: [place("A"), place("B"), place("C")], restaurants: [], stays: pool.stays },
       [],
@@ -400,7 +452,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       raw,
       { places: [place("贝伦塔"), place("辛特拉宫"), place("A")], restaurants: [], stays: pool.stays },
       ["贝伦塔"],
@@ -413,7 +465,7 @@ describe("validateSkeleton", () => {
   });
 
   it("should_reject_skeleton_when_must_include_missing", () => {
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       skeletonJson(input),
       pool,
       ["Mosteiro dos Jerónimos"],
@@ -428,7 +480,7 @@ describe("validateSkeleton", () => {
   it("should_reject_skeleton_when_venue_reused_across_days", () => {
     const bad = JSON.parse(JSON.stringify(skeletonJson(input)));
     bad.days[1].stops[1] = { name: "Torre de Belém", kind: "attraction" };
-    const result = validateSkeleton(bad, pool, [], "medium");
+    const result = validateSkeletonAttached(bad, pool, [], "medium");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("reused");
@@ -438,7 +490,7 @@ describe("validateSkeleton", () => {
   it("should_allow_restaurant_reused_across_days", () => {
     const ok = JSON.parse(JSON.stringify(skeletonJson(input)));
     ok.days[1].stops.push({ name: "Pastéis de Belém", kind: "meal", meal_slot: "dinner" });
-    const result = validateSkeleton(ok, pool, [], "medium");
+    const result = validateSkeletonAttached(ok, pool, [], "medium");
     expect(result.ok).toBe(true);
   });
 
@@ -447,14 +499,14 @@ describe("validateSkeleton", () => {
       days: Array<{ stops: Array<{ name: string; kind: string; meal_slot?: string }> }>;
     };
     raw.days[0]!.stops[1] = { name: "楼外楼", kind: "meal", meal_slot: "lunch" };
-    const result = validateSkeleton(raw, pool, [], "medium");
+    const result = validateSkeletonAttached(raw, pool, [], "medium");
     expect(result.ok).toBe(true);
   });
 
   it("should_reject_skeleton_when_day_missing_lunch", () => {
     const bad = JSON.parse(JSON.stringify(skeletonJson(input)));
     bad.days[0].stops = bad.days[0].stops.filter((s: { meal_slot?: string }) => s.meal_slot !== "lunch");
-    const result = validateSkeleton(bad, pool, [], "medium");
+    const result = validateSkeletonAttached(bad, pool, [], "medium");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("missing a lunch stop");
@@ -465,7 +517,11 @@ describe("validateSkeleton", () => {
     const bad = JSON.parse(JSON.stringify(skeletonJson(input)));
     const attr = bad.days[0].stops.find((s: { kind: string }) => s.kind === "attraction");
     attr.name = "Lisbon";
-    const result = validateSkeleton(bad, pool, [], "medium", "Lisbon");
+    const prepared = attachNativeIdsToSkeleton(
+      normalizeMealSlotStops(bad) as ItinerarySkeleton,
+      pool.places,
+    );
+    const result = validateSkeleton(prepared, pool, [], "medium", "Lisbon");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("destination city");
@@ -480,7 +536,7 @@ describe("validateSkeleton", () => {
     noLunch.days[1].stops = noLunch.days[1].stops.filter(
       (s: { meal_slot?: string }) => s.meal_slot !== "lunch",
     );
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       noLunch,
       { ...pool, restaurants: [] },
       [],
@@ -515,7 +571,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(raw, pool, [], "medium");
+    const result = validateSkeletonAttached(raw, pool, [], "medium");
     expect(result.ok).toBe(true);
     if (result.ok) {
       for (const day of result.skeleton.days) {
@@ -568,7 +624,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(raw, areaPool, ["贝伦区", "辛特拉", "卡斯凯什"], "medium");
+    const result = validateSkeletonAttached(raw, areaPool, ["贝伦区", "辛特拉", "卡斯凯什"], "medium");
     // 卡斯凯什 is not in stops or themes — still missing
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -577,7 +633,7 @@ describe("validateSkeleton", () => {
       expect(result.error).not.toContain("辛特拉");
     }
     raw.days[1].stops.splice(1, 0, { name: "卡斯凯什老城", kind: "attraction" });
-    const covered = validateSkeleton(raw, areaPool, ["贝伦区", "辛特拉", "卡斯凯什"], "medium");
+    const covered = validateSkeletonAttached(raw, areaPool, ["贝伦区", "辛特拉", "卡斯凯什"], "medium");
     expect(covered.ok).toBe(true);
   });
 
@@ -585,7 +641,7 @@ describe("validateSkeleton", () => {
     // start_time etc. are stripped by zod (not in schema) — validation still passes
     const extra = JSON.parse(JSON.stringify(skeletonJson(input)));
     extra.days[0].stops[1].start_time = "10:00";
-    const result = validateSkeleton(extra, pool, [], "medium");
+    const result = validateSkeletonAttached(extra, pool, [], "medium");
     expect(result.ok).toBe(true);
   });
 
@@ -609,7 +665,7 @@ describe("validateSkeleton", () => {
       ...pool,
       stays: ["Hills Hotel Lisboa", "Sintra Garden Hotel"],
     };
-    const result = validateSkeleton(bad, extendedPool, [], "medium");
+    const result = validateSkeletonAttached(bad, extendedPool, [], "medium");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/stay.*first stop/i);
@@ -636,7 +692,7 @@ describe("validateSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(bad, sintraPool, ["Sintra"], "medium", "Lisbon");
+    const result = validateSkeletonAttached(bad, sintraPool, ["Sintra"], "medium", "Lisbon");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/area name/i);
@@ -665,7 +721,7 @@ describe("validateSkeleton", () => {
       ],
     };
     const trimmed = reseatLateLunchStops(trimAreaAliasStops(raw, ["Sintra"], "Lisbon"));
-    const result = validateSkeleton(trimmed, sintraPool, ["Sintra"], "medium", "Lisbon");
+    const result = validateSkeletonAttached(trimmed, sintraPool, ["Sintra"], "medium", "Lisbon");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.skeleton.days[0]!.stops.map((s) => s.name)).not.toContain("Sintra");
@@ -701,7 +757,7 @@ describe("validateSkeleton", () => {
         (s) => s.name,
       ),
     ).toContain("雷峰塔景区");
-    const result = validateSkeleton(trimmed, poolHz, ["雷峰塔景区"], "relaxed", "杭州");
+    const result = validateSkeletonAttached(trimmed, poolHz, ["雷峰塔景区"], "relaxed", "杭州");
     expect(result.ok).toBe(true);
   });
 
@@ -739,7 +795,7 @@ describe("validateSkeleton", () => {
       ...pool,
       places: [...pool.places, place("Mosteiro dos Jerónimos")],
     };
-    const result = validateSkeleton(lateLunch, extendedPool, [], "medium");
+    const result = validateSkeletonAttached(lateLunch, extendedPool, [], "medium");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/lunch stop.*last attraction/i);
@@ -768,7 +824,7 @@ describe("validateSkeleton", () => {
       places: [...pool.places, place("Mosteiro dos Jerónimos")],
     };
     const reseated = reseatLateLunchStops(raw);
-    const result = validateSkeleton(reseated, extendedPool, [], "medium");
+    const result = validateSkeletonAttached(reseated, extendedPool, [], "medium");
     expect(result.ok).toBe(true);
     if (result.ok) {
       const names = result.skeleton.days[0]!.stops.map((s) => s.name);
@@ -1215,9 +1271,9 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
         },
       ],
     };
-    expect(validateSkeleton(raw, pool, [], "medium").ok).toBe(false);
+    expect(validateSkeletonAttached(raw, pool, [], "medium").ok).toBe(false);
     const fixed = reseatStayToDayOrigin(raw);
-    const result = validateSkeleton(fixed, pool, [], "medium");
+    const result = validateSkeletonAttached(fixed, pool, [], "medium");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.skeleton.days[0]!.stops[0]).toMatchObject({
@@ -1247,10 +1303,10 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
         },
       ],
     };
-    expect(validateSkeleton(raw, extendedPool, [], "medium").ok).toBe(false);
+    expect(validateSkeletonAttached(raw, extendedPool, [], "medium").ok).toBe(false);
     // Production pipeline: lunch reseat then stay reseat (F61 + F62).
     const fixed = reseatStayToDayOrigin(reseatLateLunchStops(raw));
-    const result = validateSkeleton(fixed, extendedPool, [], "medium");
+    const result = validateSkeletonAttached(fixed, extendedPool, [], "medium");
     expect(result.ok).toBe(true);
     if (result.ok) {
       const stays = result.skeleton.days[0]!.stops.filter((s) => s.kind === "stay");
@@ -1280,9 +1336,9 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
         },
       ],
     };
-    expect(validateSkeleton(raw, cityPool, [], "medium", "Lisbon").ok).toBe(false);
+    expect(validateSkeletonAttached(raw, cityPool, [], "medium", "Lisbon").ok).toBe(false);
     const fixed = dropCityNameStops(raw, "Lisbon");
-    const result = validateSkeleton(fixed, cityPool, [], "medium", "Lisbon");
+    const result = validateSkeletonAttached(fixed, cityPool, [], "medium", "Lisbon");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.skeleton.days[0]!.stops.some((s) => s.name === "Lisbon")).toBe(false);
@@ -1305,7 +1361,7 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
         },
       ],
     };
-    const result = validateSkeleton(raw, pool, [], "medium");
+    const result = validateSkeletonAttached(raw, pool, [], "medium");
     expect(result.ok).toBe(true);
   });
 
@@ -1332,9 +1388,9 @@ describe("MVP-15 skeleton deterministic repair (TC-M15-62)", () => {
     };
     const mid = dropCityNameStops(reseatLateLunchStops(raw), "Lisbon");
     // S8: sole remaining attraction may keep lunch after it (split later).
-    expect(validateSkeleton(mid, cityPool, [], "medium", "Lisbon").ok).toBe(true);
+    expect(validateSkeletonAttached(mid, cityPool, [], "medium", "Lisbon").ok).toBe(true);
     const repaired = reseatLateLunchStops(mid);
-    expect(validateSkeleton(repaired, cityPool, [], "medium", "Lisbon").ok).toBe(true);
+    expect(validateSkeletonAttached(repaired, cityPool, [], "medium", "Lisbon").ok).toBe(true);
     const attr = (repaired as { days: Array<{ stops: Array<{ kind?: string }> }> }).days[0]!.stops.filter(
       (s) => s.kind === "attraction",
     );
@@ -1444,7 +1500,7 @@ describe("buildFixtureSkeleton", () => {
         },
       ],
     };
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       stayOnly,
       { places: [], restaurants: [], stays: ["Hills Hotel Lisboa"] },
       [],
@@ -1463,7 +1519,7 @@ describe("F91 skeleton dinner + single-attraction split (TC-M23-91-04)", () => {
     expect(
       skeleton.days[0]!.stops.some((s) => s.kind === "meal" && s.meal_slot === "dinner"),
     ).toBe(true);
-    const result = validateSkeleton(
+    const result = validateSkeletonAttached(
       skeleton,
       {
         places: baseInput().candidates.places,
@@ -1557,7 +1613,7 @@ describe("F91 skeleton dinner + single-attraction split (TC-M23-91-04)", () => {
     const attrs = split.days[0]!.stops.filter((s) => s.kind === "attraction");
     expect(attrs[0]!.native_id).toBe("ChIJ_torre");
     expect(attrs[1]!.native_id).toBe("ChIJ_torre");
-    const validated = validateSkeleton(
+    const validated = validateSkeletonAttached(
       split,
       {
         places: [torre, place("Mosteiro dos Jerónimos"), place("Castelo de São Jorge")],
@@ -1579,6 +1635,225 @@ describe("F91 skeleton dinner + single-attraction split (TC-M23-91-04)", () => {
     const msg = buildSkeletonUserMessage(baseInput());
     expect(msg).toMatch(/verbatim/i);
     expect(msg).toMatch(/do not translate or localize place names/i);
+  });
+});
+
+describe("agent-fill-113 skeleton pointers (ADR-072)", () => {
+  it("TC-F113-01: candidateLine includes provider and native_id; prompt copies pointer", () => {
+    const card = place("Belém Tower");
+    card.sources = [
+      { provider: "GOOGLE_MAPS", native_id: "ChIJS5zCw0LLHg0RP1FSz63cAjA", deeplinks: {} },
+    ];
+    const line = candidateLine(card);
+    expect(line).toContain("provider=GOOGLE_MAPS");
+    expect(line).toContain("native_id=ChIJS5zCw0LLHg0RP1FSz63cAjA");
+
+    const msg = buildSkeletonUserMessage(
+      baseInput({
+        candidates: {
+          places: [card],
+          restaurants: baseInput().candidates.restaurants,
+        },
+      }),
+    );
+    expect(msg).toMatch(/copy provider and native_id/i);
+    expect(msg).toContain("native_id=ChIJS5zCw0LLHg0RP1FSz63cAjA");
+  });
+
+  it("TC-F113-02b: validateSkeleton accepts attraction when native_id is in pool but name differs", () => {
+    const tower = place("Belém Tower");
+    tower.sources = [
+      { provider: "GOOGLE_MAPS", native_id: "ChIJ-tower", deeplinks: {} },
+    ];
+    const pool = {
+      places: [tower],
+      restaurants: [],
+      stays: ["Hills Hotel Lisboa"],
+    };
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            {
+              name: "Torre de Belém",
+              kind: "attraction",
+              provider: "GOOGLE_MAPS",
+              native_id: "ChIJ-tower",
+            },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const trimmed = dropUnknownAttractionStops(raw, pool);
+    const validated = validateSkeletonAttached(trimmed, pool, [], "medium");
+    expect(validated.ok).toBe(true);
+  });
+
+  it("TC-F114-01: validateSkeleton rejects attraction without pool pointer (translated name)", () => {
+    const tower = place("Belém Tower");
+    tower.sources = [
+      { provider: "GOOGLE_MAPS", native_id: "ChIJ-tower", deeplinks: {} },
+    ];
+    const pool = {
+      places: [tower],
+      restaurants: [],
+      stays: ["Hills Hotel Lisboa"],
+    };
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "Torre de Belém", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const attached = attachNativeIdsToSkeleton(
+      normalizeMealSlotStops(raw) as ItinerarySkeleton,
+      pool.places,
+    );
+    expect(attached.days[0]!.stops[1]!.native_id).toBeUndefined();
+    const validated = validateSkeleton(attached, pool, [], "medium");
+    expect(validated.ok).toBe(false);
+    if (!validated.ok) {
+      expect(validated.error).toMatch(/missing pool \(provider, native_id\) pointer/);
+    }
+  });
+
+  it("TC-F115-01: attach does not stamp verify_ pool id on exact name match", () => {
+    const harness = place("Torre de Belém");
+    harness.sources = [
+      { provider: "GOOGLE_MAPS", native_id: "verify_belem", deeplinks: {} },
+    ];
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            {
+              name: "Torre de Belém",
+              kind: "attraction",
+              provider: "GOOGLE_MAPS",
+              native_id: "verify_belem",
+            },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const attached = attachNativeIdsToSkeleton(
+      normalizeMealSlotStops(raw) as ItinerarySkeleton,
+      [harness],
+    );
+    const attr = attached.days[0]!.stops.find((s) => s.kind === "attraction");
+    expect(attr?.native_id).toBeUndefined();
+    expect(attr?.provider).toBeUndefined();
+  });
+
+  it("TC-F114-02: dropAttractionsWithoutPoolPointer removes untranslated attractions after attach", () => {
+    const tower = place("Belém Tower");
+    tower.sources = [
+      { provider: "GOOGLE_MAPS", native_id: "ChIJ-tower", deeplinks: {} },
+    ];
+    const pool = {
+      places: [tower],
+      restaurants: [],
+      stays: ["Hills Hotel Lisboa"],
+    };
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [
+            { name: "Hills Hotel Lisboa", kind: "stay" },
+            { name: "Belém Tower", kind: "attraction" },
+            { name: "Torre de Belém", kind: "attraction" },
+            { kind: "meal", meal_slot: "lunch" },
+            { kind: "meal", meal_slot: "dinner" },
+          ],
+        },
+      ],
+    };
+    const attached = attachNativeIdsToSkeleton(
+      normalizeMealSlotStops(raw) as ItinerarySkeleton,
+      pool.places,
+    );
+    const trimmed = dropAttractionsWithoutPoolPointer(attached, pool.places) as ItinerarySkeleton;
+    const attrs = trimmed.days[0]!.stops.filter((s) => s.kind === "attraction");
+    expect(attrs).toHaveLength(1);
+    expect(attrs[0]!.name).toBe("Belém Tower");
+    expect(attrs[0]!.native_id).toBe("ChIJ-tower");
+    expect(trimmed.days[0]!.stops.some((s) => s.name === "Torre de Belém")).toBe(false);
+  });
+
+  it("TC-F113-02: attachNativeIds exact name only; Belém fuzzy skipped; legal id kept", () => {
+    const tower = place("Belém Tower");
+    tower.sources = [
+      { provider: "GOOGLE_MAPS", native_id: "ChIJ-tower", deeplinks: {} },
+    ];
+    const pasteis = place("Pastéis de Belém");
+    pasteis.sources = [
+      { provider: "GOOGLE_MAPS", native_id: "ChIJ-pasteis", deeplinks: {} },
+    ];
+    const pool = [tower, pasteis];
+
+    const fuzzyStop = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [{ name: "Torre de Belém", kind: "attraction" }],
+        },
+      ],
+    };
+    const fuzzyAttached = attachNativeIdsToSkeleton(fuzzyStop as never, pool);
+    expect(fuzzyAttached.days[0]!.stops[0]!.native_id).toBeUndefined();
+
+    const exactStop = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [{ name: "Belém Tower", kind: "attraction" }],
+        },
+      ],
+    };
+    const exactAttached = attachNativeIdsToSkeleton(exactStop as never, pool);
+    expect(exactAttached.days[0]!.stops[0]!.native_id).toBe("ChIJ-tower");
+
+    const legalIdStop = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "Belém",
+          stops: [
+            {
+              name: "Torre de Belém",
+              kind: "attraction",
+              provider: "GOOGLE_MAPS",
+              native_id: "ChIJ-tower",
+            },
+          ],
+        },
+      ],
+    };
+    const legalAttached = attachNativeIdsToSkeleton(legalIdStop as never, pool);
+    expect(legalAttached.days[0]!.stops[0]!.native_id).toBe("ChIJ-tower");
+    expect(legalAttached.days[0]!.stops[0]!.provider).toBe("GOOGLE_MAPS");
   });
 });
 

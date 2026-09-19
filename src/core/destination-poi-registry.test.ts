@@ -30,7 +30,7 @@ function card(
       : [
           {
             provider: "GOOGLE_MAPS" as const,
-            native_id: opts?.nativeId ?? "g1",
+            native_id: opts?.nativeId ?? "ChIJtestdefault01",
             deeplinks: { google_web: "https://maps.google.com/?q=1" },
           },
         ];
@@ -208,9 +208,29 @@ describe("destination-poi-registry (TC-M22-87)", () => {
     expect(ran).toBe(0);
   });
 
+  it("should_skip_upsert_and_list_for_unverifiable_native_id", async () => {
+    const store = createMemoryPoiRegistryStore();
+    const anchor = { city: "Lisbon", lat: 38.722, lng: -9.139 };
+    const harness = card("Torre de Belém", {
+      nativeId: "verify_belem",
+      photos: ["https://cdn.example.com/verify_belem.jpg"],
+    });
+    const legal = card("Belém Tower", {
+      nativeId: "ChIJS5zCw0LLHg0RP1FSz63cAjA",
+      photos: [
+        "https://lh3.googleusercontent.com/grass-cs/ACvplmOe8KCuyS9mjCCizL3TveFa1Q4VSiK833YJ1T-_jgHO0Xycbj8htOt7QAkdIyONKxwedV2LVGev_0vpxubggmLkXnkgiDGPsqRHYsBJ2qvtgkbqmYg0l5KDkuMUjd9dD56cYGiO5xfWfbQ7=s4800-w800",
+      ],
+    });
+    await upsertEligiblePois([harness, legal], anchor, store);
+    const listed = await listPoisForDestination(anchor, store);
+    expect(listed.map((p) => p.name)).toEqual(["Belém Tower"]);
+    expect(listed[0]?.sources[0]?.native_id).toBe("ChIJS5zCw0LLHg0RP1FSz63cAjA");
+    expect(canRegisterAttraction(harness)).toBe(false);
+  });
+
   it("should_merge_registry_places_without_duplicate_names", () => {
-    const a = card("贝伦塔", { nativeId: "a" });
-    const b = card("城堡", { nativeId: "b" });
+    const a = card("贝伦塔", { nativeId: "ChIJmergeA0001" });
+    const b = card("城堡", { nativeId: "ChIJmergeB0001" });
     const merged = mergeRegistryPlaces([a], [a, b]);
     expect(merged.map((p) => p.name)).toEqual(["贝伦塔", "城堡"]);
   });
@@ -220,7 +240,9 @@ describe("destination-poi-registry (TC-M22-87)", () => {
     const anchor = { city: "Lisbon", lat: 38.722, lng: -9.139 };
     const torre = card("Torre de Belém", {
       nativeId: "ChIJlisbon",
-      photos: ["https://cdn.example.com/belem.jpg"],
+      photos: [
+        "https://lh3.googleusercontent.com/grass-cs/ACvplmOe8KCuyS9mjCCizL3TveFa1Q4VSiK833YJ1T-_jgHO0Xycbj8htOt7QAkdIyONKxwedV2LVGev_0vpxubggmLkXnkgiDGPsqRHYsBJ2qvtgkbqmYg0l5KDkuMUjd9dD56cYGiO5xfWfbQ7=s4800-w800",
+      ],
       rating: 4.7,
     });
     const { destinationId, poiIds } = await upsertEligiblePois([torre], anchor, store);
@@ -238,7 +260,14 @@ describe("destination-poi-registry (TC-M22-87)", () => {
     const store = createMemoryPoiRegistryStore();
     const anchor = { city: "Lisbon", lat: 38.722, lng: -9.139 };
     await upsertEligiblePois(
-      [card("Belém Tower", { nativeId: "ChIJlisbon", photos: ["https://cdn.example.com/a.jpg"] })],
+      [
+        card("Belém Tower", {
+          nativeId: "ChIJlisbon",
+          photos: [
+            "https://lh3.googleusercontent.com/grass-cs/ACvplmOe8KCuyS9mjCCizL3TveFa1Q4VSiK833YJ1T-_jgHO0Xycbj8htOt7QAkdIyONKxwedV2LVGev_0vpxubggmLkXnkgiDGPsqRHYsBJ2qvtgkbqmYg0l5KDkuMUjd9dD56cYGiO5xfWfbQ7=s4800-w800",
+          ],
+        }),
+      ],
       anchor,
       store,
     );
@@ -246,7 +275,9 @@ describe("destination-poi-registry (TC-M22-87)", () => {
       [
         card("Torre de Belém", {
           nativeId: "ChIJlisbon",
-          photos: ["https://cdn.example.com/a.jpg"],
+          photos: [
+            "https://lh3.googleusercontent.com/grass-cs/ACvplmOe8KCuyS9mjCCizL3TveFa1Q4VSiK833YJ1T-_jgHO0Xycbj8htOt7QAkdIyONKxwedV2LVGev_0vpxubggmLkXnkgiDGPsqRHYsBJ2qvtgkbqmYg0l5KDkuMUjd9dD56cYGiO5xfWfbQ7=s4800-w800",
+          ],
         }),
       ],
       anchor,
@@ -266,28 +297,33 @@ describe("destination-poi-registry (TC-M22-87)", () => {
           "http://insecure.example.com/x.jpg",
           "https://places.googleapis.com/v1/places/x/media?maxWidthPx=400",
           "https://cdn.example.com/belem.jpg",
+          "https://lh3.googleusercontent.com/grass-cs/ACvplmOe8KCuyS9mjCCizL3TveFa1Q4VSiK833YJ1T-_jgHO0Xycbj8htOt7QAkdIyONKxwedV2LVGev_0vpxubggmLkXnkgiDGPsqRHYsBJ2qvtgkbqmYg0l5KDkuMUjd9dD56cYGiO5xfWfbQ7=s4800-w800",
         ],
       }),
     );
-    expect(slim.photos).toEqual(["https://cdn.example.com/belem.jpg"]);
+    expect(slim.photos?.[0]).toMatch(/^https:\/\/lh3\.googleusercontent\.com\//);
   });
 
   it("should_not_store_must_see_in_cardSlim (ADR-069 field removed)", () => {
     const slim = cardSlimFromPlace(
       card("Torre de Belém", {
         nativeId: "ChIJlisbon",
-        photos: ["https://cdn.example.com/belem.jpg"],
+        photos: [
+        "https://lh3.googleusercontent.com/grass-cs/ACvplmOe8KCuyS9mjCCizL3TveFa1Q4VSiK833YJ1T-_jgHO0Xycbj8htOt7QAkdIyONKxwedV2LVGev_0vpxubggmLkXnkgiDGPsqRHYsBJ2qvtgkbqmYg0l5KDkuMUjd9dD56cYGiO5xfWfbQ7=s4800-w800",
+      ],
       }),
     );
     expect(slim).not.toHaveProperty("must_see");
-    expect(slim.photos?.[0]).toBe("https://cdn.example.com/belem.jpg");
+    expect(slim.photos?.[0]).toMatch(/^https:\/\/lh3\.googleusercontent\.com\//);
   });
 
   it("TC-T3-110a-04 should_upsert_facts_only_without_must_see_on_miss", async () => {
     const store = createMemoryPoiRegistryStore();
     const withFlag = card("Mosteiro dos Jerónimos", {
       nativeId: "ChIJjer",
-      photos: ["https://cdn.example.com/jer.jpg"],
+      photos: [
+        "https://lh3.googleusercontent.com/grass-cs/ACvplmPRhIVMIl18MFCcirrkAWrU_irdRUCU9pZc1oOcjwchswbHeicfDPRlb4Ke9IWKnej7SdCex8RLVvyphpatrKEX3SQTLyveszZqHGoBjB3LjXbowr932wSL2SRti97v1KZ4ZPCa9XvLjhe-=s4800-w800",
+      ],
     });
     const { destinationId, poiIds } = await upsertEligiblePois(
       [withFlag],

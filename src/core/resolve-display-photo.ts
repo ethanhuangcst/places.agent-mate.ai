@@ -37,12 +37,30 @@ export function upgradeAmapInsecurePhotoUrl(url: string): string {
   return url;
 }
 
+/** RFC 2606 reserved names — POC placeholders must not become list thumbs. */
+function isPlaceholderPhotoHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return (
+    h === "example.com" ||
+    h.endsWith(".example.com") ||
+    h === "example.org" ||
+    h.endsWith(".example.org") ||
+    h === "example.net" ||
+    h.endsWith(".example.net")
+  );
+}
+
 /** True when the URL can be used as <img src> without embedding an API key. */
 export function isDisplayablePhotoUrl(url: unknown): url is string {
   if (typeof url !== "string" || !url.startsWith("https://")) return false;
   if (/[?&](?:api_)?key=/i.test(url) || /[?&]token=/i.test(url)) return false;
   if (/places\.googleapis\.com\/v1\/.+\/media/i.test(url)) return false;
   if (/skipHttpRedirect=true/i.test(url)) return false;
+  try {
+    if (isPlaceholderPhotoHost(new URL(url).hostname)) return false;
+  } catch {
+    return false;
+  }
   return true;
 }
 

@@ -284,6 +284,26 @@ function cjkEditDistance(a: string, b: string): number {
 
 /** Remove invented attraction stops so LLM pool-miss does not 502 the whole skeleton.
  * Also drop attractions whose name matches a stay (hotel misclassified as sightseeing). */
+/** Drop attraction stops that lack a resolvable pool (provider, native_id) after attach (ADR-072 D2). */
+export function dropAttractionsWithoutPoolPointer(
+  raw: unknown,
+  places: PlaceCard[],
+): unknown {
+  const parsed = ItinerarySkeletonSchema.safeParse(raw);
+  if (!parsed.success) return raw;
+  const poolById = poolNativeIdIndex(places);
+  return {
+    ...parsed.data,
+    days: parsed.data.days.map((day) => ({
+      ...day,
+      stops: day.stops.filter((s) => {
+        if (s.kind !== "attraction") return true;
+        return stopMatchesPoolNativeId(s, poolById);
+      }),
+    })),
+  };
+}
+
 export function dropUnknownAttractionStops(
   raw: unknown,
   pool: { places: PlaceCard[]; restaurants: PlaceCard[]; stays: string[] },
@@ -294,6 +314,19 @@ export function dropUnknownAttractionStops(
     ...pool.places.map((p) => p.name),
     ...pool.stays,
   ]);
+  const knownIds = new Set(
+    pool.places.flatMap((p) => {
+      const src = p.sources?.find((s) => s.native_id?.trim());
+      const fromSources = src?.native_id?.trim();
+      if (
+        fromSources &&
+        isResolvablePlaceNativeId(src?.provider ?? p.provider, fromSources)
+      ) {
+        return [fromSources];
+      }
+      return [];
+    }),
+  );
   return {
     ...parsed.data,
     days: parsed.data.days.map((day) => ({
@@ -301,6 +334,8 @@ export function dropUnknownAttractionStops(
       stops: day.stops.filter((s) => {
         if (s.kind !== "attraction") return true;
         if (stayNameMatches(s.name, pool.stays)) return false;
+        const nid = s.native_id?.trim();
+        if (nid && knownIds.has(nid)) return true;
         return s.name != null && known.has(s.name);
       }),
     })),
@@ -506,6 +541,7 @@ export function validateSkeleton(
     ...pool.restaurants.map((r) => r.name),
     ...pool.stays,
   ]);
+  const poolByNativeId = poolNativeIdIndex(pool.places);
   const errors: string[] = [];
   // 110e: day count is a hard safety rail (not a pace quota). The LLM may
   // soften density per rhythm, but it must not emit more or fewer days than
@@ -543,14 +579,24 @@ export function validateSkeleton(
           );
         }
       }
-      // Stay / origin: accept CJK variants of pool.stays; attractions must be exact pool names.
+      // Stay / origin: accept CJK variants of pool.stays; attractions: exact pool name or ADR-072 pointer.
       if (stop.kind !== "meal") {
+        const byPointer = stopMatchesPoolNativeId(stop, poolByNativeId);
         const inPool =
+          byPointer ||
           (stop.name != null && names.has(stop.name)) ||
           (isStay && stayNameMatches(stop.name, pool.stays));
-        if (!stop.name || !inPool) {
+        if (!byPointer && !stop.name) {
+          errors.push(`stop missing name (day ${day.day_index})`);
+        } else if (!inPool) {
           errors.push(`stop "${stop.name}" (day ${day.day_index}) not found in candidate list`);
         }
+      }
+      // ADR-072 D2: every attraction must carry a pool (provider, native_id) pointer.
+      if (stop.kind === "attraction" && !stopMatchesPoolNativeId(stop, poolByNativeId)) {
+        errors.push(
+          `attraction "${stop.name ?? "(unnamed)"}" (day ${day.day_index}) missing pool (provider, native_id) pointer`,
+        );
       }
       if (
         cityNorm &&
@@ -677,11 +723,16 @@ export function validateSkeleton(
 
 // --- Prompt building ---
 
-function candidateLine(card: PlaceCard): string {
+export function candidateLine(card: PlaceCard): string {
   const loc = card.location;
   const coord = loc?.lat != null && loc?.lng != null ? ` (${loc.lat}, ${loc.lng})` : "";
   const rating = typeof card.rating === "number" ? ` rating ${card.rating}` : "";
-  return `- ${card.name}${coord}${rating}`;
+  const src = card.sources?.find((s) => s.native_id?.trim());
+  const provider = src?.provider ?? card.provider;
+  const nativeId = src?.native_id?.trim();
+  const pointer =
+    provider && nativeId ? ` provider=${provider} native_id=${nativeId}` : "";
+  return `- ${card.name}${pointer}${coord}${rating}`;
 }
 
 export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
@@ -689,7 +740,8 @@ export function buildSkeletonUserMessage(input: MakeItineraryInput): string {
   parts.push(
     `Create the stop-order skeleton for a ${input.numDays}-day trip in ${input.city}. ` +
       `Order only — NO times, NO transit. Only choose attraction and stay names from the lists below. ` +
-      `Copy each stop name verbatim from Attraction candidates — do not translate or localize place names.`,
+      `Copy each stop name verbatim from Attraction candidates — do not translate or localize place names. ` +
+      `For every attraction stop, also copy provider and native_id from the matching candidate line onto the stop.`,
   );
   parts.push(
     `Pace: ${input.pace ?? "medium"} — this is a rhythm guide, not a hard quota ` +
@@ -1120,17 +1172,63 @@ export async function enrichMakeItineraryInput(
 
 // --- F91: native_id pointers + single-attraction AM/PM split ---
 
+function nativeIdFromCard(card: PlaceCard): string | undefined {
+  return card.sources?.find((s) => s.native_id?.trim())?.native_id?.trim();
+}
+
+function providerForNativeId(card: PlaceCard, nativeId: string): string | undefined {
+  return (
+    card.sources?.find((s) => s.native_id?.trim() === nativeId)?.provider ??
+    card.provider
+  );
+}
+
+/** Pool index for ADR-072 skeleton validation (attraction by pointer). */
+function poolNativeIdIndex(
+  places: PlaceCard[],
+): Map<string, { provider?: string; name: string }> {
+  const index = new Map<string, { provider?: string; name: string }>();
+  for (const card of places) {
+    const id = nativeIdFromCard(card);
+    if (!id) continue;
+    const provider = providerForNativeId(card, id);
+    if (!isResolvablePlaceNativeId(provider, id)) continue;
+    index.set(id, {
+      provider,
+      name: card.name ?? "",
+    });
+  }
+  return index;
+}
+
+export function stopMatchesPoolNativeId(
+  stop: { kind?: string; name?: string; provider?: string; native_id?: string },
+  poolById: Map<string, { provider?: string; name: string }>,
+): boolean {
+  if (stop.kind !== "attraction") return false;
+  const nid = stop.native_id?.trim();
+  if (!nid) return false;
+  if (!isResolvablePlaceNativeId(stop.provider, nid)) return false;
+  const entry = poolById.get(nid);
+  if (!entry) return false;
+  const stopProvider = stop.provider?.trim();
+  if (stopProvider && entry.provider && stopProvider !== entry.provider) return false;
+  return true;
+}
+
 function pointerFromCard(card: PlaceCard | undefined): {
   provider?: string;
   native_id?: string;
 } {
   if (!card) return {};
   const src = card.sources?.find((s) => s.native_id?.trim());
+  if (!src?.native_id?.trim()) return {};
+  const provider = src.provider ?? card.provider;
+  const native_id = src.native_id.trim();
+  if (!isResolvablePlaceNativeId(provider, native_id)) return {};
   return {
-    ...(src?.provider || card.provider
-      ? { provider: src?.provider ?? card.provider }
-      : {}),
-    ...(src?.native_id ? { native_id: src.native_id } : {}),
+    ...(provider ? { provider } : {}),
+    native_id,
   };
 }
 
@@ -1140,6 +1238,7 @@ export function attachNativeIdsToSkeleton(
   places: PlaceCard[],
 ): ItinerarySkeleton {
   const byName = new Map(places.map((p) => [p.name, p]));
+  const poolById = poolNativeIdIndex(places);
   return {
     ...skeleton,
     days: skeleton.days.map((day) => ({
@@ -1147,13 +1246,21 @@ export function attachNativeIdsToSkeleton(
       stops: day.stops.map((stop) => {
         if (stop.kind !== "attraction" || !stop.name) return stop;
         const existing = stop.native_id?.trim();
-        // Keep only vendor-resolvable pointers; overwrite harness / LLM inventions from pool.
-        if (existing && isResolvablePlaceNativeId(stop.provider, existing)) return stop;
+        // Keep only pool-matched resolvable pointers; overwrite harness / LLM inventions.
+        if (
+          existing &&
+          isResolvablePlaceNativeId(stop.provider, existing) &&
+          stopMatchesPoolNativeId(stop, poolById)
+        ) {
+          return stop;
+        }
         const exact = byName.get(stop.name);
-        if (exact) return { ...stop, ...pointerFromCard(exact) };
-        // Unique alias match only (avoid Belém Tower vs Pastéis de Belém both sharing "belém").
-        const fuzzy = places.filter((p) => sharedProperToken(stop.name!, p.name ?? ""));
-        if (fuzzy.length === 1) return { ...stop, ...pointerFromCard(fuzzy[0]) };
+        if (exact) {
+          const ptr = pointerFromCard(exact);
+          if (ptr.native_id) return { ...stop, ...ptr };
+          const { native_id: _nid, provider: _prov, ...rest } = stop;
+          return rest;
+        }
         return stop;
       }),
     })),
@@ -1286,6 +1393,11 @@ export async function makeItinerary(
       parsedJson = trimPaceOverages(parsedJson, enriched.pace);
       // Re-run after trims: dropping attrs/city/area can leave lunch after the last attraction again.
       parsedJson = reseatLateLunchStops(parsedJson);
+      const schemaForAttach = ItinerarySkeletonSchema.safeParse(parsedJson);
+      if (schemaForAttach.success) {
+        parsedJson = attachNativeIdsToSkeleton(schemaForAttach.data, pool.places);
+        parsedJson = dropAttractionsWithoutPoolPointer(parsedJson, pool.places);
+      }
       const schemaParsed = ItinerarySkeletonSchema.safeParse(parsedJson);
       if (schemaParsed.success) {
         lastSchemaOk = schemaParsed.data;
@@ -1339,8 +1451,15 @@ export async function makeItinerary(
         enriched.pace,
       ),
     );
+    const fixtureSchema = ItinerarySkeletonSchema.safeParse(fixtureRaw);
+    const fixtureWithPointers = fixtureSchema.success
+      ? dropAttractionsWithoutPoolPointer(
+          attachNativeIdsToSkeleton(fixtureSchema.data, pool.places),
+          pool.places,
+        )
+      : fixtureRaw;
     const validated = validateSkeleton(
-      fixtureRaw,
+      fixtureWithPointers,
       pool,
       enriched.must_include ?? [],
       enriched.pace,
@@ -1352,7 +1471,7 @@ export async function makeItinerary(
       skeleton = validated.skeleton;
     } else {
       const thinFixture = thinPoolDeviation(pool.places.length, enriched.numDays);
-      const schemaOk = ItinerarySkeletonSchema.safeParse(fixtureRaw);
+      const schemaOk = ItinerarySkeletonSchema.safeParse(fixtureWithPointers);
       if (thinFixture && schemaOk.success) {
         // 110c: thin pool fixture — accept + deviation instead of hard-fail.
         skeleton = schemaOk.data;

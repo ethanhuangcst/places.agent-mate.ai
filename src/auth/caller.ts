@@ -10,11 +10,16 @@ export async function authenticateCaller(
   const secret = authorization.slice(7).trim();
   if (!secret) return { ok: false };
   const keyHash = hashCallerSecret(secret);
-  const row = await prisma.callerApiKey.findUnique({ where: { keyHash } });
-  if (!row || row.status !== "ACTIVE") return { ok: false };
-  await prisma.callerApiKey.update({
-    where: { id: row.id },
-    data: { lastUsedAt: new Date() },
-  });
-  return { ok: true, keyId: row.id };
+  try {
+    const row = await prisma.callerApiKey.findUnique({ where: { keyHash } });
+    if (!row || row.status !== "ACTIVE") return { ok: false };
+    await prisma.callerApiKey.update({
+      where: { id: row.id },
+      data: { lastUsedAt: new Date() },
+    });
+    return { ok: true, keyId: row.id };
+  } catch {
+    // Wrong DATABASE_URL / missing schema must not 500 geocode as "check spelling".
+    return { ok: false };
+  }
 }

@@ -382,6 +382,12 @@ export type PlanNextStopFillInput = Omit<PlanNextStopInput, "current_stop"> & {
     near?: PlaceLocation;
     address?: string;
   }) => Promise<PlaceCard[]>;
+  /** ADR-072 — inject Details for Google UI-locale display name (tests). */
+  _testGetPlaceDetails?: (input: {
+    provider: string;
+    native_id: string;
+    locale: Locale;
+  }) => Promise<PlaceCard | null>;
 };
 
 export type PlanNextStopFillResult = PlanNextStopResult & {
@@ -404,15 +410,52 @@ function foldedName(s: string): string {
   return foldDiacritics(s).toLowerCase().trim();
 }
 
-/** Cheap pool lookup: native_id, exact name, then diacritic-folded substring.
- * Translated aliases (no shared spelling) fall through to vendor search. */
+function cardMatchesNativeId(
+  card: PlaceCard,
+  nativeId: string,
+  provider?: string,
+): boolean {
+  const cardId = cardNativeId(card);
+  const sourceHit = (card.sources ?? []).some((s) => s.native_id?.trim() === nativeId);
+  if (cardId !== nativeId && !sourceHit) return false;
+  if (!provider?.trim()) return true;
+  const cardProvider =
+    card.provider ??
+    card.sources?.find((s) => s.native_id?.trim() === nativeId)?.provider ??
+    card.sources?.find((s) => s.provider)?.provider;
+  return !cardProvider || cardProvider === provider;
+}
+
+function poolNativeIdSet(candidates: PlaceCard[]): Set<string> {
+  const ids = new Set<string>();
+  for (const c of candidates) {
+    const id = cardNativeId(c);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/** ADR-072: search hits must intersect trip pool ids; exactly one match binds. */
+export function intersectSearchResultsWithPool(
+  searched: PlaceCard[],
+  pool: PlaceCard[],
+): PlaceCard | undefined {
+  const poolIds = poolNativeIdSet(pool);
+  const hits = searched.filter((c) => {
+    const id = cardNativeId(c);
+    return id != null && poolIds.has(id);
+  });
+  if (hits.length === 1) return hits[0];
+  return undefined;
+}
+
+/** Cheap pool lookup: native_id (+ provider), exact name, then diacritic-folded substring.
+ * Translated aliases (no shared spelling) fall through to vendor search + pool id intersect. */
 function matchCardByPointer(stop: PlanStopPoint, candidates: PlaceCard[]): PlaceCard | undefined {
   const nid = stop.native_id?.trim();
+  const stopProvider = stop.provider?.trim();
   if (nid) {
-    const byId = candidates.find((c) => {
-      if (cardNativeId(c) === nid) return true;
-      return (c.sources ?? []).some((s) => s.native_id === nid);
-    });
+    const byId = candidates.find((c) => cardMatchesNativeId(c, nid, stopProvider));
     if (byId) return byId;
   }
   const exact = candidates.find((c) => c.name === stop.name);
@@ -558,6 +601,21 @@ export async function resolveStayDisplayCard(input: {
       getDetails: async (nativeId) => {
         const res = await getPlaceDetails({
           provider: seed.provider ?? "GOOGLE_MAPS",
+          native_id: nativeId,
+          locale: input.locale,
+          providers: input.providers,
+        });
+        return res.data ?? null;
+      },
+    });
+  }
+
+  const poolLodging = pickLodgingStayCard(input.stop.name, input.pool);
+  if (poolLodging && looksLikeLodgingCard(poolLodging)) {
+    return resolveDisplayPhoto(poolLodging, {
+      getDetails: async (nativeId) => {
+        const res = await getPlaceDetails({
+          provider: poolLodging.provider ?? input.stop.provider ?? "GOOGLE_MAPS",
           native_id: nativeId,
           locale: input.locale,
           providers: input.providers,
@@ -932,6 +990,7 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
  * origin_mode renders a stay/origin stop without computing legs (current === next).
  */
 export async function planNextStopFill(input: PlanNextStopFillInput): Promise<PlanNextStopFillResult> {
+  const startedMs = Date.now();
   const withDisplay = input.with_stop_display !== false;
   const originMode = input.origin_mode === true;
 
@@ -1005,11 +1064,18 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
   }
 
   if (planResult.skeleton_patched || planResult.meal_skipped) {
-    if (!withDisplay) return planResult;
-    if (planResult.skeleton_patched) return planResult;
+    if (!withDisplay) {
+      logPlanNextStopFill(input, planResult, startedMs);
+      return planResult;
+    }
+    if (planResult.skeleton_patched) {
+      logPlanNextStopFill(input, planResult, startedMs);
+      return planResult;
+    }
   }
 
   if (!withDisplay) {
+    logPlanNextStopFill(input, planResult, startedMs);
     return planResult;
   }
 
@@ -1029,6 +1095,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
   ];
   let places = [...input.candidates.places];
   let enrichedStopPointer: { provider?: string; native_id?: string } | undefined;
+  let googleFillDisplayName: string | undefined;
   const isStayStop = originMode || input.next_stop.kind === "stay";
   if (isStayStop) {
     const stayCard = await resolveStayDisplayCard({
@@ -1067,7 +1134,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
         pool,
       ) ?? pool.find((c) => c.name === planResult.next_stop.name);
 
-    // Cross-locale Google titles (Torre de Belém ↔ Belém Tower): pool miss → search + resolve.
+    // ADR-072: pool miss → search, then bind only when exactly one hit id is already in pool.
     if (!matched && planResult.next_stop.name?.trim()) {
       try {
         const searched = input._testSearchPlaces
@@ -1086,9 +1153,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
                 rankPreference: "RELEVANCE",
               })
             ).data ?? []);
-        matched =
-          searched.find((c) => c.name === planResult.next_stop.name) ??
-          searched[0];
+        matched = intersectSearchResultsWithPool(searched, pool);
       } catch {
         matched = undefined;
       }
@@ -1096,18 +1161,44 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
 
     if (matched) {
       let card = matched;
+      let googleDisplayName: string | undefined;
+      const cardProvider =
+        matched.provider ?? input.next_stop.provider ?? enrichedStopPointer?.provider;
+      const fetchDetails = async (nativeId: string): Promise<PlaceCard | null> => {
+        if (input._testGetPlaceDetails) {
+          return input._testGetPlaceDetails({
+            provider: cardProvider ?? "GOOGLE_MAPS",
+            native_id: nativeId,
+            locale: input.locale,
+          });
+        }
+        const res = await getPlaceDetails({
+          provider: cardProvider ?? "GOOGLE_MAPS",
+          native_id: nativeId,
+          locale: input.locale,
+          providers: input.providers,
+        });
+        return res.data ?? null;
+      };
       if (!cardHasDisplayablePhoto(card)) {
         card = await resolveDisplayPhoto(card, {
           getDetails: async (nativeId) => {
-            const res = await getPlaceDetails({
-              provider: matched.provider ?? input.next_stop.provider ?? "GOOGLE_MAPS",
-              native_id: nativeId,
-              locale: input.locale,
-              providers: input.providers,
-            });
-            return res.data ?? null;
+            const detailed = await fetchDetails(nativeId);
+            if (detailed?.name?.trim() && cardProvider === "GOOGLE_MAPS") {
+              googleDisplayName = detailed.name.trim();
+            }
+            return detailed;
           },
         });
+      }
+      const midForName = cardNativeId(card);
+      if (cardProvider === "GOOGLE_MAPS" && midForName && !googleDisplayName) {
+        try {
+          const detailed = await fetchDetails(midForName);
+          if (detailed?.name?.trim()) googleDisplayName = detailed.name.trim();
+        } catch {
+          /* degrade — keep skeleton name */
+        }
       }
       const mid = cardNativeId(card);
       const isMeal =
@@ -1132,6 +1223,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
           native_id: mid,
         };
       }
+      if (googleDisplayName) googleFillDisplayName = googleDisplayName;
     }
   }
   const recommendedWalkMin = planResult.legs.find(
@@ -1149,7 +1241,7 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
   let stop_display = displayCurrentStop({
     stop: {
       ...input.next_stop,
-      name: planResult.next_stop.name,
+      name: googleFillDisplayName ?? planResult.next_stop.name,
       lat: planResult.next_stop.location?.lat,
       lng: planResult.next_stop.location?.lng,
       ...(enrichedStopPointer?.provider
@@ -1186,7 +1278,27 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
     stop_display = { ...stop_display, notes: qualityNotes };
   }
 
-  return { ...planResult, stop_display };
+  const result = { ...planResult, stop_display };
+  logPlanNextStopFill(input, result, startedMs);
+  return result;
+}
+
+function logPlanNextStopFill(
+  input: PlanNextStopFillInput,
+  result: PlanNextStopFillResult,
+  startedMs: number,
+): void {
+  console.info(
+    "plan_next_stop_fill",
+    JSON.stringify({
+      stop: input.next_stop.name,
+      kind: input.next_stop.kind ?? "unknown",
+      origin_mode: input.origin_mode === true,
+      transit_outcome: result.transit_outcome,
+      duration_ms: Date.now() - startedMs,
+      providers: input.providers ?? [],
+    }),
+  );
 }
 
 // --- display_current_stop (internal; F65 — not registered as HTTP/MCP tool) ---
