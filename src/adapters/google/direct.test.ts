@@ -67,6 +67,28 @@ describe("Google live direct client", () => {
     expect(urls[0]?.pathname).toContain("/places:searchText");
   });
 
+  it("should_use_searchNearby_when_restaurant_query_has_near (TC-M117-06)", async () => {
+    let body = "";
+    const { fetchFn, urls } = recordFetch((url, init) => {
+      body = typeof init?.body === "string" ? init.body : "";
+      if (url.pathname.endsWith("/places:searchNearby")) {
+        return jsonResponse({ places: [PLACE] });
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    const cards = await client.searchRestaurants({
+      query: "restaurant",
+      near: { lat: 22.28, lng: 114.16 },
+      locale: "EN",
+    });
+    expect(cards).toHaveLength(1);
+    expect(urls[0]?.pathname).toContain("/places:searchNearby");
+    expect(body).toContain("includedTypes");
+    expect(body).toContain("locationRestriction");
+    expect(body).not.toContain("searchText");
+  });
+
   it("should_default_restaurant_query_when_empty", async () => {
     let body = "";
     const { fetchFn } = recordFetch((url, init) => {
@@ -157,10 +179,13 @@ describe("Google live direct client", () => {
     expect(cards[0]?.sources[0]?.native_id).toBe("ChIJsfeel");
   });
 
-  it("should_bias_restaurant_search_with_circle_not_restriction", async () => {
+  it("should_restrict_restaurant_nearby_search_with_circle (TC-M117-06)", async () => {
     let body = "";
-    const { fetchFn } = recordFetch((_url, init) => {
+    const { fetchFn, urls } = recordFetch((url, init) => {
       body = typeof init?.body === "string" ? init.body : "";
+      if (!url.pathname.endsWith("/places:searchNearby")) {
+        throw new Error(`unexpected ${url.pathname}`);
+      }
       return jsonResponse({ places: [] });
     });
     const client = createGoogleDirectClient(testConfig(), fetchFn);
@@ -170,13 +195,16 @@ describe("Google live direct client", () => {
       locale: "EN",
     });
     const parsed = JSON.parse(body) as {
-      locationBias?: { circle?: { radius?: number } };
-      locationRestriction?: unknown;
+      locationBias?: unknown;
+      locationRestriction?: { circle?: { radius?: number } };
       rankPreference?: string;
+      includedTypes?: string[];
     };
-    expect(parsed.locationBias?.circle?.radius).toBe(5000);
-    expect(parsed.locationRestriction).toBeUndefined();
+    expect(urls[0]?.pathname).toContain("/places:searchNearby");
+    expect(parsed.locationRestriction?.circle?.radius).toBe(5000);
+    expect(parsed.locationBias).toBeUndefined();
     expect(parsed.rankPreference).toBe("DISTANCE");
+    expect(parsed.includedTypes).toEqual(["restaurant"]);
   });
 
   it("should_bias_place_search_to_caller_radius_when_near_set", async () => {

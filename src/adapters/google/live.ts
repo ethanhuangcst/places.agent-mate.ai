@@ -10,7 +10,7 @@ import {
 import { createGoogleDirectClient, directDeeplinks, type GoogleDirectClient } from "./direct";
 import { fetchGoogleDirectionsEta } from "./directions";
 import { createGoogleMcpClient, mcpDeeplinks, resetGoogleMcpToolCache, type GoogleMcpClient } from "./mcp-client";
-import { EgressFailureError, isEgressFailure } from "./egress";
+import { EgressFailureError, isEgressFailure, isTimeoutFailure } from "./egress";
 import { type TravelMode } from "../../core/itinerary-timed";
 import { type PlaceLocation } from "../../core/types";
 
@@ -26,11 +26,13 @@ async function withGoogleTransport<T>(
   worker: GoogleMcpClient | null | undefined,
   directFn: (d: GoogleDirectClient) => Promise<T>,
   workerFn: (w: GoogleMcpClient) => Promise<T>,
+  opts?: { skipMcpOnTimeout?: boolean },
 ): Promise<T> {
   if (hasDirectGoogle(config) && direct) {
     try {
       return await directFn(direct);
     } catch (err) {
+      if (opts?.skipMcpOnTimeout && isTimeoutFailure(err)) throw err;
       if (!isEgressFailure(err)) throw err;
     }
   }
@@ -62,6 +64,7 @@ export function createGoogleLiveAdapter(deps: GoogleLiveAdapterDeps = {}): Place
         worker,
         (d) => d.searchRestaurants(input),
         (w) => w.searchRestaurants(input),
+        { skipMcpOnTimeout: true },
       );
     },
     searchPlaces(input: SearchInput) {

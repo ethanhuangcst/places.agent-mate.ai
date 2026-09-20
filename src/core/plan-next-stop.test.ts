@@ -302,8 +302,9 @@ describe("planNextStop (TC-M10-44-01/02)", () => {
     expect(result.meal_skipped).not.toBe(true);
   });
 
-  it("should_search_three_corridor_points_when_lookahead_within_5km (S6B)", async () => {
+  it("should_stop_after_first_corridor_point_when_gated (TC-M117-01)", async () => {
     const nears: Array<{ lat: number; lng: number }> = [];
+    const queries: string[] = [];
     const result = await planNextStop(
       baseInput({
         current_stop: {
@@ -315,17 +316,66 @@ describe("planNextStop (TC-M10-44-01/02)", () => {
         },
         next_stop: { name: "lunch", kind: "meal", meal_slot: "lunch" },
         arrival_clock: "12:00",
-        // ~1.5km from Torre — within 5km cluster
         lookahead_stop: { name: "Pastéis nearby", kind: "attraction", lat: 38.6972, lng: -9.2032 },
-        _testSearchRestaurants: async (near) => {
+        _testSearchRestaurants: async (near, query) => {
           nears.push({ lat: near.lat, lng: near.lng });
+          queries.push(query ?? "restaurant");
           return [place("Belém Bites", near.lat, near.lng)];
         },
         _testResolveDuration: fakeDirections,
       }),
     );
-    expect(nears.length).toBe(3);
+    expect(nears).toHaveLength(1);
+    expect(queries).toEqual(["restaurant"]);
     expect(result.next_stop.name).toBe("Belém Bites");
+  });
+
+  it("should_search_second_point_when_first_empty (TC-M117-02)", async () => {
+    const queries: Array<{ lat: number; q?: string }> = [];
+    const result = await planNextStop(
+      baseInput({
+        current_stop: {
+          name: "Torre de Belém",
+          kind: "attraction",
+          lat: 38.6916,
+          lng: -9.216,
+          end_time: "12:00",
+        },
+        next_stop: { name: "lunch", kind: "meal", meal_slot: "lunch" },
+        arrival_clock: "12:00",
+        lookahead_stop: { name: "Pastéis nearby", kind: "attraction", lat: 38.6972, lng: -9.2032 },
+        _testSearchRestaurants: async (near, query) => {
+          queries.push({ lat: near.lat, q: query });
+          if (queries.length === 1) return [];
+          return [place("Second Ring Kitchen", near.lat, near.lng)];
+        },
+        _testResolveDuration: fakeDirections,
+      }),
+    );
+    expect(queries).toHaveLength(2);
+    expect(queries.every((x) => (x.q ?? "restaurant") === "restaurant")).toBe(true);
+    expect(result.next_stop.name).toBe("Second Ring Kitchen");
+  });
+
+  it("should_search_cafe_only_when_restaurant_empty (TC-M117-03)", async () => {
+    const queries: string[] = [];
+    const result = await planNextStop(
+      baseInput({
+        next_stop: { name: "lunch", kind: "meal", meal_slot: "lunch" },
+        lookahead_stop: { name: "Castelo de São Jorge", kind: "attraction", lat: 38.7139, lng: -9.1335 },
+        _testSearchRestaurants: async (near, query) => {
+          const q = query ?? "restaurant";
+          queries.push(q);
+          if (q === "cafe") return [place("Far Cafe", 38.692, -9.215)];
+          return [];
+        },
+        _testResolveDuration: fakeDirections,
+      }),
+    );
+    expect(queries.some((q) => q === "restaurant")).toBe(true);
+    expect(queries.filter((q) => q === "cafe").length).toBeGreaterThanOrEqual(1);
+    expect(queries.filter((q) => q === "cafe").length).toBeLessThanOrEqual(3);
+    expect(result.next_stop.name).toBe("Far Cafe");
   });
 
   it("should_exclude_used_restaurant_names_in_plan_next_stop (TC-M23-89-02)", async () => {

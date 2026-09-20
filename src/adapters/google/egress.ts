@@ -23,3 +23,16 @@ export function isEgressFailure(err: unknown, httpStatus?: number): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /timeout|fetch failed|network|aborted|egress/i.test(msg);
 }
+
+/** Abort / read timeout — not a reason to spend a second 25s on Worker MCP for dining search. */
+export function isTimeoutFailure(err: unknown): boolean {
+  if (err instanceof EgressFailureError) {
+    return /timeout|aborted/i.test(err.message);
+  }
+  const name = err instanceof Error ? err.name : "";
+  if (name === "AbortError" || name === "TimeoutError") return true;
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /timeout|aborted/i.test(msg);
+}

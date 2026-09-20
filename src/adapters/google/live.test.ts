@@ -122,6 +122,26 @@ describe("google live adapter (ADR-017)", () => {
     expect(cards.every((c) => c.sources.every((s) => s.provider === "GOOGLE_MAPS"))).toBe(true);
   });
 
+  it("should_not_call_worker_when_direct_searchRestaurants_times_out (TC-M117-04)", async () => {
+    const direct = mockDirect();
+    direct.searchRestaurants = vi.fn(async () => {
+      throw new EgressFailureError("timeout");
+    });
+    const worker = mockWorker();
+    const adapter = createGoogleLiveAdapter({
+      config: baseConfig(),
+      direct,
+      worker,
+    });
+    await expect(
+      adapter.searchRestaurants({
+        query: "restaurant",
+        near: { lat: 22.2819, lng: 114.158 },
+      }),
+    ).rejects.toThrow(/timeout/);
+    expect(worker.searchRestaurants).not.toHaveBeenCalled();
+  });
+
   it("should_throw_when_direct_fails_and_worker_unconfigured", async () => {
     const direct = mockDirect();
     direct.searchRestaurants = vi.fn(async () => {

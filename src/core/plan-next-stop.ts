@@ -285,56 +285,58 @@ export async function resolveMealVenue(opts: {
   const used = opts.usedNames ?? [];
   const allowReuse = opts.allowNameReuse !== false;
   const near = opts.near;
-
   const points = corridorSearchPoints(opts.near, opts.lookahead ?? null);
-  const runSearch = async (query: string): Promise<PlaceCard[]> => {
-    const batches: PlaceCard[][] = [];
-    for (const pt of points) {
-      try {
-        const hits = opts.search
-          ? await opts.search(pt, query)
-          : ((await searchRestaurants({
-              query,
-              near: { lat: pt.lat, lng: pt.lng, crs: pt.crs },
-              locale: opts.locale,
-              providers: opts.providers,
-            })).data ?? []);
-        const ringRadii = [MEAL_CORRIDOR_RADIUS_KM, MEAL_CORRIDOR_EXPANDED_KM, MEAL_CORRIDOR_MAX_KM];
-        let ringHits: PlaceCard[] = [];
-        for (const r of ringRadii) {
-          ringHits = hits.filter((c) => withinCorridorRadius(pt, c, r));
-          if (ringHits.length) break;
-        }
-        const localOnly = ringHits.filter((c) => {
-          const loc = cardLocation(c);
-          if (!loc) return false;
-          return haversineKm(opts.near!, loc) <= MEAL_CORRIDOR_MAX_KM;
-        });
-        if (localOnly.length) batches.push(localOnly);
-      } catch {
-        /* try next point */
-      }
-    }
-    return mergeRestaurantCards(batches);
-  };
-
   const pickFrom = (merged: PlaceCard[]): MealVenuePick | null => {
     const unused = pickMealVenue(merged, used, { near });
     if (unused) return unused;
-    if (!allowReuse) {
-      return pickMealVenue(merged, [], { near });
-    }
     return pickMealVenue(merged, [], { near });
   };
 
-  let merged = filterRestaurantsBySpend(await runSearch("restaurant"), spend);
-  let fromCorridor = pickFrom(merged);
-  if (fromCorridor) return fromCorridor;
+  const searchAtPoint = async (pt: PlaceLocation, query: string): Promise<PlaceCard[]> => {
+    try {
+      const hits = opts.search
+        ? await opts.search(pt, query)
+        : ((await searchRestaurants({
+            query,
+            near: { lat: pt.lat, lng: pt.lng, crs: pt.crs },
+            locale: opts.locale,
+            providers: opts.providers,
+          })).data ?? []);
+      const ringRadii = [MEAL_CORRIDOR_RADIUS_KM, MEAL_CORRIDOR_EXPANDED_KM, MEAL_CORRIDOR_MAX_KM];
+      let ringHits: PlaceCard[] = [];
+      for (const r of ringRadii) {
+        ringHits = hits.filter((c) => withinCorridorRadius(pt, c, r));
+        if (ringHits.length) break;
+      }
+      return ringHits.filter((c) => {
+        const loc = cardLocation(c);
+        if (!loc) return false;
+        return haversineKm(opts.near!, loc) <= MEAL_CORRIDOR_MAX_KM;
+      });
+    } catch {
+      return [];
+    }
+  };
 
-  // S8: one extra pass with cafe query, still hard-capped at 5km.
-  merged = filterRestaurantsBySpend(await runSearch("cafe"), spend);
-  fromCorridor = pickFrom(merged);
-  if (fromCorridor) return fromCorridor;
+  const searchQueryUntilGated = async (query: string): Promise<MealVenuePick | null> => {
+    const batches: PlaceCard[][] = [];
+    for (const pt of points) {
+      const localOnly = await searchAtPoint(pt, query);
+      if (localOnly.length) batches.push(localOnly);
+      const merged = filterRestaurantsBySpend(mergeRestaurantCards(batches), spend);
+      const pick = pickFrom(merged);
+      if (pick && !pick.lowSignal) return pick;
+    }
+    const merged = filterRestaurantsBySpend(mergeRestaurantCards(batches), spend);
+    return pickFrom(merged);
+  };
+
+  const fromRestaurant = await searchQueryUntilGated("restaurant");
+  if (fromRestaurant && !fromRestaurant.lowSignal) return fromRestaurant;
+
+  const fromCafe = await searchQueryUntilGated("cafe");
+  if (fromCafe) return fromCafe;
+  if (fromRestaurant) return fromRestaurant;
 
   // Pool fallback (may be empty after ADR-049) — still within 5km of attraction.
   const nearbyPool = opts.pool.filter((c) => {

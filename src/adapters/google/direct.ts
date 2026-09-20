@@ -3,7 +3,7 @@ import { type PlaceCard, type PlaceLocation, type SearchInput } from "../../core
 import { type GeocodeHit, parseGoogleAddressComponents } from "../geocode-hit";
 import { type GoogleAdapterConfig } from "./config";
 import { directPlaceToCard } from "./card-mapper";
-import { EgressFailureError, isEgressFailure } from "./egress";
+import { EgressFailureError, isEgressFailure, isTimeoutFailure } from "./egress";
 import { googleDeeplinks } from "./deeplinks";
 
 export type FetchFn = typeof fetch;
@@ -33,6 +33,7 @@ async function fetchWithTimeout(
   try {
     return await fetchFn(url, { ...init, signal: controller.signal });
   } catch (err) {
+    if (isTimeoutFailure(err)) throw new EgressFailureError("timeout");
     if (isEgressFailure(err)) throw new EgressFailureError();
     throw err;
   } finally {
@@ -207,8 +208,65 @@ export function createGoogleDirectClient(
     return cards;
   }
 
+  function isGenericDiningQuery(query?: string): boolean {
+    const q = (query ?? "").trim().toLowerCase();
+    return !q || q === "restaurant" || q === "cafe";
+  }
+
+  async function searchNearbyDining(input: SearchInput): Promise<PlaceCard[]> {
+    if (!config.apiKey) throw new EgressFailureError("no_api_key");
+    if (config.directForceFail) throw new EgressFailureError("force_fail");
+    if (!input.near) return searchText(input, "restaurant");
+
+    const included =
+      (input.query ?? "restaurant").trim().toLowerCase() === "cafe" ? ["cafe"] : ["restaurant"];
+    const radius = Math.min(5000, 50_000);
+    const body = {
+      includedTypes: included,
+      maxResultCount: 20,
+      languageCode: languageCode(input.locale),
+      rankPreference: "DISTANCE",
+      locationRestriction: {
+        circle: {
+          center: { latitude: input.near.lat, longitude: input.near.lng },
+          radius,
+        },
+      },
+    };
+
+    const res = await fetchWithTimeout(
+      fetchFn,
+      `${config.placesBaseUrl}/places:searchNearby`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": config.apiKey,
+          "X-Goog-FieldMask": fieldMask,
+        },
+        body: JSON.stringify(body),
+      },
+      config.requestTimeoutMs,
+    );
+
+    if (!res.ok) {
+      if (isEgressFailure(null, res.status)) throw new EgressFailureError(`http_${res.status}`);
+      throw new Error(`google_places_${res.status}`);
+    }
+
+    const json = (await res.json()) as { places?: unknown[] };
+    return (json.places ?? [])
+      .map((p) =>
+        directPlaceToCard(p as Parameters<typeof directPlaceToCard>[0], included[0], config.apiKey),
+      )
+      .filter((c): c is PlaceCard => c != null);
+  }
+
   return {
-    searchRestaurants: (input) => searchText(input, "restaurant"),
+    searchRestaurants: (input) =>
+      input.near && isGenericDiningQuery(input.query)
+        ? searchNearbyDining(input)
+        : searchText(input, "restaurant"),
     searchPlaces: (input) => searchText(input, "place"),
     suggestPlaces,
     async getDetails(nativeId, locale?: Locale) {
