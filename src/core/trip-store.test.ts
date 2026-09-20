@@ -184,6 +184,28 @@ describe("slim candidates for Trip patch", () => {
     expect(slim.places[0]?.photos).toEqual(["https://lh3.googleusercontent.com/p/ok"]);
   });
 
+  it("should_upgrade_amap_http_photo_to_https_in_slim (Temp 5 / ADR-051 D6)", () => {
+    const httpUrl = "http://store.is.autonavi.com/showpic/abc123";
+    const slim = slimCandidatesForStore({
+      places: [{ name: "Scenic POI", photos: [httpUrl] }],
+      restaurants: [],
+    });
+    expect(slim.places[0]?.photos).toEqual([httpUrl.replace("http://", "https://")]);
+  });
+
+  it("should_drop_placeholder_example_com_photos_in_slim (agent-registry-115)", () => {
+    const slim = slimCandidatesForStore({
+      places: [
+        {
+          name: "POC",
+          photos: ["https://cdn.example.com/placeholder.jpg", "https://lh3.googleusercontent.com/real"],
+        },
+      ],
+      restaurants: [],
+    });
+    expect(slim.places[0]?.photos).toEqual(["https://lh3.googleusercontent.com/real"]);
+  });
+
   it("should_keep_user_requested_in_slimCandidatesForStore", () => {
     expect(
       slimCandidatesForStore({

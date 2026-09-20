@@ -8,6 +8,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/client";
 import { normalizeMustIncludeToken } from "./trip-intake";
+import { pickDisplayablePhotoUrl } from "./resolve-display-photo";
 import {
   TRIP_FIELD_KEYS,
   TripStoreError,
@@ -334,18 +335,9 @@ export function slimCandidatesForStore(candidates: {
     if (typeof c.rating === "number") out.rating = c.rating;
     if (typeof c.user_ratings_total === "number") out.user_ratings_total = c.user_ratings_total;
     if (typeof c.address === "string") out.address = c.address;
-    // First displayable photo URL only (ADR-051) — drop Google media stubs.
-    if (Array.isArray(c.photos)) {
-      const first = c.photos.find(
-        (p) =>
-          typeof p === "string" &&
-          (p as string).startsWith("https://") &&
-          !/places\.googleapis\.com\/v1\/.+\/media/i.test(p as string) &&
-          !/[?&](?:api_)?key=/i.test(p as string) &&
-          !/skipHttpRedirect=true/i.test(p as string),
-      );
-      if (typeof first === "string") out.photos = [first];
-    }
+    // First displayable photo URL only (ADR-051) — AMAP http→https, drop media stubs / placeholders.
+    const first = pickDisplayablePhotoUrl(c.photos);
+    if (first) out.photos = [first];
     // Keep sources for provider/native_id + deeplinks (place sheet / map).
     if (Array.isArray(c.sources) && c.sources.length > 0) {
       out.sources = c.sources.slice(0, 2);

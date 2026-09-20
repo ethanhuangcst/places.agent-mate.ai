@@ -20,7 +20,11 @@ import {
 } from "./itinerary-timed";
 import { slimArrangeCandidate } from "./itinerary-planner";
 import { resolvedDirectionProviders } from "./direction-providers";
-import { isDisplayablePhotoUrl, resolveDisplayPhoto } from "./resolve-display-photo";
+import {
+  isDisplayablePhotoUrl,
+  pickDisplayablePhotoFromNameSearch,
+  resolveDisplayPhoto,
+} from "./resolve-display-photo";
 import { DISCOVER_GEO_MAX_KM } from "./geo-bounds";
 import { haversineKm } from "./must-include-coverage";
 import { foldDiacritics } from "./eligible-attraction";
@@ -1138,26 +1142,36 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
         pool,
       ) ?? pool.find((c) => c.name === planResult.next_stop.name);
 
+    const searchForStopName = async (): Promise<PlaceCard[]> => {
+      const q = planResult.next_stop.name?.trim();
+      if (!q) return [];
+      if (input._testSearchPlaces) {
+        return input._testSearchPlaces({
+          query: q,
+          near: planResult.next_stop.location ?? input.anchor ?? undefined,
+          address: input.city,
+        });
+      }
+      return (
+        (
+          await searchPlaces({
+            query: q,
+            address: input.city,
+            locale: input.locale,
+            providers: input.providers,
+            near: planResult.next_stop.location ?? input.anchor ?? undefined,
+            rankPreference: "RELEVANCE",
+          })
+        ).data ?? []
+      );
+    };
+    let searchedForStop: PlaceCard[] | undefined;
+
     // ADR-072: pool miss → search, then bind only when exactly one hit id is already in pool.
     if (!matched && planResult.next_stop.name?.trim()) {
       try {
-        const searched = input._testSearchPlaces
-          ? await input._testSearchPlaces({
-              query: planResult.next_stop.name,
-              near: planResult.next_stop.location ?? input.anchor ?? undefined,
-              address: input.city,
-            })
-          : ((
-              await searchPlaces({
-                query: planResult.next_stop.name,
-                address: input.city,
-                locale: input.locale,
-                providers: input.providers,
-                near: planResult.next_stop.location ?? input.anchor ?? undefined,
-                rankPreference: "RELEVANCE",
-              })
-            ).data ?? []);
-        matched = intersectSearchResultsWithPool(searched, pool);
+        searchedForStop = await searchForStopName();
+        matched = intersectSearchResultsWithPool(searchedForStop, pool);
       } catch {
         matched = undefined;
       }
@@ -1194,6 +1208,21 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
             return detailed;
           },
         });
+      }
+      // AMAP tip ids often 404 on Details — copy a same-name search photo without changing identity.
+      if (!cardHasDisplayablePhoto(card) && cardProvider === "AMAP") {
+        try {
+          searchedForStop = searchedForStop ?? (await searchForStopName());
+          const fromSearch = pickDisplayablePhotoFromNameSearch(
+            planResult.next_stop.name ?? card.name,
+            searchedForStop,
+          );
+          if (fromSearch) {
+            card = { ...card, photos: [fromSearch] };
+          }
+        } catch {
+          /* keep card without photo */
+        }
       }
       const midForName = cardNativeId(card);
       if (cardProvider === "GOOGLE_MAPS" && midForName && !googleDisplayName) {

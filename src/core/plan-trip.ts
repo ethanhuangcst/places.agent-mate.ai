@@ -2702,7 +2702,7 @@ async function planTripSkeletonOnly(
       phases.push({
         phase: "failed",
         trip_id: ensured.trip_id,
-        error: { key: "errors.skeleton_failed" },
+        error: { key: "errors.make_itinerary_failed" },
       });
       return {
         trip_id: ensured.trip_id,
@@ -2740,7 +2740,7 @@ async function planTripSkeletonOnly(
     phases.push({
       phase: "failed",
       trip_id: ensured.trip_id,
-      error: { key: "errors.skeleton_failed" },
+      error: { key: "errors.make_itinerary_failed" },
     });
     return {
       trip_id: ensured.trip_id,

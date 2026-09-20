@@ -458,6 +458,144 @@ describe("planNextStopFill attraction fill-by-id (ADR-072 / agent-fill-113)", ()
     expect(amapResult.stop_display?.stop.name).toBe("西安钟楼");
   });
 
+  it("Temp 5: should_copy_amap_https_photo_from_pool_when_http_was_slimmed_to_https", async () => {
+    const search = vi.fn(async () => {
+      throw new Error("search must not run when pointer matches pool card");
+    });
+    const amapPool: PlaceCard = {
+      provider: "AMAP",
+      name: "龙井村",
+      location: { lat: 30.22, lng: 120.1, crs: "WGS84" },
+      photos: ["https://store.is.autonavi.com/showpic/longjing.jpg"],
+      sources: [{ provider: "AMAP", native_id: "B0LONGJING", deeplinks: {} }],
+    };
+
+    const result = await planNextStopFill({
+      current_stop: {
+        name: "大华饭店",
+        kind: "stay",
+        lat: 30.25,
+        lng: 120.15,
+        end_time: "09:00",
+      },
+      next_stop: {
+        name: "龙井村",
+        kind: "attraction",
+        provider: "AMAP",
+        native_id: "B0LONGJING",
+      },
+      candidates: { places: [amapPool], restaurants: [] },
+      city: "杭州",
+      locale: "CN",
+      _testSearchPlaces: search,
+      _testGeocode: async () => ({ lat: 30.22, lng: 120.1 }),
+    });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.stop_display?.stop.card?.photos?.[0]).toBe(
+      "https://store.is.autonavi.com/showpic/longjing.jpg",
+    );
+  });
+
+  it("Temp 5: should_resolve_amap_photo_via_same_provider_details_when_pool_has_no_photos", async () => {
+    const amapNoPhoto: PlaceCard = {
+      provider: "AMAP",
+      name: "龙井村",
+      location: { lat: 30.22, lng: 120.1, crs: "WGS84" },
+      sources: [{ provider: "AMAP", native_id: "B0LONGJING", deeplinks: {} }],
+    };
+    const details = vi.fn(async () => ({
+      provider: "AMAP" as const,
+      name: "龙井村",
+      location: { lat: 30.22, lng: 120.1, crs: "WGS84" as const },
+      photos: ["https://store.is.autonavi.com/showpic/from-details.jpg"],
+      sources: [{ provider: "AMAP" as const, native_id: "B0LONGJING", deeplinks: {} }],
+    }));
+
+    const result = await planNextStopFill({
+      current_stop: {
+        name: "大华饭店",
+        kind: "stay",
+        lat: 30.25,
+        lng: 120.15,
+        end_time: "09:00",
+      },
+      next_stop: {
+        name: "龙井村",
+        kind: "attraction",
+        provider: "AMAP",
+        native_id: "B0LONGJING",
+      },
+      candidates: { places: [amapNoPhoto], restaurants: [] },
+      city: "杭州",
+      locale: "CN",
+      _testGetPlaceDetails: details,
+      _testGeocode: async () => ({ lat: 30.22, lng: 120.1 }),
+    });
+
+    expect(details).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "AMAP", native_id: "B0LONGJING" }),
+    );
+    expect(result.stop_display?.stop.card?.photos?.[0]).toBe(
+      "https://store.is.autonavi.com/showpic/from-details.jpg",
+    );
+  });
+
+  it("Temp 5: should_copy_name_search_photo_when_amap_tip_id_details_empty", async () => {
+    const amapTip: PlaceCard = {
+      provider: "AMAP",
+      name: "平湖秋月",
+      location: { lat: 30.252, lng: 120.146, crs: "WGS84" },
+      sources: [{ provider: "AMAP", native_id: "B023B024F8", deeplinks: {} }],
+    };
+    const details = vi.fn(async () => null);
+    const search = vi.fn(async () => [
+      {
+        provider: "AMAP" as const,
+        name: "楼外楼",
+        location: { lat: 30.25, lng: 120.14, crs: "WGS84" as const },
+        photos: ["https://store.is.autonavi.com/showpic/unrelated"],
+        sources: [{ provider: "AMAP" as const, native_id: "B0OTHER", deeplinks: {} }],
+      },
+      {
+        provider: "AMAP" as const,
+        name: "平湖秋月碑亭",
+        location: { lat: 30.252, lng: 120.146, crs: "WGS84" as const },
+        photos: ["https://store.is.autonavi.com/showpic/pavilion.jpg"],
+        sources: [{ provider: "AMAP" as const, native_id: "B0HU44IKRD", deeplinks: {} }],
+      },
+    ]);
+
+    const result = await planNextStopFill({
+      current_stop: {
+        name: "大华饭店",
+        kind: "stay",
+        lat: 30.25,
+        lng: 120.15,
+        end_time: "09:00",
+      },
+      next_stop: {
+        name: "平湖秋月",
+        kind: "attraction",
+        provider: "AMAP",
+        native_id: "B023B024F8",
+      },
+      candidates: { places: [amapTip], restaurants: [] },
+      city: "杭州",
+      locale: "CN",
+      _testGetPlaceDetails: details,
+      _testSearchPlaces: search,
+      _testGeocode: async () => ({ lat: 30.252, lng: 120.146 }),
+    });
+
+    expect(details).toHaveBeenCalled();
+    expect(search).toHaveBeenCalled();
+    expect(result.stop_display?.stop.card?.photos?.[0]).toBe(
+      "https://store.is.autonavi.com/showpic/pavilion.jpg",
+    );
+    expect(result.stop_display?.stop.card?.sources?.[0]?.native_id).toBe("B023B024F8");
+  });
+
   it("should_bind_castelo_via_id_intersect_when_name_differs_from_pool", async () => {
     const withPhotos: PlaceCard = {
       provider: "GOOGLE_MAPS",

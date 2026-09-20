@@ -648,11 +648,25 @@ export async function dispatchTool(
           : undefined,
       });
       const status = result.status === "failed" ? 502 : 200;
+      const failedPhase = result.phases?.find((p) => p.phase === "failed");
+      const phaseErrorKey =
+        failedPhase &&
+        "error" in failedPhase &&
+        typeof failedPhase.error === "object" &&
+        failedPhase.error != null &&
+        "key" in failedPhase.error &&
+        typeof failedPhase.error.key === "string"
+          ? failedPhase.error.key
+          : undefined;
+      const failKey =
+        phaseErrorKey?.startsWith("errors.") === true
+          ? phaseErrorKey
+          : "errors.make_itinerary_failed";
       return {
         status,
         envelope:
           result.status === "failed"
-            ? errorEnvelope("errors.provider_failed", locale, extra, { data: result })
+            ? errorEnvelope(failKey, locale, extra, { data: result })
             : okEnvelope(result, locale, { locales: extra }),
       };
     } catch (err) {

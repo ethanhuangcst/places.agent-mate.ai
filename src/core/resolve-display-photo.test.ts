@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isDisplayablePhotoUrl,
+  pickDisplayablePhotoFromNameSearch,
   pickDisplayablePhotoUrl,
 } from "./resolve-display-photo";
 
@@ -25,5 +26,20 @@ describe("isDisplayablePhotoUrl", () => {
         GOOGLE_CDN,
       ]),
     ).toBe(GOOGLE_CDN);
+  });
+
+  it("should_pick_overlapping_name_search_photo_not_unrelated_hit", () => {
+    expect(
+      pickDisplayablePhotoFromNameSearch("平湖秋月", [
+        {
+          name: "楼外楼",
+          photos: ["https://store.is.autonavi.com/showpic/wrong"],
+        },
+        {
+          name: "平湖秋月碑亭",
+          photos: ["https://store.is.autonavi.com/showpic/pavilion"],
+        },
+      ]),
+    ).toBe("https://store.is.autonavi.com/showpic/pavilion");
   });
 });

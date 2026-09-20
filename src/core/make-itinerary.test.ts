@@ -8,6 +8,7 @@ import {
   dropCityNameStops,
   dropUnknownAttractionStops,
   isAreaAliasStop,
+  dedupeSameDayDuplicateStops,
   normalizeMealSlotStops,
   enrichMakeItineraryInput,
   llmSkeletonTimeoutMs,
@@ -1151,6 +1152,27 @@ describe("makeItinerary events (TC-M10-43-01)", () => {
     expect(names).toContain("卡斯凯什老城");
     expect(names).toContain("lunch");
     expect(names).not.toContain("Auto Lunch");
+  });
+
+  it("should_dedupe_same_day_duplicate_attraction_stops", () => {
+    const raw = {
+      days: [
+        {
+          day_index: 1,
+          day_theme: "西湖",
+          stops: [
+            { name: "Hotel", kind: "stay" as const },
+            { name: "断桥", kind: "attraction" as const, native_id: "B001" },
+            { name: "断桥", kind: "attraction" as const, native_id: "B001" },
+            { kind: "meal" as const, meal_slot: "lunch" as const },
+          ],
+        },
+      ],
+    };
+    const out = dedupeSameDayDuplicateStops(raw, ["Hotel"]) as ItinerarySkeleton;
+    const attrs = out.days[0]!.stops.filter((s) => s.kind === "attraction");
+    expect(attrs).toHaveLength(1);
+    expect(attrs[0]?.name).toBe("断桥");
   });
 
   it("should_hard_fail_when_retry_still_invalid", async () => {

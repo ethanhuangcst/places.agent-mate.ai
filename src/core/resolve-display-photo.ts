@@ -79,6 +79,40 @@ export function pickDisplayablePhotoUrl(photos: unknown): string | undefined {
   return firstDisplayable(photos);
 }
 
+function nameOverlapsQuery(query: string, name: string | undefined): boolean {
+  const q = query.trim();
+  const n = (name ?? "").trim();
+  if (!q || !n) return false;
+  return n.includes(q) || q.includes(n);
+}
+
+/**
+ * AMAP tip/inputtips ids often 404 on Place Detail (pois:[]).
+ * Copy a displayable photo from same-provider name search without changing identity (ADR-072).
+ */
+export function pickDisplayablePhotoFromNameSearch(
+  query: string,
+  cards: Array<{ name?: string; photos?: unknown }>,
+): string | undefined {
+  const q = query.trim();
+  if (!q || !cards.length) return undefined;
+  const ranked = cards
+    .filter((c) => nameOverlapsQuery(q, c.name))
+    .sort((a, b) => {
+      const ap = pickDisplayablePhotoUrl(a.photos) ? 1 : 0;
+      const bp = pickDisplayablePhotoUrl(b.photos) ? 1 : 0;
+      if (bp !== ap) return bp - ap;
+      const an = (a.name ?? "").trim() === q ? 1 : 0;
+      const bn = (b.name ?? "").trim() === q ? 1 : 0;
+      return bn - an;
+    });
+  for (const c of ranked) {
+    const url = pickDisplayablePhotoUrl(c.photos);
+    if (url) return url;
+  }
+  return undefined;
+}
+
 function googlePhotoNames(card: PlaceCard): string[] {
   const named = card.google_photo_names;
   if (Array.isArray(named) && named.length) {

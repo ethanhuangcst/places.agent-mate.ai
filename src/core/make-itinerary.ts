@@ -236,6 +236,43 @@ export function normalizeMealSlotStops(raw: unknown): unknown {
   };
 }
 
+function tripStopUniqKey(stop: {
+  name?: string;
+  native_id?: string;
+  visit_part?: "am" | "pm";
+}): string | undefined {
+  if (!stop.name?.trim() && !stop.native_id?.trim()) return undefined;
+  if (stop.visit_part && (stop.native_id || stop.name)) {
+    return `${stop.native_id ?? stop.name}#${stop.visit_part}`;
+  }
+  if (stop.native_id?.trim()) return stop.native_id.trim();
+  return stop.name;
+}
+
+/** Drop duplicate non-meal venues on the same day (LLM sometimes repeats e.g. 断桥 twice on day 1). */
+export function dedupeSameDayDuplicateStops(raw: unknown, stays: string[]): unknown {
+  const parsed = ItinerarySkeletonSchema.safeParse(raw);
+  if (!parsed.success) return raw;
+  return {
+    ...parsed.data,
+    days: parsed.data.days.map((day) => {
+      const seenOnDay = new Set<string>();
+      const stops = [];
+      for (const stop of day.stops) {
+        if (stop.kind === "meal" || stayNameMatches(stop.name, stays)) {
+          stops.push(stop);
+          continue;
+        }
+        const key = tripStopUniqKey(stop);
+        if (key && seenOnDay.has(key)) continue;
+        if (key) seenOnDay.add(key);
+        stops.push(stop);
+      }
+      return { ...day, stops: stops.length > 0 ? stops : day.stops };
+    }),
+  };
+}
+
 /** True when stopName is the daily origin / stay (exact, normalized, or near-equal CJK variant).
  * Handles traditional/simplified hotel-name diffs (e.g. 公園 vs 公园, 萬豪 vs 万豪). */
 export function stayNameMatches(stopName: string | undefined, stays: string[]): boolean {
@@ -1397,6 +1434,7 @@ export async function makeItinerary(
       if (schemaForAttach.success) {
         parsedJson = attachNativeIdsToSkeleton(schemaForAttach.data, pool.places);
         parsedJson = dropAttractionsWithoutPoolPointer(parsedJson, pool.places);
+        parsedJson = dedupeSameDayDuplicateStops(parsedJson, pool.stays);
       }
       const schemaParsed = ItinerarySkeletonSchema.safeParse(parsedJson);
       if (schemaParsed.success) {
