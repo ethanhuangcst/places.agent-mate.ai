@@ -207,6 +207,34 @@ describe("Google live direct client", () => {
     expect(parsed.includedTypes).toEqual(["restaurant"]);
   });
 
+  it("should_keep_primaryType_when_nearby_includedTypes_is_restaurant (TC-M118-06)", async () => {
+    const cafePlace = {
+      id: "ChIJ_cafe",
+      displayName: { text: "Latte Spot" },
+      formattedAddress: "Belém",
+      location: { latitude: 38.7, longitude: -9.2 },
+      rating: 4.2,
+      userRatingCount: 30,
+      primaryType: "cafe",
+      types: ["cafe", "restaurant", "food"],
+    };
+    const { fetchFn } = recordFetch((url) => {
+      if (url.pathname.endsWith("/places:searchNearby")) {
+        return jsonResponse({ places: [cafePlace] });
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    const client = createGoogleDirectClient(testConfig(), fetchFn);
+    const cards = await client.searchRestaurants({
+      query: "restaurant",
+      near: { lat: 38.7, lng: -9.2 },
+      locale: "EN",
+    });
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.category).toBe("cafe");
+    expect(cards[0]?.types?.[0]).toBe("cafe");
+  });
+
   it("should_bias_place_search_to_caller_radius_when_near_set", async () => {
     let body = "";
     const { fetchFn } = recordFetch((_url, init) => {

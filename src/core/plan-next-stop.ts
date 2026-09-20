@@ -286,10 +286,10 @@ export async function resolveMealVenue(opts: {
   const allowReuse = opts.allowNameReuse !== false;
   const near = opts.near;
   const points = corridorSearchPoints(opts.near, opts.lookahead ?? null);
-  const pickFrom = (merged: PlaceCard[]): MealVenuePick | null => {
-    const unused = pickMealVenue(merged, used, { near });
+  const pickFrom = (merged: PlaceCard[], query: string): MealVenuePick | null => {
+    const unused = pickMealVenue(merged, used, { near, query });
     if (unused) return unused;
-    return pickMealVenue(merged, [], { near });
+    return pickMealVenue(merged, [], { near, query });
   };
 
   const searchAtPoint = async (pt: PlaceLocation, query: string): Promise<PlaceCard[]> => {
@@ -324,11 +324,11 @@ export async function resolveMealVenue(opts: {
       const localOnly = await searchAtPoint(pt, query);
       if (localOnly.length) batches.push(localOnly);
       const merged = filterRestaurantsBySpend(mergeRestaurantCards(batches), spend);
-      const pick = pickFrom(merged);
+      const pick = pickFrom(merged, query);
       if (pick && !pick.lowSignal) return pick;
     }
     const merged = filterRestaurantsBySpend(mergeRestaurantCards(batches), spend);
-    return pickFrom(merged);
+    return pickFrom(merged, query);
   };
 
   const fromRestaurant = await searchQueryUntilGated("restaurant");
@@ -344,7 +344,7 @@ export async function resolveMealVenue(opts: {
     if (!loc) return false;
     return haversineKm(opts.near!, loc) <= MEAL_CORRIDOR_MAX_KM;
   });
-  const fromPool = pickFrom(filterRestaurantsBySpend(nearbyPool, spend));
+  const fromPool = pickFrom(filterRestaurantsBySpend(nearbyPool, spend), "restaurant");
   if (fromPool) return fromPool;
 
   if (!allowReuse) return null;

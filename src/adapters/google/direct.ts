@@ -257,7 +257,7 @@ export function createGoogleDirectClient(
     const json = (await res.json()) as { places?: unknown[] };
     return (json.places ?? [])
       .map((p) =>
-        directPlaceToCard(p as Parameters<typeof directPlaceToCard>[0], included[0], config.apiKey),
+        directPlaceToCard(p as Parameters<typeof directPlaceToCard>[0], undefined, config.apiKey),
       )
       .filter((c): c is PlaceCard => c != null);
   }

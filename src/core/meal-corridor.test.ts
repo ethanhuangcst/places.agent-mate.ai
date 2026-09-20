@@ -20,6 +20,7 @@ function card(name: string, lat: number, lng: number, price_level?: string): Pla
     provider: "GOOGLE_MAPS",
     name,
     location: { lat, lng, crs: "WGS84" },
+    category: "restaurant",
     ...(price_level ? { price_level } : {}),
     sources: [],
   };
@@ -347,5 +348,107 @@ describe("meal pick rank (TC-M116)", () => {
     });
     const pick = pickMealVenue([used, other], ["g-used"], { near });
     expect(pick?.card.sources[0]?.native_id).toBe("g-free");
+  });
+});
+
+/** agent-meal-118 — Google meal type gate + Bayesian rank. */
+describe("meal pick type and bayes (TC-M118)", () => {
+  const near = { lat: 38.71, lng: -9.14, crs: "WGS84" as const };
+
+  it("should_prefer_restaurant_primary_over_breakfast_types0 (TC-M118-01)", () => {
+    const artis = mealCard({
+      name: "ARTIS CHUNXI",
+      lat: near.lat,
+      lng: near.lng,
+      rating: 5.0,
+      user_ratings_total: 46,
+      types: ["breakfast_restaurant", "cafe", "restaurant"],
+      native_id: "g-artis",
+    });
+    const real = mealCard({
+      name: "Real Dinner",
+      lat: near.lat + 0.002,
+      lng: near.lng,
+      rating: 4.6,
+      user_ratings_total: 80,
+      category: "restaurant",
+      types: ["restaurant"],
+      native_id: "g-real",
+    });
+    const pick = pickMealVenue([artis, real], [], { near, query: "restaurant" });
+    expect(pick?.card.name).toBe("Real Dinner");
+  });
+
+  it("should_keep_restaurant_eligible_when_types_also_list_cafe (TC-M118-02)", () => {
+    const rest = mealCard({
+      name: "Bistro",
+      lat: near.lat,
+      lng: near.lng,
+      rating: 4.5,
+      user_ratings_total: 100,
+      category: "restaurant",
+      types: ["restaurant", "cafe", "food"],
+      native_id: "g-bistro",
+    });
+    const pick = pickMealVenue([rest], [], { near, query: "restaurant" });
+    expect(pick?.card.name).toBe("Bistro");
+  });
+
+  it("should_allow_cafe_primary_on_cafe_query (TC-M118-03)", () => {
+    const cafe = mealCard({
+      name: "Corner Cafe",
+      lat: near.lat,
+      lng: near.lng,
+      rating: 4.4,
+      user_ratings_total: 40,
+      category: "cafe",
+      types: ["cafe"],
+      native_id: "g-cafe",
+    });
+    const pick = pickMealVenue([cafe], [], { near, query: "cafe" });
+    expect(pick?.card.name).toBe("Corner Cafe");
+  });
+
+  it("should_prefer_more_reviews_over_perfect_few (TC-M118-04)", () => {
+    const fewPerfect = mealCard({
+      name: "Five Twenty",
+      lat: near.lat,
+      lng: near.lng,
+      rating: 5.0,
+      user_ratings_total: 20,
+      category: "restaurant",
+      native_id: "g-a",
+    });
+    const moreReviews = mealCard({
+      name: "Four Five Hundred",
+      lat: near.lat + 0.001,
+      lng: near.lng,
+      rating: 4.5,
+      user_ratings_total: 100,
+      category: "restaurant",
+      native_id: "g-b",
+    });
+    const pick = pickMealVenue([fewPerfect, moreReviews], [], { near, query: "restaurant" });
+    expect(pick?.card.name).toBe("Four Five Hundred");
+  });
+
+  it("should_rank_amap_by_raw_rating_without_bayes (TC-M118-05)", () => {
+    const low = mealCard({
+      name: "Amap 4.0",
+      lat: near.lat,
+      lng: near.lng,
+      provider: "AMAP",
+      rating: 4.0,
+      native_id: "a-40",
+    });
+    const high = mealCard({
+      name: "Amap 4.6",
+      lat: near.lat + 0.002,
+      lng: near.lng,
+      provider: "AMAP",
+      rating: 4.6,
+      native_id: "a-46",
+    });
+    expect(pickMealVenue([low, high], [], { near })?.card.name).toBe("Amap 4.6");
   });
 });

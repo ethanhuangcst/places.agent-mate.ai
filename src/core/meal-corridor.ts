@@ -79,14 +79,57 @@ export function filterRestaurantsBySpend(cards: PlaceCard[], spend: SpendLevel):
 export const MEAL_RATING_MIN = 3.5;
 /** Google review floor when `user_ratings_total` is present. */
 export const GOOGLE_USER_RATINGS_MIN = 20;
+/** agent-meal-118 — Bayesian prior weight (review count). */
+export const MEAL_BAYES_M = 50;
+/** agent-meal-118 — Bayesian prior mean rating. */
+export const MEAL_BAYES_C = 4.0;
 
 const GOOGLE_INSTITUTIONAL_DINING = new Set(["cafeteria", "food_court"]);
+
+/** Google meal types never allowed for fill `query=restaurant`. */
+const GOOGLE_RESTAURANT_QUERY_DENY = new Set([
+  "breakfast_restaurant",
+  "cafe",
+  "coffee_shop",
+  "bakery",
+  "bar",
+  "cafeteria",
+  "food_court",
+]);
 
 export type MealVenuePick = { card: PlaceCard; lowSignal: boolean };
 
 function hasMealCoords(card: PlaceCard): boolean {
   const loc = card.location;
   return typeof loc?.lat === "number" && typeof loc?.lng === "number";
+}
+
+/** Google dining type: category (primaryType) else types[0]. */
+export function googleMealType(card: PlaceCard): string | null {
+  const fromCat = card.category?.trim().toLowerCase();
+  if (fromCat) return fromCat;
+  const t0 = card.types?.[0]?.trim().toLowerCase();
+  return t0 || null;
+}
+
+/**
+ * agent-meal-118 — Google-only meal type gate by search query.
+ * Non-Google cards always pass. Does not scan full types[] for cafe.
+ */
+export function isGoogleMealTypeAllowedForQuery(
+  card: PlaceCard,
+  query?: string | null,
+): boolean {
+  if (card.provider !== "GOOGLE_MAPS") return true;
+  const mealType = googleMealType(card);
+  if (!mealType) return false;
+  const q = (query ?? "restaurant").trim().toLowerCase();
+  if (q === "cafe") {
+    return mealType === "cafe" || mealType === "coffee_shop";
+  }
+  if (GOOGLE_RESTAURANT_QUERY_DENY.has(mealType)) return false;
+  if (mealType === "restaurant") return true;
+  return mealType.endsWith("_restaurant");
 }
 
 /** Google-only: drop Places Table A cafeteria / food_court (category or types[]). */
@@ -113,6 +156,18 @@ export function passesMealQualityGate(card: PlaceCard): boolean {
   return true;
 }
 
+/**
+ * agent-meal-118 — Bayesian shrink when review count present; else raw rating.
+ * Unrated → -1 so they sort last among candidates.
+ */
+export function mealRankScore(card: PlaceCard): number {
+  if (typeof card.rating !== "number") return -1;
+  const R = card.rating;
+  const v = card.user_ratings_total;
+  if (typeof v !== "number") return R;
+  return (v / (v + MEAL_BAYES_M)) * R + (MEAL_BAYES_M / (v + MEAL_BAYES_M)) * MEAL_BAYES_C;
+}
+
 function usedKeySet(usedNames?: string[]): Set<string> {
   return new Set((usedNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
 }
@@ -134,9 +189,9 @@ function isMealUsed(card: PlaceCard, used: Set<string>): boolean {
 
 function sortMealCandidates(cards: PlaceCard[], near?: PlaceLocation | null): PlaceCard[] {
   return [...cards].sort((a, b) => {
-    const ra = typeof a.rating === "number" ? a.rating : -1;
-    const rb = typeof b.rating === "number" ? b.rating : -1;
-    if (rb !== ra) return rb - ra;
+    const sa = mealRankScore(a);
+    const sb = mealRankScore(b);
+    if (sb !== sa) return sb - sa;
     if (near && hasMealCoords(a) && hasMealCoords(b)) {
       const da = haversineKm(near, { lat: a.location.lat, lng: a.location.lng });
       const db = haversineKm(near, { lat: b.location.lat, lng: b.location.lng });
@@ -147,19 +202,21 @@ function sortMealCandidates(cards: PlaceCard[], near?: PlaceLocation | null): Pl
 }
 
 /**
- * agent-meal-116 — rank corridor hits: quality gate, then rating, then nearer.
+ * agent-meal-116/118 — rank corridor hits: type gate, quality gate, Bayesian score, nearer.
  * No name denylist. When none pass the gate, still pick best remaining and set lowSignal.
  */
 export function pickMealVenue(
   cards: PlaceCard[],
   usedNames?: string[],
-  opts?: { near?: PlaceLocation | null },
+  opts?: { near?: PlaceLocation | null; query?: string | null },
 ): MealVenuePick | null {
   const used = usedKeySet(usedNames);
   const near = opts?.near ?? null;
+  const query = opts?.query ?? "restaurant";
   const eligible = cards.filter((c) => {
     if (!hasMealCoords(c)) return false;
     if (isMealUsed(c, used)) return false;
+    if (!isGoogleMealTypeAllowedForQuery(c, query)) return false;
     if (isGoogleInstitutionalDiningType(c)) return false;
     return true;
   });

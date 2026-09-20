@@ -13,12 +13,14 @@ import { type PlaceCard } from "./types";
 import { type Locale } from "./locales";
 import { type TravelMode } from "./itinerary-timed";
 
-function place(name: string, lat = 38.7, lng = -9.1): PlaceCard {
+function place(name: string, lat = 38.7, lng = -9.1, category = "restaurant"): PlaceCard {
   return {
     provider: "GOOGLE_MAPS",
     name,
     location: { lat, lng, crs: "WGS84" },
     rating: 4.5,
+    user_ratings_total: 30,
+    category,
     sources: [
       {
         provider: "GOOGLE_MAPS",
@@ -366,7 +368,7 @@ describe("planNextStop (TC-M10-44-01/02)", () => {
         _testSearchRestaurants: async (near, query) => {
           const q = query ?? "restaurant";
           queries.push(q);
-          if (q === "cafe") return [place("Far Cafe", 38.692, -9.215)];
+          if (q === "cafe") return [place("Far Cafe", 38.692, -9.215, "cafe")];
           return [];
         },
         _testResolveDuration: fakeDirections,
