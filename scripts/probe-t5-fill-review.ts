@@ -25,6 +25,7 @@ function endDate(days: number): string {
 const CASES: Case[] = [
   { id: "shanghai", city: "上海", locale: "CN", days: 3, party: 3, trip_type: "family_kids", budget: "mid", pace: "medium", transit: "drive_walk", origin: { name: "上海虹桥中心爱琴海亚朵S酒店" }, start_time: "09:00", other: "7岁男孩", bounds: { start: START, end: endDate(3) } },
   { id: "hangzhou", city: "杭州", locale: "CN", days: 3, party: 2, trip_type: "couple_romance", budget: "luxury", pace: "relaxed", transit: "drive_walk", origin: { name: "SFEEL设计师酒店(杭州西湖武林广场店)" }, start_time: "09:00", bounds: { start: START, end: endDate(3) } },
+  { id: "taipei", city: "台北", locale: "TW", days: 3, party: 2, trip_type: "city", budget: "mid", pace: "medium", transit: "transit_walk", origin: { name: "台北晶华酒店" }, start_time: "09:00", bounds: { start: START, end: endDate(3) } },
   { id: "xian", city: "西安", locale: "CN", days: 3, party: 3, trip_type: "city", budget: "mid", pace: "tight", transit: "transit_walk", start_time: "09:00", other: "探访历史", bounds: { start: START, end: endDate(3) } },
   { id: "lisbon", city: "Lisbon", locale: "EN", days: 3, party: 2, trip_type: "couple_romance", budget: "luxury", pace: "medium", transit: "transit_walk", origin: { name: "Hills Hotel Lisboa" }, start_time: "07:00", bounds: { start: START, end: endDate(3) } },
   { id: "tokyo", city: "东京", locale: "CN", days: 3, party: 1, trip_type: "solo", budget: "mid", pace: "tight", transit: "transit_walk", origin: { name: "Hotel Monterey Lasoeur Ginza" }, start_time: "08:00", other: "80年代动漫粉丝，动漫主题度假", bounds: { start: START, end: endDate(3) } },
@@ -39,7 +40,7 @@ function issueKey(): string {
   return (JSON.parse(out) as { secret: string }).secret;
 }
 
-async function postJson(path: string, secret: string, body: unknown, timeoutMs = 300_000) {
+async function postJson(path: string, secret: string, body: unknown, timeoutMs = 600_000) {
   const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(`${BASE}${path}`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal });
@@ -53,7 +54,18 @@ function bodyFor(c: Case) {
 
 type FilledStop = {
   day_index: number; stop_index: number;
-  stop: { name?: string; kind?: string; meal_slot?: string; card?: { location?: { lat?: number; lng?: number } } };
+  stop: {
+    name?: string;
+    kind?: string;
+    meal_slot?: string;
+    card?: {
+      name?: string;
+      rating?: number;
+      user_ratings_total?: number;
+      category?: string;
+      location?: { lat?: number; lng?: number };
+    };
+  };
   slot?: { start?: string; end?: string };
   legs?: Array<{ mode?: string; duration_min?: number; source?: string }>;
   notes?: string[];
@@ -80,10 +92,19 @@ function dayMetrics(stops: FilledStop[]) {
     const a = coords[i - 2], b = coords[i - 1], c = coords[i];
     if ((b.lng - a.lng) * (c.lng - b.lng) < 0 || (b.lat - a.lat) * (c.lat - b.lat) < 0) reversals++;
   }
+  const mealVenues = meals.map((m) => ({
+    slot: m.stop.meal_slot ?? m.stop.name,
+    name: m.stop.card?.name ?? m.stop.name,
+    rating: m.stop.card?.rating,
+    user_ratings_total: m.stop.card?.user_ratings_total,
+    category: m.stop.card?.category,
+    notes: m.notes ?? [],
+  }));
   return {
     filledStops: stops.length,
     attractions: attractions.length,
     meals: meals.length,
+    mealVenues,
     lastEndTime: lastEnd != null ? `${Math.floor(lastEnd / 60)}:${String(lastEnd % 60).padStart(2, "0")}` : undefined,
     totalTransitMin,
     reversals,
@@ -250,10 +271,32 @@ async function main() {
       `${rr.id}: ${rr.status} elapsed=${rr.elapsed}s fill=${fc.filledStops}/${fc.skeletonStops}(${fc.pct}%) skeleton=${rr.timing?.skeleton_s ?? "?"}s fill_t=${rr.timing?.fill_s ?? "?"}s\n`,
     );
     for (const d of rr.days ?? []) {
-      const m = d.metrics;
+      const m = d.metrics as {
+        filledStops: number;
+        attractions: number;
+        meals: number;
+        lastEndTime?: string;
+        totalTransitMin: number;
+        reversals: number;
+        hasLunch: boolean;
+        hasDinner: boolean;
+        mealVenues?: Array<{
+          slot?: string;
+          name?: string;
+          rating?: number;
+          user_ratings_total?: number;
+          notes?: string[];
+        }>;
+      };
       process.stdout.write(
         `  D${d.day} [${d.theme ?? "?"}]: filled=${m.filledStops} attr=${m.attractions} meals=${m.meals} lastEnd=${m.lastEndTime ?? "?"} transit=${m.totalTransitMin}min reversals=${m.reversals} lunch=${m.hasLunch} dinner=${m.hasDinner}\n`,
       );
+      for (const mv of m.mealVenues ?? []) {
+        const r = mv.rating != null ? String(mv.rating) : "—";
+        const n = mv.user_ratings_total != null ? String(mv.user_ratings_total) : "—";
+        const notes = (mv.notes ?? []).length ? ` notes=${mv.notes!.join(",")}` : "";
+        process.stdout.write(`    meal ${mv.slot}: ${mv.name} rating=${r} reviews=${n}${notes}\n`);
+      }
     }
   }
 }

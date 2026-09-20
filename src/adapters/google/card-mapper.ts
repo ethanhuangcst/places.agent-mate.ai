@@ -12,6 +12,7 @@ type DirectPlace = {
   formattedAddress?: string;
   location?: { latitude?: number; longitude?: number };
   rating?: number;
+  userRatingCount?: number;
   primaryType?: string;
   types?: string[];
   regularOpeningHours?: GoogleOpeningHours;
@@ -54,6 +55,10 @@ export function directPlaceToCard(
     location,
     rating: place.rating,
     category: category ?? place.primaryType ?? "place",
+    ...(typeof place.userRatingCount === "number"
+      ? { user_ratings_total: place.userRatingCount }
+      : {}),
+    ...(place.types?.length ? { types: place.types } : {}),
     ...(hours ? { hours } : {}),
     ...(photoNames ? { google_photo_names: photoNames } : {}),
     ...(priceLevel ? { price_level: priceLevel } : {}),

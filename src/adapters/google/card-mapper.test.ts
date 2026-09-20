@@ -93,4 +93,19 @@ describe("directPlaceToCard hours", () => {
       delete process.env.GOOGLE_PHOTOS_ENABLED;
     }
   });
+
+  it("should_map_userRatingCount_and_types_for_meal_gates (agent-meal-116)", () => {
+    const card = directPlaceToCard({
+      id: "places/ChIJmeal",
+      displayName: { text: "Noodle Shop" },
+      location: { latitude: 30.25, longitude: 120.16 },
+      rating: 4.3,
+      userRatingCount: 128,
+      primaryType: "restaurant",
+      types: ["restaurant", "food"],
+    });
+    expect(card?.user_ratings_total).toBe(128);
+    expect(card?.types).toEqual(["restaurant", "food"]);
+    expect(card?.category).toBe("restaurant");
+  });
 });

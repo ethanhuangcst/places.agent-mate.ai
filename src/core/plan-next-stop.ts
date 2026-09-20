@@ -37,11 +37,11 @@ import {
   MEAL_CORRIDOR_EXPANDED_KM,
   MEAL_CORRIDOR_MAX_KM,
   MEAL_CORRIDOR_RADIUS_KM,
-  pickRestaurantAllowReuse,
-  pickUnusedRestaurant,
+  pickMealVenue,
   shouldInsertMeal,
   type DayStopLike,
   type MealSlotId,
+  type MealVenuePick,
   type SpendLevel,
   withinCorridorRadius,
 } from "./meal-corridor";
@@ -142,6 +142,8 @@ export type PlanNextStopResult = {
    */
   meal_skipped?: boolean;
   venue_card?: PlaceCard;
+  /** agent-meal-116: venue passed quality gate degradation (protocol note meal_low_signal). */
+  meal_low_signal?: boolean;
   /** F89: skeleton day_stops were rewritten (insert/move); host must refetch. */
   skeleton_patched?: boolean;
   meal_move?: "later" | "earlier";
@@ -260,6 +262,7 @@ export async function resolveMealSearchCentroid(opts: {
 /**
  * F89: corridor search (from → mid → lookahead) within ~800m, spend + used-name filter.
  * Pool restaurants are last fallback only (ADR-049 pools are usually empty).
+ * agent-meal-116: rank via pickMealVenue (rating gate; Google type/review floors).
  */
 export async function resolveMealVenue(opts: {
   near: PlaceLocation | null;
@@ -272,11 +275,12 @@ export async function resolveMealVenue(opts: {
   /** S8: lunch must not reuse a city restaurant name when corridor is empty. */
   allowNameReuse?: boolean;
   search?: (near: PlaceLocation, query?: string) => Promise<PlaceCard[]>;
-}): Promise<PlaceCard | null> {
+}): Promise<MealVenuePick | null> {
   if (!opts.near) return null;
   const spend = opts.spend ?? 2;
   const used = opts.usedNames ?? [];
   const allowReuse = opts.allowNameReuse !== false;
+  const near = opts.near;
 
   const points = corridorSearchPoints(opts.near, opts.lookahead ?? null);
   const runSearch = async (query: string): Promise<PlaceCard[]> => {
@@ -310,27 +314,22 @@ export async function resolveMealVenue(opts: {
     return mergeRestaurantCards(batches);
   };
 
+  const pickFrom = (merged: PlaceCard[]): MealVenuePick | null => {
+    const unused = pickMealVenue(merged, used, { near });
+    if (unused) return unused;
+    if (!allowReuse) {
+      return pickMealVenue(merged, [], { near });
+    }
+    return pickMealVenue(merged, [], { near });
+  };
+
   let merged = filterRestaurantsBySpend(await runSearch("restaurant"), spend);
-  let fromCorridor = allowReuse
-    ? pickRestaurantAllowReuse(merged, used)
-    : pickUnusedRestaurant(merged, used) ??
-      merged.find((c) => {
-        const loc = cardLocation(c);
-        return loc != null;
-      }) ??
-      null;
+  let fromCorridor = pickFrom(merged);
   if (fromCorridor) return fromCorridor;
 
   // S8: one extra pass with cafe query, still hard-capped at 5km.
   merged = filterRestaurantsBySpend(await runSearch("cafe"), spend);
-  fromCorridor = allowReuse
-    ? pickRestaurantAllowReuse(merged, used)
-    : pickUnusedRestaurant(merged, used) ??
-      merged.find((c) => {
-        const loc = cardLocation(c);
-        return loc != null;
-      }) ??
-      null;
+  fromCorridor = pickFrom(merged);
   if (fromCorridor) return fromCorridor;
 
   // Pool fallback (may be empty after ADR-049) — still within 5km of attraction.
@@ -339,9 +338,7 @@ export async function resolveMealVenue(opts: {
     if (!loc) return false;
     return haversineKm(opts.near!, loc) <= MEAL_CORRIDOR_MAX_KM;
   });
-  const fromPool = allowReuse
-    ? pickRestaurantAllowReuse(filterRestaurantsBySpend(nearbyPool, spend), used)
-    : pickUnusedRestaurant(filterRestaurantsBySpend(nearbyPool, spend), used);
+  const fromPool = pickFrom(filterRestaurantsBySpend(nearbyPool, spend));
   if (fromPool) return fromPool;
 
   if (!allowReuse) return null;
@@ -350,16 +347,19 @@ export async function resolveMealVenue(opts: {
   const reuseName = used.find((n) => n.trim().length > 0);
   if (reuseName) {
     return {
-      provider: "GOOGLE_MAPS",
-      name: reuseName,
-      location: { ...opts.near, crs: opts.near.crs ?? "WGS84" },
-      sources: [
-        {
-          provider: "GOOGLE_MAPS",
-          native_id: `reuse:${reuseName}`,
-          deeplinks: {},
-        },
-      ],
+      card: {
+        provider: "GOOGLE_MAPS",
+        name: reuseName,
+        location: { ...opts.near, crs: opts.near.crs ?? "WGS84" },
+        sources: [
+          {
+            provider: "GOOGLE_MAPS",
+            native_id: `reuse:${reuseName}`,
+            deeplinks: {},
+          },
+        ],
+      },
+      lowSignal: false,
     };
   }
   return null;
@@ -758,6 +758,7 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
 
   let nextStop = input.next_stop;
   let mealVenueCard: PlaceCard | undefined;
+  let mealLowSignal = false;
   if (isAnonymousMealStop(nextStop)) {
     const slot = mealSlotOf(nextStop);
     const clockMin =
@@ -830,7 +831,7 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
     });
 
     const spend = mapSpendLevel(input.budget, input.spend_level);
-    const venue = await resolveMealVenue({
+    const venuePick = await resolveMealVenue({
       near: centroid.near,
       lookahead: centroid.lookahead,
       pool: restaurants,
@@ -841,7 +842,7 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
       allowNameReuse: slot !== "lunch",
       search: input._testSearchRestaurants,
     });
-    if (!venue) {
+    if (!venuePick) {
       // S8 lunch: keep slot id when no local venue; dinner may still fall through unused.
       const fallbackName =
         slot === "lunch"
@@ -854,6 +855,8 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
         lng: centroid.near?.lng ?? from?.lng,
       };
     } else {
+      const venue = venuePick.card;
+      mealLowSignal = venuePick.lowSignal;
       const loc = cardLocation(venue);
       const resolvedVenue = await resolveDisplayPhoto(venue, {
         getDetails: async (nativeId) => {
@@ -982,6 +985,7 @@ export async function planNextStop(input: PlanNextStopInput): Promise<PlanNextSt
     transit_outcome,
     single_mode,
     ...(mealVenueCard ? { venue_card: mealVenueCard } : {}),
+    ...(mealLowSignal ? { meal_low_signal: true } : {}),
   };
 }
 
@@ -1267,6 +1271,9 @@ export async function planNextStopFill(input: PlanNextStopFillInput): Promise<Pl
     input.next_stop.kind === "meal" || isAnonymousMealStop(input.next_stop);
   if (isMealStop && !planResult.venue_card && !stop_display.stop.card) {
     qualityNotes.push("meal_unresolved");
+  }
+  if (planResult.meal_low_signal && !qualityNotes.includes("meal_low_signal")) {
+    qualityNotes.push("meal_low_signal");
   }
   if (
     planResult.legs.some((l) => l.source === "heuristic") &&

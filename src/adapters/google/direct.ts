@@ -59,6 +59,7 @@ export function createGoogleDirectClient(
     "places.formattedAddress",
     "places.location",
     "places.rating",
+    "places.userRatingCount",
     "places.primaryType",
     "places.types",
     "places.regularOpeningHours",

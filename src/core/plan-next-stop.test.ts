@@ -607,6 +607,42 @@ describe("planNextStop (TC-M10-44-01/02)", () => {
     expect(result.inserted_meal_slot).toBe("dinner");
     expect(patched).not.toBeNull();
   });
+
+  it("should_add_meal_low_signal_note_when_all_below_gate (TC-M116-07)", async () => {
+    const weak: PlaceCard = {
+      provider: "GOOGLE_MAPS",
+      name: "Weak Lunch Spot",
+      location: { lat: 38.692, lng: -9.215, crs: "WGS84" },
+      rating: 2.8,
+      user_ratings_total: 40,
+      category: "restaurant",
+      types: ["restaurant"],
+      sources: [
+        {
+          provider: "GOOGLE_MAPS",
+          native_id: "g-weak-lunch",
+          deeplinks: {},
+        },
+      ],
+    };
+    const result = await planNextStopFill({
+      current_stop: {
+        name: "Torre de Belém",
+        kind: "attraction",
+        lat: 38.6916,
+        lng: -9.216,
+        end_time: "12:00",
+      },
+      next_stop: { name: "lunch", kind: "meal", meal_slot: "lunch" },
+      candidates: { places: CANDIDATES.places, restaurants: [] },
+      locale: "EN",
+      _testSearchRestaurants: async () => [weak],
+      _testResolveDuration: fakeDirections,
+    });
+    expect(result.next_stop.name).toBe("Weak Lunch Spot");
+    expect(result.meal_low_signal).toBe(true);
+    expect(result.stop_display?.notes).toContain("meal_low_signal");
+  });
 });
 
 describe("displayCurrentStop", () => {

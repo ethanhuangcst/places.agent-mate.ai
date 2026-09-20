@@ -44,6 +44,8 @@ export type PlaceCard = {
   /** F82: user-typed must_include (orthogonal to discovery nominations — ADR-069). */
   user_requested?: boolean;
   user_ratings_total?: number;
+  /** Google Places Table A types (and similar); used for meal quality gates. */
+  types?: string[];
   /** LLM nominate short name; chip label prefers this over vendor `name`. */
   nominated_name?: string;
 };

@@ -75,42 +75,120 @@ export function filterRestaurantsBySpend(cards: PlaceCard[], spend: SpendLevel):
   return filtered.length ? filtered : cards;
 }
 
+/** agent-meal-116 — rating floor for gated meal picks. */
+export const MEAL_RATING_MIN = 3.5;
+/** Google review floor when `user_ratings_total` is present. */
+export const GOOGLE_USER_RATINGS_MIN = 20;
+
+const GOOGLE_INSTITUTIONAL_DINING = new Set(["cafeteria", "food_court"]);
+
+export type MealVenuePick = { card: PlaceCard; lowSignal: boolean };
+
+function hasMealCoords(card: PlaceCard): boolean {
+  const loc = card.location;
+  return typeof loc?.lat === "number" && typeof loc?.lng === "number";
+}
+
+/** Google-only: drop Places Table A cafeteria / food_court (category or types[]). */
+export function isGoogleInstitutionalDiningType(card: PlaceCard): boolean {
+  if (card.provider !== "GOOGLE_MAPS") return false;
+  const labels = [
+    ...(card.types ?? []),
+    ...(card.category ? [card.category] : []),
+  ].map((t) => t.trim().toLowerCase());
+  return labels.some((t) => GOOGLE_INSTITUTIONAL_DINING.has(t));
+}
+
+/** True when card clears rating (and Google review floor when count present). */
+export function passesMealQualityGate(card: PlaceCard): boolean {
+  if (typeof card.rating !== "number") return false;
+  if (card.rating < MEAL_RATING_MIN) return false;
+  if (
+    card.provider === "GOOGLE_MAPS" &&
+    typeof card.user_ratings_total === "number" &&
+    card.user_ratings_total < GOOGLE_USER_RATINGS_MIN
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function usedKeySet(usedNames?: string[]): Set<string> {
+  return new Set((usedNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
+}
+
+function cardUsedKeys(card: PlaceCard): string[] {
+  const keys: string[] = [];
+  for (const s of card.sources ?? []) {
+    const id = s.native_id?.trim().toLowerCase();
+    if (id) keys.push(id);
+  }
+  const name = card.name?.trim().toLowerCase();
+  if (name) keys.push(name);
+  return keys;
+}
+
+function isMealUsed(card: PlaceCard, used: Set<string>): boolean {
+  return cardUsedKeys(card).some((k) => used.has(k));
+}
+
+function sortMealCandidates(cards: PlaceCard[], near?: PlaceLocation | null): PlaceCard[] {
+  return [...cards].sort((a, b) => {
+    const ra = typeof a.rating === "number" ? a.rating : -1;
+    const rb = typeof b.rating === "number" ? b.rating : -1;
+    if (rb !== ra) return rb - ra;
+    if (near && hasMealCoords(a) && hasMealCoords(b)) {
+      const da = haversineKm(near, { lat: a.location.lat, lng: a.location.lng });
+      const db = haversineKm(near, { lat: b.location.lat, lng: b.location.lng });
+      return da - db;
+    }
+    return 0;
+  });
+}
+
+/**
+ * agent-meal-116 — rank corridor hits: quality gate, then rating, then nearer.
+ * No name denylist. When none pass the gate, still pick best remaining and set lowSignal.
+ */
+export function pickMealVenue(
+  cards: PlaceCard[],
+  usedNames?: string[],
+  opts?: { near?: PlaceLocation | null },
+): MealVenuePick | null {
+  const used = usedKeySet(usedNames);
+  const near = opts?.near ?? null;
+  const eligible = cards.filter((c) => {
+    if (!hasMealCoords(c)) return false;
+    if (isMealUsed(c, used)) return false;
+    if (isGoogleInstitutionalDiningType(c)) return false;
+    return true;
+  });
+  if (!eligible.length) return null;
+
+  const gated = eligible.filter(passesMealQualityGate);
+  if (gated.length) {
+    return { card: sortMealCandidates(gated, near)[0]!, lowSignal: false };
+  }
+  return { card: sortMealCandidates(eligible, near)[0]!, lowSignal: true };
+}
+
 export function pickUnusedRestaurant(
   cards: PlaceCard[],
   usedNames?: string[],
+  near?: PlaceLocation | null,
 ): PlaceCard | null {
-  const used = new Set((usedNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
-  return (
-    cards.find((c) => {
-      const name = c.name?.trim().toLowerCase();
-      if (!name || used.has(name)) return false;
-      const loc = c.location;
-      return typeof loc?.lat === "number" && typeof loc?.lng === "number";
-    }) ?? null
-  );
+  return pickMealVenue(cards, usedNames, { near })?.card ?? null;
 }
 
-/** Prefer unused; if none, reuse a used same-day name present in cards (F91 — never skip). */
+/** Prefer unused; if none, reuse among all cards with rank (F91 — never skip). */
 export function pickRestaurantAllowReuse(
   cards: PlaceCard[],
   usedNames?: string[],
+  near?: PlaceLocation | null,
 ): PlaceCard | null {
-  const unused = pickUnusedRestaurant(cards, usedNames);
-  if (unused) return unused;
-  const used = new Set((usedNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
-  const reused = cards.find((c) => {
-    const name = c.name?.trim().toLowerCase();
-    if (!name || !used.has(name)) return false;
-    const loc = c.location;
-    return typeof loc?.lat === "number" && typeof loc?.lng === "number";
-  });
-  if (reused) return reused;
-  return (
-    cards.find((c) => {
-      const loc = c.location;
-      return typeof loc?.lat === "number" && typeof loc?.lng === "number";
-    }) ?? null
-  );
+  const unused = pickMealVenue(cards, usedNames, { near });
+  if (unused) return unused.card;
+  return pickMealVenue(cards, [], { near })?.card ?? null;
 }
 
 export function withinCorridorRadius(
