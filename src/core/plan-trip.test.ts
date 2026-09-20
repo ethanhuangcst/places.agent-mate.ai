@@ -1476,6 +1476,43 @@ describe("MVP-T3 plan_trip skeleton_only (TC-T3-100)", () => {
     expect(JSON.stringify(result)).not.toMatch(/sk-|api[_-]?key|secret/i);
   });
 
+  it("should_dualWrite_artifacts_tips_when_skeleton_only_for_90d", async () => {
+    const result = await planTrip({
+      ...baseT3(),
+      _testTravelTips: async () => ({
+        intro: "Lisbon tip",
+        iconic_places: ["Torre de Belém"],
+        iconic_grounded: true,
+        transit: "tram",
+        weather: null,
+        weather_unavailable: true,
+        clothing: "light",
+        safety: "watch bags",
+      }),
+    });
+    expect(result.status).toBe("ready");
+    // Fire-and-forget: wait briefly for background dualWrite.
+    await new Promise((r) => setTimeout(r, 50));
+    const fetched = await fetchTripDetails({
+      callerKey,
+      trip_id: result.trip_id,
+      fields: ["artifacts"],
+    });
+    const tips = (fetched.data.artifacts as { tips?: Record<string, unknown> } | undefined)?.tips;
+    expect(tips).toBeDefined();
+    for (const key of [
+      "intro",
+      "iconic_places",
+      "transit",
+      "weather",
+      "clothing",
+      "safety",
+    ]) {
+      expect(tips).toHaveProperty(key);
+    }
+    expect(fetched.data.artifacts).not.toHaveProperty("visa");
+  });
+
   it("should_ready_skeleton_when_origin_omitted (takeoff skip hotel)", async () => {
     const { origin: _omit, ...rest } = baseT3();
     const result = await planTrip({
@@ -2361,5 +2398,365 @@ describe("MVP-T5 TD-5 resolve_origin_stay cross-script / once-guard", () => {
     expect(resolveCalls).toBe(1);
     expect(result.itinerary?.skeleton).toBeTruthy();
     expect(result.tool_calls?.filter((t) => t === "resolve_origin_stay").length).toBe(2);
+  });
+});
+
+describe("agent-tips-93d — tips-only after skeleton (TC-T10-93d)", () => {
+  let callerKey = "";
+  const prevVendor = process.env.PLACES_VENDOR_MODE;
+  const prevQwen = process.env.QWEN_API_KEY;
+  const prevOpenai = process.env.OPENAI_API_KEY;
+  const prevLegacy = process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+
+  const bellTower = place({
+    name: "钟楼",
+    provider: "AMAP",
+    lat: 34.26,
+    lng: 108.94,
+    photo: "https://cdn.example.com/bell.jpg",
+    nativeId: "B0FFH3BELL1",
+  });
+  const warrior = place({
+    name: "兵马俑",
+    provider: "AMAP",
+    lat: 34.38,
+    lng: 109.27,
+    photo: "https://cdn.example.com/warrior.jpg",
+    nativeId: "B0FFH3WAR01",
+  });
+
+  const skeletonFixture = {
+    days: [
+      {
+        day_index: 1,
+        day_theme: "History",
+        stops: [
+          {
+            name: "西安钟楼饭店",
+            kind: "stay" as const,
+            provider: "AMAP",
+            native_id: "B0FFH3HOT01",
+          },
+          {
+            name: "钟楼",
+            kind: "attraction" as const,
+            provider: "AMAP",
+            native_id: "B0FFH3BELL1",
+          },
+          {
+            name: "兵马俑",
+            kind: "attraction" as const,
+            provider: "AMAP",
+            native_id: "B0FFH3WAR01",
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(async () => {
+    process.env.PLACES_VENDOR_MODE = "fixture";
+    delete process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+    delete process.env.QWEN_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    resetPoiRegistryStoreForTests();
+    setPoiRegistryStore(createMemoryPoiRegistryStore());
+    await prisma.trip.deleteMany();
+    await prisma.callerApiKey.deleteMany();
+    clearTripMemoryForTests();
+    const generated = generateCallerSecret();
+    const row = await prisma.callerApiKey.create({
+      data: {
+        name: "plan-trip-93d",
+        keyHash: generated.keyHash,
+        prefix: generated.prefix,
+        status: "ACTIVE",
+      },
+    });
+    callerKey = row.id;
+  });
+
+  afterEach(() => {
+    if (prevVendor === undefined) delete process.env.PLACES_VENDOR_MODE;
+    else process.env.PLACES_VENDOR_MODE = prevVendor;
+    if (prevQwen === undefined) delete process.env.QWEN_API_KEY;
+    else process.env.QWEN_API_KEY = prevQwen;
+    if (prevOpenai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenai;
+    if (prevLegacy === undefined) delete process.env.PLAN_TRIP_LEGACY_FULL_LOOP;
+    else process.env.PLAN_TRIP_LEGACY_FULL_LOOP = prevLegacy;
+    resetPoiRegistryStoreForTests();
+  });
+
+  function base93d(overrides: Partial<PlanTripInput> = {}): PlanTripInput {
+    return {
+      callerKey,
+      city: "西安",
+      locale: "CN",
+      numDays: 1,
+      origin: { name: "西安钟楼饭店", lat: 34.26, lng: 108.94 },
+      pace: "medium",
+      budget: "mid",
+      transit_preference: "transit_walk",
+      trip_type: "solo",
+      party_size: 1,
+      bounds: { start: "2026-10-01", end: "2026-10-01" },
+      start_time: "08:00",
+      _testGeocode: async () => okGeocode(34.26, 108.94, "西安"),
+      _testSearchPlaces: async () => okCards([bellTower, warrior]),
+      _testDiscoverPlacesForSkeleton: async () => [bellTower, warrior],
+      _testResolveStay: async () =>
+        place({
+          name: "西安钟楼饭店",
+          provider: "AMAP",
+          lat: 34.26,
+          lng: 108.94,
+          nativeId: "B0FFH3HOT01",
+        }),
+      _testMakeItinerary: async () => ({
+        skeleton: skeletonFixture,
+        candidates_slim: { places: [bellTower, warrior], restaurants: [] },
+      }),
+      _testPlanNextStopFill: async (fillInput) => ({
+        next_stop: {
+          name: fillInput.next_stop.name,
+          location: {
+            lat: fillInput.next_stop.lat ?? 34.26,
+            lng: fillInput.next_stop.lng ?? 108.94,
+            crs: "WGS84" as const,
+          },
+        },
+        legs: [],
+        transit_outcome: "heuristic" as const,
+        single_mode: true,
+        stop_display: {
+          stop: {
+            name: fillInput.next_stop.name,
+            kind: fillInput.next_stop.kind ?? "attraction",
+            card: null,
+            deeplinks: {},
+          },
+          slot: {
+            start: fillInput.time_from ?? "09:00",
+            end: "11:00",
+          },
+          legs_to_here: [],
+          transit_outcome: "heuristic" as const,
+          notes: [] as string[],
+        },
+        day_stops_patch: null,
+        trip_complete: fillInput.next_stop.name === "兵马俑",
+      }),
+      _testFullLoopTurns: [
+        { type: "tool", name: "resolve_origin_stay", args: {} },
+        { type: "tool", name: "make_itinerary", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "plan_next_stop", args: {} },
+        { type: "tool", name: "commit_artifacts", args: {} },
+        { type: "stop" },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("should_dualWrite_artifacts_tips_after_skeleton_when_full_loop_runs", async () => {
+    const planned = await planTrip(
+      base93d({
+        _testTravelTips: async () => ({
+          intro: "西安一日，钟楼与兵马俑。",
+          iconic_places: ["钟楼", "兵马俑"],
+          iconic_grounded: true,
+          transit: "地铁+步行。",
+          weather: null,
+          weather_unavailable: true,
+          clothing: "舒适鞋。",
+          safety: "人多防盗。",
+        }),
+      }),
+    );
+    expect(["ready", "failed"]).toContain(planned.status);
+    expect(planned.status).not.toBe("failed");
+
+    const fetched = await fetchTripDetails({
+      callerKey,
+      trip_id: planned.trip_id,
+      fields: ["artifacts"],
+    });
+    const tips = (fetched.data.artifacts as { tips?: Record<string, unknown> })?.tips;
+    expect(tips).toBeDefined();
+    for (const key of [
+      "intro",
+      "iconic_places",
+      "transit",
+      "weather",
+      "clothing",
+      "safety",
+    ]) {
+      expect(tips).toHaveProperty(key);
+    }
+    expect(fetched.data.artifacts).not.toHaveProperty("visa");
+  });
+
+  it("should_keep_iconic_places_subset_of_skeleton_attractions", async () => {
+    const attractionNames = ["钟楼", "兵马俑"];
+    const planned = await planTrip(
+      base93d({
+        _testTravelTips: async (tipsInput) => {
+          const names = (tipsInput.skeleton?.days ?? [])
+            .flatMap((d) => d.stops ?? [])
+            .filter((s) => s.kind === "attraction")
+            .map((s) => s.name!)
+            .filter(Boolean);
+          expect(names.length).toBeGreaterThan(0);
+          return {
+            intro: "ok",
+            iconic_places: names,
+            iconic_grounded: true,
+            transit: "",
+            weather: null,
+            weather_unavailable: true,
+            clothing: "",
+            safety: "",
+          };
+        },
+      }),
+    );
+    const doc = await fetchTripDetails({
+      callerKey,
+      trip_id: planned.trip_id,
+      fields: ["artifacts"],
+    });
+    const iconic = (
+      doc.data.artifacts as {
+        tips?: { iconic_places?: string[]; iconic_grounded?: boolean };
+      }
+    )?.tips;
+    expect(iconic?.iconic_grounded === true || (iconic?.iconic_places?.length ?? 0) === 0).toBe(
+      true,
+    );
+    for (const name of iconic?.iconic_places ?? []) {
+      expect(attractionNames).toContain(name);
+    }
+  });
+
+  it("should_not_write_artifacts_visa_from_plan_trip_tips", async () => {
+    const planned = await planTrip(
+      base93d({
+        _testTravelTips: async () => ({
+          intro: "intro",
+          iconic_places: ["钟楼"],
+          iconic_grounded: true,
+          transit: "",
+          weather: null,
+          weather_unavailable: true,
+          clothing: "",
+          safety: "",
+        }),
+      }),
+    );
+    const doc = await fetchTripDetails({
+      callerKey,
+      trip_id: planned.trip_id,
+      fields: ["artifacts"],
+    });
+    expect(doc.data.artifacts).toBeDefined();
+    expect((doc.data.artifacts as Record<string, unknown>).visa).toBeUndefined();
+    expect(planned.itinerary?.artifacts).not.toHaveProperty("visa");
+  });
+
+  it("should_leave_trip_ready_or_filling_when_tips_timeout", async () => {
+    const planned = await planTrip(
+      base93d({
+        _testTravelTips: async () => {
+          throw new Error("travel_tips_timeout");
+        },
+      }),
+    );
+    expect(planned.status).not.toBe("failed");
+    expect(["ready", "planning"]).toContain(planned.status);
+    const doc = await fetchTripDetails({
+      callerKey,
+      trip_id: planned.trip_id,
+      fields: ["artifacts"],
+    });
+    const tips = (doc.data.artifacts as { tips?: { iconic_places?: string[] } } | undefined)?.tips;
+    const iconic = tips?.iconic_places ?? [];
+    expect(iconic).not.toContain("Fake Invented Temple");
+  });
+
+  it("should_start_tips_before_fill_completes", async () => {
+    let tipsStartedAt = 0;
+    let lastFillDoneAt = 0;
+    let skeletonDoneAt = 0;
+    let fillCalls = 0;
+
+    const planned = await planTrip(
+      base93d({
+        _testMakeItinerary: async () => {
+          const result = {
+            skeleton: skeletonFixture,
+            candidates_slim: { places: [bellTower, warrior], restaurants: [] },
+          };
+          skeletonDoneAt = Date.now();
+          return result;
+        },
+        _testTravelTips: async () => {
+          tipsStartedAt = Date.now();
+          await new Promise((r) => setTimeout(r, 30));
+          return {
+            intro: "parallel",
+            iconic_places: ["钟楼"],
+            iconic_grounded: true,
+            transit: "",
+            weather: null,
+            weather_unavailable: true,
+            clothing: "",
+            safety: "",
+          };
+        },
+        _testPlanNextStopFill: async (fillInput) => {
+          fillCalls += 1;
+          await new Promise((r) => setTimeout(r, 20));
+          const result = {
+            next_stop: {
+              name: fillInput.next_stop.name,
+              location: {
+                lat: fillInput.next_stop.lat ?? 34.26,
+                lng: fillInput.next_stop.lng ?? 108.94,
+                crs: "WGS84" as const,
+              },
+            },
+            legs: [],
+            transit_outcome: "heuristic" as const,
+            single_mode: true,
+            stop_display: {
+              stop: {
+                name: fillInput.next_stop.name,
+                kind: fillInput.next_stop.kind ?? "attraction",
+                card: null,
+                deeplinks: {},
+              },
+              slot: {
+                start: fillInput.time_from ?? "09:00",
+                end: "11:00",
+              },
+              legs_to_here: [],
+              transit_outcome: "heuristic" as const,
+              notes: [] as string[],
+            },
+            day_stops_patch: null,
+            trip_complete: fillInput.next_stop.name === "兵马俑",
+          };
+          lastFillDoneAt = Date.now();
+          return result;
+        },
+      }),
+    );
+    expect(planned.status).not.toBe("failed");
+    expect(skeletonDoneAt).toBeGreaterThan(0);
+    expect(tipsStartedAt).toBeGreaterThanOrEqual(skeletonDoneAt);
+    expect(fillCalls).toBeGreaterThan(0);
+    expect(tipsStartedAt).toBeLessThan(lastFillDoneAt);
   });
 });

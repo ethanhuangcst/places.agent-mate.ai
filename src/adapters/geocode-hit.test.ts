@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   parseAmapGeocodeAdmin,
   parseGoogleAddressComponents,
+  amapAdminString,
+  isAmapDestEligibleGeoLevel,
+  isAmapDestEligiblePoiType,
 } from "./geocode-hit";
 
 describe("parseGoogleAddressComponents", () => {
@@ -59,7 +62,49 @@ describe("parseAmapGeocodeAdmin", () => {
 
   it("should_use_province_when_city_blank", () => {
     expect(parseAmapGeocodeAdmin({ province: "台湾省", city: "" })).toEqual({
+      country: "中国",
       city: "台湾省",
     });
+  });
+
+  it("should_treat_empty_array_city_as_missing", () => {
+    expect(
+      parseAmapGeocodeAdmin({
+        country: "中国",
+        province: "河南省",
+        city: [],
+        district: "济源市",
+      }),
+    ).toEqual({ country: "中国", city: "济源市" });
+  });
+
+  it("should_default_country_china_when_admin_present", () => {
+    expect(parseAmapGeocodeAdmin({ province: "浙江省", city: "杭州市" })).toEqual({
+      country: "中国",
+      city: "杭州市",
+    });
+  });
+});
+
+describe("amap dest eligibility (agent-geocode-114)", () => {
+  it("should_reject_residential_geo_level", () => {
+    expect(isAmapDestEligibleGeoLevel("住宅区")).toBe(false);
+    expect(isAmapDestEligibleGeoLevel("道路")).toBe(false);
+    expect(isAmapDestEligibleGeoLevel("市")).toBe(true);
+    expect(isAmapDestEligibleGeoLevel("兴趣点")).toBe(true);
+    expect(isAmapDestEligibleGeoLevel(undefined)).toBe(true);
+    expect(isAmapDestEligibleGeoLevel("")).toBe(true);
+  });
+
+  it("should_accept_scenic_poi_types_and_reject_housing", () => {
+    expect(isAmapDestEligiblePoiType("风景名胜;风景名胜;国家级景点")).toBe(true);
+    expect(isAmapDestEligiblePoiType("地名地址信息;自然地名;岛屿")).toBe(true);
+    expect(isAmapDestEligiblePoiType("商务住宅;住宅区;住宅小区")).toBe(false);
+    expect(isAmapDestEligiblePoiType("餐饮服务;中餐厅")).toBe(false);
+  });
+
+  it("should_treat_non_string_admin_as_empty", () => {
+    expect(amapAdminString([])).toBeUndefined();
+    expect(amapAdminString("  厦门市  ")).toBe("厦门市");
   });
 });

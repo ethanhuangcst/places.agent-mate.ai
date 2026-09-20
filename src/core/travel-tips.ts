@@ -184,12 +184,76 @@ function localeLanguage(locale: Locale): string {
   }
 }
 
-function weatherContext(weather: TravelTipsWeather | null): string {
-  if (!weather) return "Weather: unavailable.";
-  const drivers = weather.drivers.length > 0 ? weather.drivers.join(", ") : "clear";
+/** Internal English weather tokens that must not appear in CN/HK/TW tips prose. */
+const FORBIDDEN_EN_WEATHER_TOKEN_RE =
+  /\b(drizzle|rain|storm|fog|heat|clear|fair|caution|adverse|severe)\b/i;
+
+/**
+ * Build weather context for tips-prose LLM.
+ * Uses localized summary + driver labels — never raw English severity/driver enums
+ * (root cause of 「备折叠伞防 drizzle。」).
+ */
+export function weatherContextForTips(
+  locale: Locale,
+  weather: TravelTipsWeather | null,
+): string {
+  if (!weather) {
+    return `Weather: ${t(locale, "travel_tips.weather_unavailable")}`;
+  }
+  const summary =
+    (typeof weather.summary === "string" && weather.summary.trim()) ||
+    t(locale, weather.summary_key);
+  const driverIds: WeatherDriver[] =
+    weather.drivers.length > 0 ? weather.drivers : (["clear"] as WeatherDriver[]);
+  const drivers = driverIds
+    .map((d) => t(locale, `itinerary.weather.driver_${d}`))
+    .join(locale === "EN" ? ", " : "、");
   const lo = weather.temp_min != null ? `${weather.temp_min}°C` : "?";
   const hi = weather.temp_max != null ? `${weather.temp_max}°C` : "?";
-  return `Aggregated weather — severity: ${weather.severity}; drivers: ${drivers}; temp range: low ${lo} / high ${hi}.`;
+  return `Weather summary: ${summary} Conditions: ${drivers}. Temperature: ${lo}–${hi}.`;
+}
+
+/** True when CN/HK/TW prose echoes forbidden English weather enum tokens. */
+export function tipsProseHasForbiddenEnglishWeatherTokens(
+  locale: Locale,
+  prose: { intro: string; transit: string; clothing: string; safety: string },
+): boolean {
+  if (locale === "EN") return false;
+  const blob = [prose.intro, prose.transit, prose.clothing, prose.safety].join("\n");
+  return FORBIDDEN_EN_WEATHER_TOKEN_RE.test(blob);
+}
+
+export function buildTipsProseUserMessage(
+  input: TravelTipsInput,
+  weather: TravelTipsWeather | null,
+  iconic: { names: string[]; grounded: boolean },
+): string {
+  const locale = parseLocale(input.locale);
+  const ctxParts: string[] = [
+    `Destination: ${input.destination}`,
+    `Iconic places (use ONLY these in iconic_places; if empty, omit specific names): ${JSON.stringify(iconic.names)}`,
+    weatherContextForTips(locale, weather),
+  ];
+  if (input.trip_type) ctxParts.push(`Trip type: ${input.trip_type}`);
+  if (input.pace) ctxParts.push(`Pace: ${input.pace}`);
+  if (input.constraints) ctxParts.push(`Constraints: ${input.constraints}`);
+  ctxParts.push(`Write every field in ${localeLanguage(locale)}.`);
+  if (locale !== "EN") {
+    ctxParts.push(
+      "Do not mix languages. Never use English weather tokens " +
+        "(drizzle, rain, storm, fog, heat, clear, fair, caution, adverse, severe); " +
+        "use natural language in the request locale instead (e.g. 毛毛雨 / 小雨).",
+    );
+  }
+
+  return (
+    `Return ONLY a JSON object with fields: ` +
+    `"intro" (destination overview, ≤ ${INTRO_MAX_CHARS} characters), ` +
+    `"transit" (local transit advice, 1–2 sentences), ` +
+    `"clothing" (what to wear/pack for the weather above, 1–2 sentences), ` +
+    `"safety" (safety reminder, 1–2 sentences). ` +
+    `Do not invent itineraries or restaurant names.\n${ctxParts.join("\n")}`
+  );
 }
 
 // --- Branches ---
@@ -261,23 +325,7 @@ async function tipsProseLlm(
     glossary: loadGlossary(locale) ?? undefined,
   });
 
-  const ctxParts: string[] = [
-    `Destination: ${input.destination}`,
-    `Iconic places (use ONLY these in iconic_places; if empty, omit specific names): ${JSON.stringify(iconic.names)}`,
-    weatherContext(weather),
-  ];
-  if (input.trip_type) ctxParts.push(`Trip type: ${input.trip_type}`);
-  if (input.pace) ctxParts.push(`Pace: ${input.pace}`);
-  if (input.constraints) ctxParts.push(`Constraints: ${input.constraints}`);
-  ctxParts.push(`Write every field in ${localeLanguage(locale)}.`);
-
-  const userMessage =
-    `Return ONLY a JSON object with fields: ` +
-    `"intro" (destination overview, ≤ ${INTRO_MAX_CHARS} characters), ` +
-    `"transit" (local transit advice, 1–2 sentences), ` +
-    `"clothing" (what to wear/pack for the weather above, 1–2 sentences), ` +
-    `"safety" (safety reminder, 1–2 sentences). ` +
-    `Do not invent itineraries or restaurant names.\n${ctxParts.join("\n")}`;
+  const userMessage = buildTipsProseUserMessage(input, weather, iconic);
 
   try {
     return await callItineraryLlmWithValidationRetry<TipsProse>({
@@ -291,8 +339,25 @@ async function tipsProseLlm(
       parseAndValidate: (raw) => {
         const json = JSON.parse(raw);
         const parsed = TipsProseSchema.safeParse(json);
-        if (parsed.success) return { ok: true, value: { ...parsed.data, intro: parsed.data.intro.slice(0, INTRO_MAX_CHARS) } };
-        return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), retryable: true };
+        if (!parsed.success) {
+          return {
+            ok: false,
+            error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+            retryable: true,
+          };
+        }
+        const value = { ...parsed.data, intro: parsed.data.intro.slice(0, INTRO_MAX_CHARS) };
+        if (tipsProseHasForbiddenEnglishWeatherTokens(locale, value)) {
+          return {
+            ok: false,
+            error:
+              "User-facing fields must not contain English weather tokens " +
+              "(drizzle/rain/storm/fog/heat/clear/fair/caution/adverse/severe); " +
+              "rewrite entirely in the request locale.",
+            retryable: true,
+          };
+        }
+        return { ok: true, value };
       },
     });
   } catch (err) {

@@ -1,5 +1,11 @@
-import { type PlaceCard, type PlaceLocation, type SearchInput } from "../../core/types";
-import { type GeocodeHit, parseAmapGeocodeAdmin } from "../geocode-hit";
+import { type PlaceCard, type SearchInput } from "../../core/types";
+import {
+  type GeocodeHit,
+  parseAmapGeocodeAdmin,
+  isAmapDestEligibleGeoLevel,
+  isAmapDestEligiblePoiType,
+  amapAdminString,
+} from "../geocode-hit";
 import { type AmapAdapterConfig } from "./config";
 import { amapDeeplinks, amapPoiToCard, amapTipToCard, formatLngLat, parseLngLat, type AmapPoi } from "./card-mapper";
 import { amapKeywords } from "./keywords";
@@ -15,10 +21,11 @@ const PAGE_SIZE = "20";
 type AmapGeocodeRow = {
   location?: string;
   formatted_address?: string;
-  country?: string;
-  province?: string;
-  city?: string;
-  district?: string;
+  country?: unknown;
+  province?: unknown;
+  city?: unknown;
+  district?: unknown;
+  level?: unknown;
 };
 
 type AmapJson = {
@@ -101,26 +108,76 @@ export function createAmapDirectClient(
     return parsed;
   }
 
-  async function geocode(query: string): Promise<GeocodeHit> {
-    const json = await getJson("/v3/geocode/geo", { address: query });
-    assertAmapOk(json, "geocode");
-    const first = asList(json.geocodes)[0];
-    const parsed = parseLngLat(first?.location ?? "");
-    if (!parsed) throw new Error("amap_geocode_empty");
-    const admin = parseAmapGeocodeAdmin({
-      country: first?.country,
-      province: first?.province,
-      city: first?.city,
-      district: first?.district,
+  async function geocodeFromPlaceText(query: string): Promise<GeocodeHit | null> {
+    const json = await getJson("/v5/place/text", {
+      keywords: query,
+      page_size: PAGE_SIZE,
+      page_num: "1",
+      show_fields: "business,cost,photos",
     });
-    return {
-      lat: parsed.lat,
-      lng: parsed.lng,
-      crs: "GCJ-02",
-      address: first?.formatted_address,
-      ...(admin.country ? { country: admin.country } : {}),
-      ...(admin.city ? { city: admin.city } : {}),
-    };
+    assertAmapOk(json, "places");
+    for (const poi of asList(json.pois)) {
+      const raw = poi as AmapPoi & {
+        type?: string;
+        cityname?: unknown;
+        pname?: unknown;
+        adname?: unknown;
+      };
+      if (!isAmapDestEligiblePoiType(raw.type)) continue;
+      const parsed = parseLngLat(raw.location ?? "");
+      if (!parsed) continue;
+      const admin = parseAmapGeocodeAdmin({
+        country: "中国",
+        province: raw.pname,
+        city: raw.cityname,
+        district: raw.adname,
+      });
+      return {
+        lat: parsed.lat,
+        lng: parsed.lng,
+        crs: "GCJ-02",
+        address: amapAdminString(raw.name) ?? query,
+        ...(admin.country ? { country: admin.country } : {}),
+        ...(admin.city ? { city: admin.city } : {}),
+      };
+    }
+    return null;
+  }
+
+  async function geocode(query: string): Promise<GeocodeHit> {
+    const q = query.trim();
+    if (!q) throw new Error("amap_geocode_empty");
+
+    const json = await getJson("/v3/geocode/geo", { address: q });
+    assertAmapOk(json, "geocode");
+    const rows = asList(json.geocodes);
+
+    for (const row of rows) {
+      if (!isAmapDestEligibleGeoLevel(row.level)) continue;
+      const parsed = parseLngLat(row.location ?? "");
+      if (!parsed) continue;
+      const admin = parseAmapGeocodeAdmin({
+        country: row.country,
+        province: row.province,
+        city: row.city,
+        district: row.district,
+      });
+      if (!admin.city) continue;
+      return {
+        lat: parsed.lat,
+        lng: parsed.lng,
+        crs: "GCJ-02",
+        address: amapAdminString(row.formatted_address),
+        ...(admin.country ? { country: admin.country } : {}),
+        city: admin.city,
+      };
+    }
+
+    // Scenic / island names often only appear as 住宅区 in geo — use place/text.
+    const fromPoi = await geocodeFromPlaceText(q);
+    if (fromPoi?.city) return fromPoi;
+
+    throw new Error("amap_geocode_empty");
   }
 
   async function resolveAroundPin(

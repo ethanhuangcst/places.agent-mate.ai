@@ -239,7 +239,7 @@ describe("AMAP live direct client", () => {
     expect(pin.crs).toBe("GCJ-02");
     expect(pin.lat).toBeCloseTo(31.172796);
     expect(pin.country).toBe("中国");
-    expect(pin.city).toBe("上海");
+    expect(pin.city).toBe("上海市");
     expect(pin.city_en).toBeUndefined();
     const addr = await client.reverseGeocode(31.17, 121.36);
     expect(addr).toContain("紫藤路");
@@ -322,5 +322,128 @@ describe("AMAP live direct client", () => {
     };
     const client = createAmapDirectClient(testConfig(), fetchFn);
     await expect(client.searchPlaces({ query: "x" })).rejects.toThrow(/boom-parse/);
+  });
+
+  it("should_geocode_scenic_via_place_text_when_geo_only_housing (agent-geocode-114)", async () => {
+    const { fetchFn, urls } = recordFetch((url) => {
+      if (url.pathname.includes("/geocode/geo")) {
+        return {
+          status: "1",
+          infocode: "10000",
+          geocodes: [
+            {
+              formatted_address: "青海省西宁市城东区鼓浪屿",
+              country: "中国",
+              province: "青海省",
+              city: "西宁市",
+              district: "城东区",
+              location: "101.822402,36.593728",
+              level: "住宅区",
+            },
+            {
+              formatted_address: "四川省眉山市彭山区鼓浪屿",
+              country: "中国",
+              province: "四川省",
+              city: "眉山市",
+              district: "彭山区",
+              location: "103.863757,30.189733",
+              level: "住宅区",
+            },
+          ],
+        };
+      }
+      if (url.pathname.includes("/place/text")) {
+        return {
+          status: "1",
+          infocode: "10000",
+          pois: [
+            {
+              id: "B025003YN2",
+              name: "鼓浪屿风景名胜区",
+              location: "118.067020,24.444695",
+              type: "风景名胜;风景名胜;国家级景点",
+              cityname: "厦门市",
+              pname: "福建省",
+              adname: "思明区",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    const client = createAmapDirectClient(testConfig(), fetchFn);
+    const pin = await client.geocode("鼓浪屿");
+    expect(pin.country).toBe("中国");
+    expect(pin.city).toBe("厦门市");
+    expect(pin.lat).toBeCloseTo(24.444695, 4);
+    expect(pin.lng).toBeCloseTo(118.06702, 4);
+    expect(urls.some((u) => u.pathname.includes("/place/text"))).toBe(true);
+  });
+
+  it("should_geocode_city_from_geo_without_place_text (agent-geocode-114)", async () => {
+    const { fetchFn, urls } = recordFetch((url) => {
+      if (url.pathname.includes("/geocode/geo")) {
+        return {
+          status: "1",
+          infocode: "10000",
+          geocodes: [
+            {
+              formatted_address: "浙江省杭州市",
+              country: "中国",
+              province: "浙江省",
+              city: "杭州市",
+              location: "120.15507,30.274084",
+              level: "市",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    const client = createAmapDirectClient(testConfig(), fetchFn);
+    const pin = await client.geocode("杭州");
+    expect(pin.city).toBe("杭州市");
+    expect(pin.lat).toBeCloseTo(30.274084, 4);
+    expect(urls.some((u) => u.pathname.includes("/place/text"))).toBe(false);
+  });
+
+  it("should_fail_geocode_when_only_housing (agent-geocode-114)", async () => {
+    const { fetchFn } = recordFetch((url) => {
+      if (url.pathname.includes("/geocode/geo")) {
+        return {
+          status: "1",
+          infocode: "10000",
+          geocodes: [
+            {
+              formatted_address: "某市某区假小区",
+              country: "中国",
+              province: "某省",
+              city: "某市",
+              location: "100.0,30.0",
+              level: "住宅区",
+            },
+          ],
+        };
+      }
+      if (url.pathname.includes("/place/text")) {
+        return {
+          status: "1",
+          infocode: "10000",
+          pois: [
+            {
+              id: "B0HOUSE",
+              name: "假小区",
+              location: "100.0,30.0",
+              type: "商务住宅;住宅区;住宅小区",
+              cityname: "某市",
+              pname: "某省",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    const client = createAmapDirectClient(testConfig(), fetchFn);
+    await expect(client.geocode("假小区")).rejects.toThrow(/amap_geocode_empty/);
   });
 });

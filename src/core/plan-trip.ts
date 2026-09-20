@@ -48,13 +48,12 @@ import {
   type DestinationAnchor,
 } from "./destination-poi-registry";
 import { normalizeMustIncludeToken } from "./trip-intake";
-import { artifactsTipsPatch, artifactsVisaPatch } from "./trip-artifacts";
+import { artifactsTipsPatch } from "./trip-artifacts";
 import { dualWriteTrip, slimCandidatesForStore } from "./trip-dual-write";
 import { ensureTrip, getTripOrThrow } from "./trip-store";
 import { geocode, searchPlaces } from "./tools";
 import { travelTips, type TravelTipsInput, type TravelTipsResult } from "./travel-tips";
 import type { PlaceCard, SearchInput } from "./types";
-import { visaRequirement } from "./visa-requirement";
 import { resolveFillTripStatus } from "./fill-trip-status";
 
 const MAX_ITERATIONS = 8;
@@ -301,7 +300,7 @@ export function buildFullLoopSystemPrompt(
     "2. search_places to widen pool if density low.",
     "3. make_itinerary to lay skeleton.",
     "4. Call plan_next_stop once per remaining skeleton stop (day by day, stop by stop) until plan_next_stop returns trip_complete. Do not call stop or commit_artifacts while unfilled skeleton stops remain.",
-    "5. commit_artifacts for tips/visa only after trip_complete.",
+    "5. Tips artifacts start internally after make_itinerary (skeleton). commit_artifacts only awaits pending tips (no visa). Call it after trip_complete.",
     "6. stop only after trip_complete and commit_artifacts.",
     "You choose the next tool each turn. Do not skip make_itinerary.",
     "Do not repeat the same physical place (ADR-058).",
@@ -881,6 +880,9 @@ type FullLoopCtx = {
   done: boolean;
   tripComplete: boolean;
   fillStarted: number | null;
+  /** agent-tips-93d: travelTips started after skeleton; dualWrite on await. */
+  tipsPromise?: Promise<TravelTipsResult | null>;
+  tipsWritten?: boolean;
 };
 
 async function runGeocode(
@@ -1332,7 +1334,107 @@ function emptyFullCtx(): FullLoopCtx {
     done: false,
     tripComplete: false,
     fillStarted: null,
+    tipsPromise: undefined,
+    tipsWritten: false,
   };
+}
+
+/** Soft travel_tips compute (no dualWrite). Failures → null; never throws. */
+async function runTravelTipsSoft(
+  input: PlanTripInput,
+  locale: Locale,
+  skeleton: ItinerarySkeleton,
+): Promise<TravelTipsResult | null> {
+  const tipsInput: TravelTipsInput = {
+    destination: input.city,
+    bounds: input.bounds,
+    trip_type: input.trip_type,
+    pace: input.pace,
+    skeleton,
+    constraints:
+      [input.transit_preference, input.trip_type].filter(Boolean).join("；") || undefined,
+    locale,
+  };
+  try {
+    return input._testTravelTips
+      ? await input._testTravelTips(tipsInput)
+      : await travelTips(tipsInput);
+  } catch {
+    return null;
+  }
+}
+
+function startTipsAfterSkeleton(
+  ctx: FullLoopCtx,
+  input: PlanTripInput,
+  locale: Locale,
+  skeleton: ItinerarySkeleton,
+): void {
+  if (ctx.tipsPromise) return;
+  ctx.tipsPromise = runTravelTipsSoft(input, locale, skeleton);
+}
+
+/** DualWrite artifacts.tips only (no visa). Idempotent via ctx.tipsWritten. */
+async function awaitAndWriteTipsArtifacts(
+  ctx: FullLoopCtx,
+  input: PlanTripInput,
+  locale: Locale,
+  tripId: string,
+  revisionRef: { current?: number },
+  timing: PlanTripTiming,
+): Promise<void> {
+  if (ctx.tipsWritten) return;
+  const tTips = Date.now();
+  if (!ctx.tipsPromise && ctx.skeleton) {
+    startTipsAfterSkeleton(ctx, input, locale, ctx.skeleton);
+  }
+  const tips = ctx.tipsPromise ? await ctx.tipsPromise : null;
+  if (tips) {
+    const artifacts = artifactsTipsPatch(tips);
+    ctx.artifacts = { ...ctx.artifacts, ...artifacts };
+    try {
+      const artWrite = await dualWriteTrip({
+        callerKey: input.callerKey,
+        tripId,
+        expectedRevision: revisionRef.current,
+        locale,
+        patch: { artifacts },
+      });
+      revisionRef.current = artWrite.revision;
+      ctx.tipsWritten = true;
+    } catch {
+      /* soft: tips write must not fail the trip */
+    }
+  }
+  timing.tips_s = secondsSince(tTips);
+}
+
+/**
+ * 2play-plan-90d / T3 skeleton_only: start tips + dualWrite without blocking the HTTP return.
+ * Re-reads current revision to reduce conflict with concurrent fill writes.
+ */
+function fireAndForgetTipsArtifactsWrite(
+  input: PlanTripInput,
+  locale: Locale,
+  tripId: string,
+  skeleton: ItinerarySkeleton,
+): void {
+  void (async () => {
+    try {
+      const tips = await runTravelTipsSoft(input, locale, skeleton);
+      if (!tips) return;
+      const doc = await getTripOrThrow(input.callerKey, tripId);
+      await dualWriteTrip({
+        callerKey: input.callerKey,
+        tripId,
+        expectedRevision: doc.revision,
+        locale,
+        patch: { artifacts: artifactsTipsPatch(tips) },
+      });
+    } catch {
+      /* soft: must not fail skeleton_only */
+    }
+  })();
 }
 
 function rememberDiscovered(ctx: FullLoopCtx, cards: PlaceCard[]): void {
@@ -1530,6 +1632,8 @@ async function executeFullTool(
     timing.skeleton_s = secondsSince(tSkeleton);
     ctx.skeleton = made.skeleton;
     rememberDiscovered(ctx, made.candidates_slim.places);
+    // agent-tips-93d: start tips compute in parallel with fill (dualWrite on commit/await).
+    startTipsAfterSkeleton(ctx, input, locale, made.skeleton);
     const handoff = skeletonFillHandoff(
       ctx.skeleton,
       locale,
@@ -1694,56 +1798,15 @@ async function executeFullTool(
   }
   if (name === "commit_artifacts") {
     if (!ctx.skeleton) return { error: "skeleton_required" };
-    const tTips = Date.now();
-    const tipsInput: TravelTipsInput = {
-      destination: input.city,
-      bounds: input.bounds,
-      trip_type: input.trip_type,
-      pace: input.pace,
-      skeleton: ctx.skeleton,
-      constraints: [input.transit_preference, input.trip_type].filter(Boolean).join("；") || undefined,
+    await awaitAndWriteTipsArtifacts(
+      ctx,
+      input,
       locale,
-    };
-    let tips: TravelTipsResult | null = null;
-    try {
-      tips = input._testTravelTips
-        ? await input._testTravelTips(tipsInput)
-        : await travelTips(tipsInput);
-    } catch {
-      tips = null;
-    }
-    let artifacts: Record<string, unknown> = {};
-    if (tips) {
-      artifacts = { ...artifacts, ...artifactsTipsPatch(tips) };
-    }
-    try {
-      const visa = await visaRequirement({
-        passport: "CHN",
-        destination: "CHN",
-        locale,
-      });
-      if (visa.data || visa.outcomeKey) {
-        artifacts = {
-          ...artifacts,
-          ...artifactsVisaPatch(visa.data, visa.outcomeKey),
-        };
-      }
-    } catch {
-      /* visa optional */
-    }
-    ctx.artifacts = artifacts;
-    if (Object.keys(artifacts).length) {
-      const artWrite = await dualWriteTrip({
-        callerKey: input.callerKey,
-        tripId,
-        expectedRevision: revisionRef.current,
-        locale,
-        patch: { artifacts },
-      });
-      revisionRef.current = artWrite.revision;
-    }
-    timing.tips_s = secondsSince(tTips);
-    return { artifacts: Object.keys(artifacts) };
+      tripId,
+      revisionRef,
+      timing,
+    );
+    return { artifacts: Object.keys(ctx.artifacts) };
   }
   return { error: `unknown_tool:${name}` };
 }
@@ -1836,6 +1899,15 @@ async function runFullLoopAgent(
     });
   }
   if (!ctx.skeleton) return null;
+  // Ensure tips dualWrite even if model skipped commit_artifacts.
+  await awaitAndWriteTipsArtifacts(
+    ctx,
+    input,
+    locale,
+    tripId,
+    revisionRef,
+    timing,
+  );
   return {
     skeleton: ctx.skeleton,
     filledStops: ctx.filledStops,
@@ -2070,11 +2142,16 @@ async function runFullLoop(
   timing.skeleton_s = secondsSince(tSkeleton);
 
   if (opts?.stopAfterSkeleton) {
+    // 2play-plan-90d: T3 skeleton_only still writes tips in background (no visa).
+    fireAndForgetTipsArtifactsWrite(input, locale, tripId, made.skeleton);
     return {
       skeleton: made.skeleton,
       filledStops: [],
     };
   }
+
+  // agent-tips-93d: start tips in parallel with fill (tips-only; no visa).
+  const tipsPromise = runTravelTipsSoft(input, locale, made.skeleton);
 
   const tFill = Date.now();
   const filledStops: PlanTripFilledStop[] = [];
@@ -2239,53 +2316,23 @@ async function runFullLoop(
   timing.fill_s = secondsSince(tFill);
 
   const tTips = Date.now();
-  const tipsInput: TravelTipsInput = {
-    destination: input.city,
-    bounds: input.bounds,
-    trip_type: input.trip_type,
-    pace: input.pace,
-    skeleton: skeletonWorking,
-    constraints: [input.transit_preference, input.trip_type].filter(Boolean).join("；") || undefined,
-    locale,
-  };
-  let tips: TravelTipsResult | null = null;
-  try {
-    tips = input._testTravelTips
-      ? await input._testTravelTips(tipsInput)
-      : await travelTips(tipsInput);
-    toolCalls.push("travel_tips");
-  } catch {
-    tips = null;
-  }
   let artifacts: Record<string, unknown> = {};
-  if (tips) {
-    artifacts = { ...artifacts, ...artifactsTipsPatch(tips) };
-  }
   try {
-    const visa = await visaRequirement({
-      passport: "CHN",
-      destination: "CHN",
-      locale,
-    });
-    if (visa.data || visa.outcomeKey) {
-      artifacts = {
-        ...artifacts,
-        ...artifactsVisaPatch(visa.data, visa.outcomeKey),
-      };
-      toolCalls.push("visa_requirement");
+    const tips = await tipsPromise;
+    if (tips) {
+      artifacts = { ...artifactsTipsPatch(tips) };
+      toolCalls.push("travel_tips");
+      const artWrite = await dualWriteTrip({
+        callerKey: input.callerKey,
+        tripId,
+        expectedRevision: revisionRef.current,
+        locale,
+        patch: { artifacts },
+      });
+      revisionRef.current = artWrite.revision;
     }
   } catch {
-    /* visa optional for domestic */
-  }
-  if (Object.keys(artifacts).length) {
-    const artWrite = await dualWriteTrip({
-      callerKey: input.callerKey,
-      tripId,
-      expectedRevision: revisionRef.current,
-      locale,
-      patch: { artifacts },
-    });
-    revisionRef.current = artWrite.revision;
+    /* tips soft-fail */
   }
   timing.tips_s = secondsSince(tTips);
 
