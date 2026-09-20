@@ -461,12 +461,12 @@ describe("planTrip POC intake", () => {
     expect(places.some((p) => p.provider === "GOOGLE_MAPS")).toBe(false);
   });
 
-  it("should_use_google_and_amap_when_city_is_hong_kong", async () => {
+  it("should_use_google_only_when_city_is_hong_kong", async () => {
     const strategy = await resolveProviderStrategy({
       location: "Hong Kong",
       near: { lat: 22.3193, lng: 114.1694 },
     });
-    expect(strategy.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(strategy.searchProviders).toEqual(["GOOGLE_MAPS"]);
 
     const planned = await planTrip({
       callerKey,
@@ -483,11 +483,11 @@ describe("planTrip POC intake", () => {
             photo: "https://cdn.example.com/peak.jpg",
           }),
           place({
-            name: "香港歷史博物館",
-            provider: "AMAP",
+            name: "Hong Kong Museum of History",
+            provider: "GOOGLE_MAPS",
             lat: 22.3019,
             lng: 114.1772,
-            photo: "https://store.is.autonavi.com/hk-museum.jpg",
+            photo: "https://cdn.example.com/hk-museum.jpg",
           }),
         ]),
     });
@@ -501,7 +501,7 @@ describe("planTrip POC intake", () => {
       ?.places ?? [];
     const providers = new Set(places.map((p) => p.provider));
     expect(providers.has("GOOGLE_MAPS")).toBe(true);
-    expect(providers.has("AMAP")).toBe(true);
+    expect(providers.has("AMAP")).toBe(false);
   });
 
   it("should_return_ready_with_3day_itinerary_when_full_bounds_provided", async () => {
@@ -1047,7 +1047,7 @@ describe("planTrip POC intake", () => {
       { location: "Hong Kong", locale: "HK" },
       async () => ({ address: "Hong Kong", lat: 22.3193, lng: 114.1694 }),
     );
-    expect(hongkong.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(hongkong.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
   it("should_not_force_nominate_on_intake_when_scripted_search", async () => {

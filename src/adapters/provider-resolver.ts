@@ -19,7 +19,8 @@ export type GeocodeFn = (query: string) => Promise<{
   lng?: number;
 } | null>;
 
-type DestinationRegion = "mainland" | "hongkong" | "other";
+/** Two regions: mainland China → AMAP; everywhere else → Google (ADR-052 D2). */
+type DestinationRegion = "mainland" | "other";
 
 /**
  * Resolve provider strategy based on destination region.
@@ -32,6 +33,10 @@ type DestinationRegion = "mainland" | "hongkong" | "other";
  *
  * CJK character ratio heuristic is intentionally removed — it caused
  * false positives for HK district names (中環), Japanese (銀座), Korean (明洞).
+ *
+ * HK/MO/TW must be detected *before* the mainland China bbox (they sit inside
+ * the oversized CN lon/lat box). They map to "other" (Google-only), not a
+ * separate dual-source region.
  */
 export async function resolveProviderStrategy(
   input: ProviderResolverInput,
@@ -42,11 +47,6 @@ export async function resolveProviderStrategy(
   switch (region) {
     case "mainland":
       return { searchProviders: ["AMAP"], enrichProviders: [] };
-    case "hongkong":
-      return {
-        searchProviders: ["GOOGLE_MAPS", "AMAP"],
-        enrichProviders: ["TRIPADVISOR"],
-      };
     case "other":
       return {
         searchProviders: ["GOOGLE_MAPS"],
@@ -65,6 +65,7 @@ const TAIWAN_MARKERS = [
   "南投", "澎湖", "金門", "金门", "馬祖", "马祖",
 ];
 
+/** HK remains detected so it is not swallowed by the mainland bbox → AMAP. */
 const HK_MARKERS = [
   "香港", "Hong Kong", "Hongkong",
   "中環", "中环", "Central", "上環", "上环", "灣仔", "湾仔", "Wan Chai",
@@ -73,6 +74,12 @@ const HK_MARKERS = [
   "油麻地", "九龍", "九龙", "Kowloon",
   "沙田", "大埔", "荃灣", "荃湾", "屯門", "屯门", "元朗",
   "東涌", "东涌", "Lantau",
+];
+
+/** Macau must not fall into mainland AMAP (coords sit in the CN box). */
+const MACAU_MARKERS = [
+  "澳门", "澳門", "Macau", "Macao",
+  "大三巴", "路氹", "氹仔", "Taipa", "Cotai", "Coloane",
 ];
 
 // --- Detection logic ---
@@ -121,20 +128,32 @@ async function detectRegion(
 }
 
 function regionFromCoords(lat: number, lng: number): DestinationRegion | null {
-  // Taiwan bounding box (check first — overlaps with China lon range)
+  // Order: TW → HK → MO → mainland (SARs sit inside the CN lon/lat box).
   if (lat >= 21.9 && lat <= 25.3 && lng >= 120 && lng <= 122) return "other";
-  // Hong Kong bounding box
-  if (lat >= 22.15 && lat <= 22.56 && lng >= 113.83 && lng <= 114.43) return "hongkong";
-  // Mainland China
+  if (lat >= 22.15 && lat <= 22.56 && lng >= 113.83 && lng <= 114.43) return "other";
+  // Macau SAR (peninsula + Taipa/Coloane); west of HK box, still in CN bbox.
+  if (lat >= 22.1 && lat <= 22.25 && lng >= 113.52 && lng <= 113.65) return "other";
   if (lat >= 18 && lat <= 54 && lng >= 73 && lng <= 135) return "mainland";
   return null;
 }
 
 function regionFromAddress(address: string): DestinationRegion | null {
   const lower = address.toLowerCase();
-  if (lower.includes("hong kong") || address.includes("香港")) return "hongkong";
-  if (lower.includes("taiwan") || address.includes("台灣") || address.includes("臺灣")) return "other";
-  if (lower.includes("china") || address.includes("中国") || address.includes("中國")) return "mainland";
+  if (lower.includes("hong kong") || address.includes("香港")) return "other";
+  if (
+    lower.includes("macau") ||
+    lower.includes("macao") ||
+    address.includes("澳门") ||
+    address.includes("澳門")
+  ) {
+    return "other";
+  }
+  if (lower.includes("taiwan") || address.includes("台灣") || address.includes("臺灣")) {
+    return "other";
+  }
+  if (lower.includes("china") || address.includes("中国") || address.includes("中國")) {
+    return "mainland";
+  }
   return null;
 }
 
@@ -149,7 +168,8 @@ function regionFromMarkers(location: string): DestinationRegion | null {
     location.includes(marker) || lower.includes(marker.toLowerCase());
 
   for (const m of TAIWAN_MARKERS) if (includes(m)) return "other";
-  for (const m of HK_MARKERS) if (includes(m)) return "hongkong";
+  for (const m of HK_MARKERS) if (includes(m)) return "other";
+  for (const m of MACAU_MARKERS) if (includes(m)) return "other";
   if (matchesChinaCity(location)) return "mainland";
 
   return null; // unknown — let caller use default

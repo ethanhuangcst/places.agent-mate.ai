@@ -1,11 +1,10 @@
 /**
  * Chinese city names for provider auto-selection.
- * Mainland China + Hong Kong + Macau. NOT Taiwan (AMAP has poor Taiwan coverage).
+ * Mainland China only. NOT Taiwan / Hong Kong / Macau (those → Google-only, ADR-052).
  */
 
 const CHINA_CITIES_ZH: readonly string[] = [
   "北京", "上海", "天津", "重庆",
-  "香港", "澳门",
   "广州", "深圳", "杭州", "南京", "成都", "武汉", "西安", "苏州",
   "长沙", "青岛", "大连", "厦门", "昆明", "哈尔滨", "沈阳", "济南",
   "郑州", "福州", "无锡", "合肥", "佛山", "东莞", "温州", "宁波",
@@ -40,10 +39,9 @@ const CHINA_CITIES_EN: Record<string, true> = {
   haikou: true, sanya: true, hohhot: true, nanchang: true,
   lhasa: true, xining: true, yinchuan: true, zhuhai: true,
   guilin: true, lijiang: true, dali: true,
-  "hong kong": true, hongkong: true, macau: true, macao: true,
 };
 
-/** Check if text mentions a Chinese city (mainland or HK/Macau, not Taiwan). */
+/** Check if text mentions a mainland Chinese city (not TW/HK/MO). */
 export function matchesChinaCity(text: string): boolean {
   for (const city of CHINA_CITIES_ZH) {
     if (text.includes(city)) return true;

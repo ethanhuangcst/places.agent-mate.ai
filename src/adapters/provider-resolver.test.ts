@@ -32,9 +32,14 @@ describe("resolveProviderStrategy", () => {
     expect(r.searchProviders).toEqual(["AMAP"]);
   });
 
-  it("HK coordinates → Google + AMAP", async () => {
+  it("HK coordinates → Google only", async () => {
     const r = await resolveProviderStrategy({ near: { lat: 22.28, lng: 114.17 } });
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
+  });
+
+  it("Macau coordinates → Google only", async () => {
+    const r = await resolveProviderStrategy({ near: { lat: 22.1987, lng: 113.5439 } });
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
   it("Taiwan coordinates → Google only", async () => {
@@ -64,9 +69,9 @@ describe("resolveProviderStrategy", () => {
     expect(r.searchProviders).toEqual(["AMAP"]);
   });
 
-  it("中環 + geocode → Hong Kong → Google + AMAP", async () => {
+  it("中環 + geocode → Hong Kong → Google only", async () => {
     const r = await resolveProviderStrategy({ location: "中環" }, mockGeocode);
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
   it("銀座 + geocode → Japan → Google only", async () => {
@@ -91,9 +96,9 @@ describe("resolveProviderStrategy", () => {
     expect(r.searchProviders).toEqual(["AMAP"]);
   });
 
-  it("geocode fails → falls back to markers → 香港 → Google + AMAP", async () => {
+  it("geocode fails → falls back to markers → 香港 → Google only", async () => {
     const r = await resolveProviderStrategy({ location: "香港尖沙咀" }, failingGeocode);
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
   it("geocode fails → unknown CJK text → default Google (no CJK fallback)", async () => {
@@ -109,14 +114,14 @@ describe("resolveProviderStrategy", () => {
     expect(r.searchProviders).toEqual(["AMAP"]);
   });
 
-  it("Hong Kong text, no geocode → markers → Google + AMAP", async () => {
+  it("Hong Kong text, no geocode → markers → Google only", async () => {
     const r = await resolveProviderStrategy({ location: "Hong Kong Central" }, noGeocode);
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
-  it("中環 text, no geocode → HK marker → Google + AMAP", async () => {
+  it("中環 text, no geocode → HK marker → Google only", async () => {
     const r = await resolveProviderStrategy({ location: "中環" }, noGeocode);
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
   it("台北 text, no geocode → TW marker → Google only", async () => {
@@ -129,9 +134,9 @@ describe("resolveProviderStrategy", () => {
     expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
-  it("Macau text, no geocode → china-cities match → AMAP", async () => {
+  it("Macau text, no geocode → Macau marker → Google only", async () => {
     const r = await resolveProviderStrategy({ location: "澳门大三巴牌坊" }, noGeocode);
-    expect(r.searchProviders).toEqual(["AMAP"]);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 
   // === CJK text with no marker match → default Google (NOT mainland) ===
@@ -160,11 +165,11 @@ describe("resolveProviderStrategy", () => {
 
   // === Coordinates take priority over geocode ===
 
-  it("coords override geocode — HK coords + mainland text → hongkong", async () => {
+  it("coords override geocode — HK coords + mainland text → Google only", async () => {
     const r = await resolveProviderStrategy(
       { location: "上海", near: { lat: 22.28, lng: 114.17 } },
       mockGeocode,
     );
-    expect(r.searchProviders).toEqual(["GOOGLE_MAPS", "AMAP"]);
+    expect(r.searchProviders).toEqual(["GOOGLE_MAPS"]);
   });
 });

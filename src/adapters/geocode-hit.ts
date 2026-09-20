@@ -29,11 +29,13 @@ export function parseGoogleAddressComponents(
 ): { country?: string; city?: string } {
   if (!components?.length) return {};
   const country = componentName(components, "country");
-  const city =
+  let city =
     componentName(components, "locality") ||
     componentName(components, "postal_town") ||
     componentName(components, "administrative_area_level_2") ||
     componentName(components, "administrative_area_level_1");
+  // City-states (HK / MO / SG / …): Google often returns only `country`.
+  if (country && !city) city = country;
   return { country, city };
 }
 
@@ -45,10 +47,11 @@ export function parseAmapGeocodeAdmin(row: {
   district?: string;
 }): { country?: string; city?: string } {
   const country = row.country?.trim() || undefined;
-  const city =
+  let city =
     row.city?.trim() ||
     row.district?.trim() ||
     row.province?.trim() ||
     undefined;
+  if (country && !city) city = country;
   return { country, city };
 }

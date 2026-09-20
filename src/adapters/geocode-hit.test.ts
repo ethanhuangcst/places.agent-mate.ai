@@ -25,6 +25,24 @@ describe("parseGoogleAddressComponents", () => {
     expect(parseGoogleAddressComponents(undefined)).toEqual({});
     expect(parseGoogleAddressComponents([])).toEqual({});
   });
+
+  it("should_use_country_as_city_when_city_state_has_no_locality", () => {
+    expect(
+      parseGoogleAddressComponents([
+        { long_name: "香港", types: ["country", "political"] },
+      ]),
+    ).toEqual({ country: "香港", city: "香港" });
+    expect(
+      parseGoogleAddressComponents([
+        { long_name: "Hong Kong", types: ["country", "political"] },
+      ]),
+    ).toEqual({ country: "Hong Kong", city: "Hong Kong" });
+    expect(
+      parseGoogleAddressComponents([
+        { long_name: "Macao", types: ["country", "political"] },
+      ]),
+    ).toEqual({ country: "Macao", city: "Macao" });
+  });
 });
 
 describe("parseAmapGeocodeAdmin", () => {
