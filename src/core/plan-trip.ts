@@ -2478,11 +2478,11 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
     }
     if (!wantsFull && hotelSkipped) {
       // Hotel skipped but intake never committed — still cannot schedule.
-      return {
-        trip_id: ensured.trip_id,
-        revision: revisionRef.current ?? ensured.revision,
-        status: "failed",
-        tool_calls: toolCalls,
+    return {
+      trip_id: ensured.trip_id,
+      revision: revisionRef.current ?? ensured.revision,
+      status: "failed",
+      tool_calls: toolCalls,
         timing,
       };
     }
@@ -2511,12 +2511,12 @@ export async function planTrip(input: PlanTripInput): Promise<PlanTripResult> {
         );
         timing.total_s = secondsSince(t0);
         if (state.asked?.questions.some((q) => q.id === EXPAND_RADIUS_QUESTION_ID)) {
-          return {
-            trip_id: ensured.trip_id,
-            revision: revisionRef.current ?? ensured.revision,
-            status: "needs_input",
+  return {
+    trip_id: ensured.trip_id,
+    revision: revisionRef.current ?? ensured.revision,
+    status: "needs_input",
             need_input: state.asked,
-            tool_calls: toolCalls,
+    tool_calls: toolCalls,
             timing,
           };
         }

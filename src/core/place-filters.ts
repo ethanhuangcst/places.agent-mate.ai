@@ -9,7 +9,7 @@ const BUSINESS_TRANSIT_DENY =
 
 /** POI fragments that inflate discover pools (ADR-038 P0). Destination-agnostic. */
 const ATTRACTION_FRAGMENT_DENY =
-  /售票处|售票處|请香|請香|直通车|直通車|乘车点|乘車點|发车点|發車點|敌台|敵台|敌楼|敵樓|瓮城|甕城|箭楼|箭樓|停靠点|停靠點|手划船|游船|遊船|码头|碼頭|检票|檢票|停车场|停車場|游客中心|遊客中心|入口|出口/i;
+  /售票处|售票處|请香|請香|直通车|直通車|乘车点|乘車點|发车点|發車點|敌台|敵台|敌楼|敵樓|瓮城|甕城|箭楼|箭樓|停靠点|停靠點|手划船|游船|遊船|码头|碼頭|检票|檢票|停车场|停車場|游客中心|遊客中心|入口|出口|母婴室|母嬰室|卫生间|衛生間|厕所|廁所|洗手间|洗手間|更衣室|医务室|醫務室|寄存处|寄存處|nursing\s*room|baby\s*care|restroom|\btoilet\b|cloakroom|locker\s*room|first\s*aid/i;
 
 const VISIT_DENY =
   /shopping_mall|fashion plaza|garden plaza|\bplaza\b|\bmall\b|美食街|residential|transit_station|地铁站|\bstation\b|码头|碼頭|停靠点|停靠點|手划船|游船|遊船|景区|商城|购物中心|步行街|tourist_information|information_center|visitor.?center|visitlisboa|lisboa card|\bturismo\b|不对外开放/i;

@@ -85,6 +85,26 @@ describe("TC-M22-84-01 isEligibleAttraction", () => {
     expect(kept.map((p) => p.name)).toEqual(["断桥残雪"]);
   });
 
+  it("should_reject_scenic_nursing_room_and_toilet_service_fragments", () => {
+    expect(isEligibleAttraction(card({ name: "西溪湿地洪园景区母婴室" }))).toBe(false);
+    expect(
+      isEligibleAttraction(
+        card({
+          name: "西溪湿地洪园景区-母婴室",
+          provider: "AMAP",
+          sources: [{ provider: "AMAP", native_id: "nurs1", deeplinks: {} }],
+        }),
+      ),
+    ).toBe(false);
+    expect(isEligibleAttraction(card({ name: "西湖风景名胜区卫生间" }))).toBe(false);
+    expect(isEligibleAttraction(card({ name: "Leifeng Pagoda restroom" }))).toBe(false);
+    const kept = filterEligibleAttractions([
+      card({ name: "西溪湿地洪园景区母婴室", category: "风景名胜" }),
+      card({ name: "西溪国家湿地公园", category: "风景名胜" }),
+    ]);
+    expect(kept.map((p) => p.name)).toEqual(["西溪国家湿地公园"]);
+  });
+
   it("should_accept_when_slim_card_has_coords_and_venue_name", () => {
     expect(
       isEligibleAttraction({
@@ -143,6 +163,22 @@ describe("pickNominatedGroundCard", () => {
       card({ name: "灵隐寺度假别墅", category: "宾馆酒店" }),
     ]);
     expect(picked).toBeUndefined();
+  });
+
+  it("should_not_ground_nominated_wetland_to_nursing_room_child", () => {
+    const nursing = card({
+      name: "西溪湿地洪园景区母婴室",
+      category: "风景名胜",
+      sources: [{ provider: "AMAP", native_id: "nurs1", deeplinks: {} }],
+    });
+    const park = card({
+      name: "西溪湿地洪园景区",
+      category: "风景名胜",
+      sources: [{ provider: "AMAP", native_id: "park1", deeplinks: {} }],
+    });
+    expect(pickNominatedGroundCard("西溪湿地", [nursing])).toBeUndefined();
+    expect(pickNominatedGroundCard("西溪湿地", [nursing, park])?.name).toBe("西溪湿地洪园景区");
+    expect(pickNominatedGroundCard("洪园", [nursing])).toBeUndefined();
   });
 
   it("should_reject_bentley_flagship_via_noise_category", () => {
