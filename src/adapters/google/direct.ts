@@ -351,6 +351,7 @@ export function createGoogleDirectClient(
         crs: "WGS84",
         address: first?.formatted_address,
         ...(admin.country ? { country: admin.country } : {}),
+        ...(admin.country_code ? { country_code: admin.country_code } : {}),
         ...(admin.city ? { city: admin.city } : {}),
       };
       if (cityEn && cityEn !== admin.city) hit.city_en = cityEn;

@@ -43,6 +43,25 @@ describe("visaRequirement core", () => {
     expect(mapped.unavailable_fields).toEqual(
       expect.arrayContaining(["embassy", "transit_visa"]),
     );
+    expect(mapped.embassy).toBeUndefined();
+    expect(mapped.cost).toBeUndefined();
+  });
+
+  it("should_map_honest_cost_and_skip_upgrade_cost", () => {
+    const withFee = mapOriznVisaPayload("CHN", "PRT", {
+      requirement: "visa_required",
+      cost: "€80 Schengen visa",
+      documents: ["Valid passport"],
+    });
+    expect(withFee.cost).toBe("€80 Schengen visa");
+    expect(withFee.documents).toEqual(["Valid passport"]);
+
+    const paid = mapOriznVisaPayload("CHN", "PRT", {
+      requirement: "visa_required",
+      cost: { upgrade: "Fee details require Pro plan" },
+    });
+    expect(paid.cost).toBeUndefined();
+    expect(paid.unavailable_fields).toEqual(expect.arrayContaining(["cost"]));
   });
 
   it("should_return_fixture_data_for_chn_jpn", async () => {

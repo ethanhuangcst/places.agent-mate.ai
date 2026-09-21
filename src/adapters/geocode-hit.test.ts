@@ -57,13 +57,14 @@ describe("parseAmapGeocodeAdmin", () => {
         city: "上海市",
         district: "闵行区",
       }),
-    ).toEqual({ country: "中国", city: "上海市" });
+    ).toEqual({ country: "中国", city: "上海市", country_code: "CN" });
   });
 
   it("should_use_province_when_city_blank", () => {
     expect(parseAmapGeocodeAdmin({ province: "台湾省", city: "" })).toEqual({
       country: "中国",
       city: "台湾省",
+      country_code: "CN",
     });
   });
 
@@ -75,14 +76,24 @@ describe("parseAmapGeocodeAdmin", () => {
         city: [],
         district: "济源市",
       }),
-    ).toEqual({ country: "中国", city: "济源市" });
+    ).toEqual({ country: "中国", city: "济源市", country_code: "CN" });
   });
 
   it("should_default_country_china_when_admin_present", () => {
     expect(parseAmapGeocodeAdmin({ province: "浙江省", city: "杭州市" })).toEqual({
       country: "中国",
       city: "杭州市",
+      country_code: "CN",
     });
+  });
+
+  it("should_set_country_code_from_google_short_name", () => {
+    expect(
+      parseGoogleAddressComponents([
+        { long_name: "Lisbon", types: ["locality", "political"] },
+        { long_name: "Portugal", short_name: "PT", types: ["country", "political"] },
+      ]),
+    ).toEqual({ country: "Portugal", city: "Lisbon", country_code: "PT" });
   });
 });
 

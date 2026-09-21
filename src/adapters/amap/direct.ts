@@ -138,6 +138,7 @@ export function createAmapDirectClient(
         crs: "GCJ-02",
         address: amapAdminString(raw.name) ?? query,
         ...(admin.country ? { country: admin.country } : {}),
+        ...(admin.country_code ? { country_code: admin.country_code } : {}),
         ...(admin.city ? { city: admin.city } : {}),
       };
     }
@@ -169,6 +170,7 @@ export function createAmapDirectClient(
         crs: "GCJ-02",
         address: amapAdminString(row.formatted_address),
         ...(admin.country ? { country: admin.country } : {}),
+        ...(admin.country_code ? { country_code: admin.country_code } : {}),
         city: admin.city,
       };
     }

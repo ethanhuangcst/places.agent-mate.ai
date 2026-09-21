@@ -9,8 +9,11 @@ export type VisaRequirementData = {
   documents?: string[];
   process?: string[];
   processing_time?: string;
+  cost?: string;
   validity?: string;
   max_stay?: string;
+  embassy?: string;
+  transit_visa?: string;
   extension?: { possible: boolean; details?: string };
   last_verified?: string | null;
   source_url?: string | null;

@@ -4,6 +4,8 @@ import { type PlaceLocation } from "../core/types";
 export type GeocodeHit = PlaceLocation & {
   address?: string;
   country?: string;
+  /** ISO 3166-1 alpha-2 when the vendor provides it (visa passport pair). */
+  country_code?: string;
   city?: string;
   city_en?: string;
 };
@@ -23,12 +25,17 @@ function componentName(
   return name || undefined;
 }
 
-/** Parse Google Geocoding `address_components` into country / city. */
+/** Parse Google Geocoding `address_components` into country / city / country_code. */
 export function parseGoogleAddressComponents(
   components: AddressComponent[] | undefined,
-): { country?: string; city?: string } {
+): { country?: string; city?: string; country_code?: string } {
   if (!components?.length) return {};
   const country = componentName(components, "country");
+  const short = components
+    .find((c) => c.types?.includes("country"))
+    ?.short_name?.trim()
+    .toUpperCase();
+  const country_code = short && /^[A-Z]{2}$/.test(short) ? short : undefined;
   let city =
     componentName(components, "locality") ||
     componentName(components, "postal_town") ||
@@ -36,7 +43,7 @@ export function parseGoogleAddressComponents(
     componentName(components, "administrative_area_level_1");
   // City-states (HK / MO / SG / …): Google often returns only `country`.
   if (country && !city) city = country;
-  return { country, city };
+  return { country, city, ...(country_code ? { country_code } : {}) };
 }
 
 /**
@@ -98,7 +105,7 @@ export function parseAmapGeocodeAdmin(row: {
   province?: unknown;
   city?: unknown;
   district?: unknown;
-}): { country?: string; city?: string } {
+}): { country?: string; city?: string; country_code?: string } {
   let country = amapAdminString(row.country);
   let city =
     amapAdminString(row.city) ||
@@ -110,5 +117,6 @@ export function parseAmapGeocodeAdmin(row: {
     country = "中国";
   }
   if (country && !city) city = country;
-  return { country, city };
+  const country_code = country === "中国" ? "CN" : undefined;
+  return { country, city, ...(country_code ? { country_code } : {}) };
 }

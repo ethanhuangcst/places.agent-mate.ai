@@ -9,6 +9,10 @@ function isUpgradePlaceholder(value: unknown): value is { upgrade: string } {
   );
 }
 
+function looksLikeUpgradeCopy(value: string): boolean {
+  return /upgrade|requires pro|starter plan|pro plan/i.test(value);
+}
+
 function collectUnavailableFields(raw: Record<string, unknown>): string[] {
   const out: string[] = [];
   for (const [field, value] of Object.entries(raw)) {
@@ -17,10 +21,33 @@ function collectUnavailableFields(raw: Record<string, unknown>): string[] {
   return out;
 }
 
+function honestString(value: unknown): string | undefined {
+  if (isUpgradePlaceholder(value)) return undefined;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  if (!text || looksLikeUpgradeCopy(text)) return undefined;
+  return text;
+}
+
 function asStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const items = value.filter((v) => typeof v === "string") as string[];
+  const items = value
+    .map((v) => honestString(v))
+    .filter((v): v is string => Boolean(v));
   return items.length ? items : undefined;
+}
+
+function honestHttpUrl(value: unknown): string | null {
+  const text = honestString(value);
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if (url.protocol === "http:" || url.protocol === "https:") return text;
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export function mapOriznVisaPayload(
@@ -33,26 +60,21 @@ export function mapOriznVisaPayload(
   const process = asStringArray(raw.process);
   const extensionRaw = raw.extension;
   const extension =
-    extensionRaw && typeof extensionRaw === "object"
+    extensionRaw && typeof extensionRaw === "object" && !isUpgradePlaceholder(extensionRaw)
       ? {
           possible: Boolean((extensionRaw as { possible?: boolean }).possible),
-          details:
-            typeof (extensionRaw as { details?: unknown }).details === "string"
-              ? ((extensionRaw as { details: string }).details as string)
-              : undefined,
+          details: honestString((extensionRaw as { details?: unknown }).details),
         }
       : undefined;
 
   const lastVerified =
-    (typeof raw.last_verified_at === "string" ? raw.last_verified_at : null) ??
-    (typeof raw.last_verified === "string" ? raw.last_verified : null);
+    honestString(raw.last_verified_at) ?? honestString(raw.last_verified) ?? null;
 
   const sourceUrl =
-    typeof raw.source_url === "string"
-      ? raw.source_url
-      : typeof raw.source === "string" && raw.source.startsWith("http")
-        ? raw.source
-        : null;
+    honestHttpUrl(raw.source_url) ??
+    (typeof raw.source === "string" && raw.source.startsWith("http")
+      ? honestHttpUrl(raw.source)
+      : null);
 
   const unavailable = collectUnavailableFields(raw);
 
@@ -66,13 +88,15 @@ export function mapOriznVisaPayload(
         : raw.visa_free_days === null
           ? null
           : null,
-    description: typeof raw.description === "string" ? raw.description : undefined,
+    description: honestString(raw.description),
     documents,
     process,
-    processing_time:
-      typeof raw.processing_time === "string" ? raw.processing_time : undefined,
-    validity: typeof raw.validity === "string" ? raw.validity : undefined,
-    max_stay: typeof raw.max_stay === "string" ? raw.max_stay : undefined,
+    processing_time: honestString(raw.processing_time),
+    cost: honestString(raw.cost),
+    validity: honestString(raw.validity),
+    max_stay: honestString(raw.max_stay),
+    embassy: honestString(raw.embassy),
+    transit_visa: honestString(raw.transit_visa),
     extension,
     last_verified: lastVerified,
     source_url: sourceUrl,
