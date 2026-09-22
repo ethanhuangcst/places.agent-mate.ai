@@ -43,8 +43,8 @@ CALLER_KEY = os.environ.get("PLACES_AGENT_CALLER_KEY", "")
 PROVIDERS = ["GOOGLE_MAPS", "AMAP", "TRIPADVISOR"]
 
 
-def http_v1(tool: str, body: dict[str, Any], key: str, timeout: float = 60) -> dict[str, Any]:
-    """POST /v1/<tool> — used for travel_tips display-source capture (ADR-045)."""
+def http_v1(tool: str, body: dict[str, Any], key: str, timeout: float = 300) -> dict[str, Any]:
+    """POST /v1/<tool> — BFF HTTP envelope (ADR-076; not MCP)."""
     req = urllib.request.Request(
         BASE.rstrip("/") + f"/v1/{tool}",
         data=json.dumps(body).encode("utf-8"),
@@ -100,50 +100,6 @@ SCENARIOS: list[dict[str, Any]] = [
 ]
 
 
-_id = 0
-
-
-def mcp_call(tool: str, args: dict[str, Any], key: str, timeout: float = 300) -> dict[str, Any]:
-    """Call a places-agent tool over the canonical stateless MCP /mcp endpoint.
-    Returns the parsed envelope ({agent, ok, data, outcome?}) just like the host
-    receives it — including the next_tool_call chain handoff."""
-    global _id
-    _id += 1
-    body = {"jsonrpc": "2.0", "id": _id, "method": "tools/call",
-            "params": {"name": tool, "arguments": args}}
-    req = urllib.request.Request(
-        BASE.rstrip("/") + "/mcp",
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-                 "Accept": "application/json, text/event-stream"},
-        method="POST",
-    )
-    t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code} /mcp {tool}: {e.read().decode('utf-8','replace')[:1200]}") from e
-    except Exception as e:
-        raise RuntimeError(f"/mcp {tool}: {e}") from e
-    # Response is SSE: one or more "event: message\\ndata: <json>" blocks.
-    data_json: str | None = None
-    for line in raw.splitlines():
-        if line.startswith("data: "):
-            data_json = line[6:].strip()
-            break
-    if not data_json:
-        raise RuntimeError(f"/mcp {tool}: no data line in response: {raw[:400]}")
-    msg = json.loads(data_json)
-    if "error" in msg:
-        raise RuntimeError(f"/mcp {tool}: {msg['error']}")
-    content = (msg.get("result") or {}).get("content") or []
-    if not content:
-        raise RuntimeError(f"/mcp {tool}: empty content")
-    envelope = json.loads(content[0].get("text", "{}"))
-    return {"envelope": envelope, "elapsed_s": round(time.time() - t0, 2)}
-
-
 def budget_from_spend(spend: int) -> str:
     return "premium" if spend >= 3 else "budget"
 
@@ -182,7 +138,7 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
     # Step 1: geocode (only if a hotel/origin name is given)
     if sc["hotel"]:
         try:
-            r = mcp_call("geocode", {"query": sc["hotel"], "locale": locale}, key)
+            r = http_v1("geocode", {"query": sc["hotel"], "locale": locale}, key)
             d = r["envelope"].get("data") or {}
             origin = {"name": sc["hotel"], "lat": d.get("lat"), "lng": d.get("lng")}
             rec["steps"].append({"tool": "geocode", "ok": True, "elapsed_s": r["elapsed_s"], "origin": origin})
@@ -225,7 +181,7 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
     if origin:
         disc["origin"] = origin
     try:
-        r = mcp_call("discover_places", disc, key, timeout=300)
+        r = http_v1("discover_places", disc, key, timeout=300)
         env = r["envelope"]
         if env.get("ok") is False:
             rec["error"] = f"discover_places not ok: {env.get('outcome')}"
@@ -261,7 +217,7 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
     if rec.get("revision"):
         mk["revision"] = rec["revision"]
     try:
-        r = mcp_call("make_itinerary", mk, key, timeout=300)
+        r = http_v1("make_itinerary", mk, key, timeout=300)
         env = r["envelope"]
         if env.get("ok") is False:
             rec["error"] = f"make_itinerary not ok: {env.get('outcome')} {(env.get('data') or {}).get('detail')}"
@@ -292,7 +248,7 @@ def run_scenario(sc: dict[str, Any], key: str) -> dict[str, Any]:
             args["revision"] = rec["revision"]
         chain_calls += 1
         try:
-            r = mcp_call(name, args, key, timeout=300)
+            r = http_v1(name, args, key, timeout=300)
             env = r["envelope"]
             if env.get("ok") is False:
                 rec["error"] = f"{name} not ok: {env.get('outcome')}"
