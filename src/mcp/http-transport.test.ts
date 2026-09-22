@@ -75,7 +75,9 @@ describe("TC-M12-52-03 /mcp stateless (unit, no DB)", () => {
     expect(res.status).toBeLessThan(300);
     expect(res.headers.get("mcp-session-id")).toBeNull();
     const text = await res.text();
-    expect(text).toMatch(/search_restaurants|discover_places|make_itinerary/);
+    expect(text).toMatch(/plan_trip/);
+    expect(text).toMatch(/fetch_trip_details/);
+    expect(text).not.toMatch(/search_restaurants/);
   });
 
   it("should_accept_tools_call_without_session_id", async () => {
@@ -83,13 +85,16 @@ describe("TC-M12-52-03 /mcp stateless (unit, no DB)", () => {
       jsonrpc: "2.0",
       id: 3,
       method: "tools/call",
-      params: { name: "visa_requirement", arguments: { passport: "CHN", destination: "SGP", locale: "EN" } },
+      params: {
+        name: "fetch_trip_details",
+        arguments: { trip_id: "missing-trip", fields: ["skeleton"], locale: "EN" },
+      },
     });
     expect(res.status).toBeGreaterThanOrEqual(200);
     expect(res.status).toBeLessThan(300);
     expect(res.headers.get("mcp-session-id")).toBeNull();
     const text = await res.text();
-    expect(text).toMatch(/visa_free|requirement/);
+    expect(text).toMatch(/places-agent|trip_not_found|ok|fetch_trip/);
   });
 
   it("should_ignore_stale_session_id_not_reject", async () => {
