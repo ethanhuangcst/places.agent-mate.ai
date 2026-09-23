@@ -51,7 +51,15 @@ export const googleFixtureAdapter: PlaceAdapter = {
     return resolveFixtureGeocode(query, "WGS84");
   },
   async reverseGeocode(lat, lng) {
-    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    return {
+      lat,
+      lng,
+      crs: "WGS84",
+      address: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+      country: "Hong Kong",
+      country_code: "HK",
+      city: "Hong Kong",
+    };
   },
   deeplinks(card) {
     return mapsUrl(card.location, card.name);

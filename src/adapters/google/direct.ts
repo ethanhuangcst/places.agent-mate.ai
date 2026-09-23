@@ -47,7 +47,7 @@ export type GoogleDirectClient = {
   suggestPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string, locale?: Locale): Promise<GeocodeHit>;
-  reverseGeocode(lat: number, lng: number): Promise<string>;
+  reverseGeocode(lat: number, lng: number): Promise<GeocodeHit>;
 };
 
 export function createGoogleDirectClient(
@@ -376,8 +376,28 @@ export function createGoogleDirectClient(
         throw new Error(`google_reverse_${res.status}`);
       }
 
-      const json = (await res.json()) as { results?: { formatted_address?: string }[] };
-      return json.results?.[0]?.formatted_address ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      const json = (await res.json()) as {
+        results?: {
+          formatted_address?: string;
+          address_components?: Array<{
+            long_name?: string;
+            short_name?: string;
+            types?: string[];
+          }>;
+        }[];
+      };
+      const first = json.results?.[0];
+      const address = first?.formatted_address ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      const admin = parseGoogleAddressComponents(first?.address_components);
+      return {
+        lat,
+        lng,
+        crs: "WGS84",
+        address,
+        ...(admin.country ? { country: admin.country } : {}),
+        ...(admin.country_code ? { country_code: admin.country_code } : {}),
+        ...(admin.city ? { city: admin.city } : {}),
+      };
     },
   };
 }

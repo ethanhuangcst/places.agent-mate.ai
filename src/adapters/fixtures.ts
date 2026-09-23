@@ -285,38 +285,76 @@ const HK_HINT = /香港|hong kong|hk|尖沙咀|中環|中环|central|tsim sha ts
 export function resolveFixtureGeocode(
   query: string,
   crs: "WGS84" | "GCJ-02",
-): { lat: number; lng: number; crs: "WGS84" | "GCJ-02"; address: string } {
+): {
+  lat: number;
+  lng: number;
+  crs: "WGS84" | "GCJ-02";
+  address: string;
+  country?: string;
+  country_code?: string;
+  city?: string;
+} {
   const q = query.trim();
   if (SHANGHAI_HINT.test(q)) {
     const loc = crs === "GCJ-02" ? SHANGHAI_AEGEAN_GCJ : SHANGHAI_AEGEAN_WGS;
-    return { ...loc, address: q };
+    return { ...loc, address: q, country: "中国", country_code: "CN", city: "上海市" };
   }
   if (/东京|東京|tokyo|ueno|上野/i.test(q)) {
-    return { lat: 35.7153, lng: 139.7758, crs: "WGS84", address: q };
+    return {
+      lat: 35.7153,
+      lng: 139.7758,
+      crs: "WGS84",
+      address: q,
+      country: "Japan",
+      country_code: "JP",
+      city: "Tokyo",
+    };
   }
   if (/北京|beijing|三里屯|sanlitun|天安门/i.test(q)) {
-    return { lat: 39.9334, lng: 116.4551, crs, address: q };
+    return { lat: 39.9334, lng: 116.4551, crs, address: q, country: "中国", country_code: "CN", city: "北京市" };
   }
   if (/成都|chengdu|春熙路/i.test(q)) {
-    return { lat: 30.6571, lng: 104.0836, crs, address: q };
+    return { lat: 30.6571, lng: 104.0836, crs, address: q, country: "中国", country_code: "CN", city: "成都市" };
   }
   if (/广州|guangzhou|广州塔/i.test(q)) {
-    return { lat: 23.1066, lng: 113.3245, crs, address: q };
+    return { lat: 23.1066, lng: 113.3245, crs, address: q, country: "中国", country_code: "CN", city: "广州市" };
   }
   if (/澳[门門]|macau|macao/i.test(q)) {
-    return { lat: 22.1937, lng: 113.539, crs, address: q };
+    return { lat: 22.1937, lng: 113.539, crs, address: q, country: "Macau", country_code: "MO", city: "Macau" };
   }
   if (/lisbo[na]|boavista|葡萄牙|里斯本/i.test(q)) {
-    return { lat: 38.7223, lng: -9.1393, crs, address: q };
+    return {
+      lat: 38.7223,
+      lng: -9.1393,
+      crs,
+      address: q,
+      country: "Portugal",
+      country_code: "PT",
+      city: "Lisbon",
+    };
   }
   if (/新加坡|singapore|marina bay/i.test(q)) {
-    return { lat: 1.2816, lng: 103.8636, crs, address: q };
+    return {
+      lat: 1.2816,
+      lng: 103.8636,
+      crs,
+      address: q,
+      country: "Singapore",
+      country_code: "SG",
+      city: "Singapore",
+    };
   }
   const hkDefault =
     crs === "GCJ-02"
       ? { lat: 22.28, lng: 114.16, crs: "GCJ-02" as const }
       : { lat: 22.2819, lng: 114.158, crs: "WGS84" as const };
-  return { ...hkDefault, address: q };
+  return {
+    ...hkDefault,
+    address: q,
+    country: "Hong Kong",
+    country_code: "HK",
+    city: "Hong Kong",
+  };
 }
 
 export function filterFixtureRestaurants(

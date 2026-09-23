@@ -27,7 +27,7 @@ function buildGeocodeFn(): GeocodeFn {
       if (!adapter?.geocode) return null;
       const result = await adapter.geocode(query);
       if (!result) return null;
-      return { address: result.address, lat: result.lat, lng: result.lng };
+      return { address: result.address, lat: result.lat, lng: result.lng, country_code: result.country_code };
     } catch {
       return null;
     }
@@ -284,6 +284,7 @@ export async function geocode(input: {
     crs: string;
     address?: string;
     country?: string;
+    country_code?: string;
     city?: string;
     city_en?: string;
   } | null>
@@ -292,6 +293,7 @@ export async function geocode(input: {
   const geoKey = `geo|${(input.query ?? "").trim().toLowerCase()}|${input.lat ?? ""}|${input.lng ?? ""}|${locale}`;
   type CachedGeo = PlaceCard & {
     country?: string;
+    country_code?: string;
     city?: string;
     city_en?: string;
   };
@@ -304,6 +306,7 @@ export async function geocode(input: {
         crs: cached[0].location!.crs,
         address: cached[0].address,
         ...(cached[0].country ? { country: cached[0].country } : {}),
+        ...(cached[0].country_code ? { country_code: cached[0].country_code } : {}),
         ...(cached[0].city ? { city: cached[0].city } : {}),
         ...(cached[0].city_en ? { city_en: cached[0].city_en } : {}),
       },
@@ -312,6 +315,7 @@ export async function geocode(input: {
       locales: pair,
     };
   }
+  const callerForcedProviders = Boolean(input.providers?.length);
   let providers = input.providers;
   if (!providers?.length) {
     const strategy = await resolveProviderStrategy(
@@ -327,16 +331,40 @@ export async function geocode(input: {
     );
     providers = strategy.searchProviders;
   }
-  const { values, skipped } = await fanOut(providers, "geocode", async (id) => {
-    const adapter = getAdapter(id);
-    if (!adapter) throw new Error("missing");
-    if (input.query) return adapter.geocode(input.query, locale);
-    if (input.lat != null && input.lng != null) {
-      const address = await adapter.reverseGeocode(input.lat, input.lng);
-      return { lat: input.lat, lng: input.lng, crs: "WGS84", address };
-    }
-    throw new Error("missing_input");
-  });
+  const runGeo = async (ids: string[]) =>
+    fanOut(ids, "geocode", async (id) => {
+      const adapter = getAdapter(id);
+      if (!adapter) throw new Error("missing");
+      if (input.query) return adapter.geocode(input.query, locale);
+      if (input.lat != null && input.lng != null) {
+        const hit = await adapter.reverseGeocode(input.lat, input.lng);
+        return {
+          lat: hit.lat,
+          lng: hit.lng,
+          crs: hit.crs,
+          address: hit.address,
+          ...(hit.country ? { country: hit.country } : {}),
+          ...(hit.country_code ? { country_code: hit.country_code } : {}),
+          ...(hit.city ? { city: hit.city } : {}),
+          ...(hit.city_en ? { city_en: hit.city_en } : {}),
+        };
+      }
+      throw new Error("missing_input");
+    });
+
+  let { values, skipped } = await runGeo(providers);
+  // Geocode-only: when auto-routed to AMAP and empty (e.g. overseas city), retry Google once.
+  // Does not change POI search ADR-052 mainland empty-AMAP policy.
+  if (
+    !values[0] &&
+    !callerForcedProviders &&
+    providers.length === 1 &&
+    providers[0] === "AMAP"
+  ) {
+    const fallback = await runGeo(["GOOGLE_MAPS"]);
+    values = fallback.values;
+    skipped = [...skipped, ...fallback.skipped];
+  }
   const result = (values[0] ?? null) as GeocodeHit | null;
   if (result) {
     setCachedSearch(geoKey, [
@@ -346,6 +374,7 @@ export async function geocode(input: {
         location: { lat: result.lat, lng: result.lng, crs: result.crs as PlaceCard["location"]["crs"] },
         address: result.address,
         country: result.country,
+        country_code: result.country_code,
         city: result.city,
         city_en: result.city_en,
         sources: [],

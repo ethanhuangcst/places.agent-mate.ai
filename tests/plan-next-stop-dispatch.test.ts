@@ -115,8 +115,9 @@ describe("dispatch — plan_next_stop (TC-M10-44-03 / F65)", () => {
   it("should_return_invalid_input_and_log_issues_when_end_time_not_hhmm", async () => {
     const auth = await makeKey();
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Non-string end_time bypasses coerceAgentTime preprocess → fails hhmm regex.
     const result = await dispatchTool("plan_next_stop", auth, {
-      current_stop: { name: "Hotel", kind: "stay", end_time: "9:00" },
+      current_stop: { name: "Hotel", kind: "stay", end_time: 900 },
       next_stop: { name: "Tower", kind: "attraction" },
       locale: "EN",
     });

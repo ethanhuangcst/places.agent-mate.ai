@@ -73,7 +73,15 @@ export const amapFixtureAdapter: PlaceAdapter = {
     return resolveFixtureGeocode(query, "GCJ-02");
   },
   async reverseGeocode(lat, lng) {
-    return `${lng},${lat}`;
+    return {
+      lat,
+      lng,
+      crs: "GCJ-02",
+      address: `${lng},${lat}`,
+      country: "中国",
+      country_code: "CN",
+      city: "上海市",
+    };
   },
   deeplinks(card) {
     return mapsUrl(card.location, card.name);

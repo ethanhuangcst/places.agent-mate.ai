@@ -10,6 +10,12 @@ import { planItinerary } from "../core/itinerary";
 import { arrangeDay, discoverPlaces, enrichArrangeTransit } from "../core/itinerary-planner";
 import { makeItinerary, createSkeletonChatCreate } from "../core/make-itinerary";
 import { planNextStopFill } from "../core/plan-next-stop";
+import {
+  nextFillStep,
+  skeletonFillHandoff,
+  slimStop,
+  type SkeletonEcho,
+} from "../core/fill-handoff";
 import { visaRequirement } from "../core/visa-requirement";
 import { travelTips, TravelTipsTimeoutError } from "../core/travel-tips";
 import { getTripOrThrow } from "../core/trip-store";
@@ -298,16 +304,32 @@ export async function dispatchTool(
             must_include: parsed.data.must_include,
           },
           ...(tripPatchCandidatesIfNonEmpty(
-            result.candidates_slim.places as Array<Record<string, unknown>>,
-            result.candidates_slim.restaurants as Array<Record<string, unknown>>,
+            (result.candidates_slim?.places ?? []) as Array<Record<string, unknown>>,
+            (result.candidates_slim?.restaurants ?? []) as Array<Record<string, unknown>>,
           )),
           skeleton: result.skeleton,
         },
         candidatesWrite: "replace",
       });
+      // BUG-007: HTTP harness follows next_tool_call until trip_complete.
+      const handoff = skeletonFillHandoff(result.skeleton, locale, parsed.data.city, {
+        trip_id: trip.trip_id,
+        revision: trip.revision,
+      });
       return {
         status: 200,
-        envelope: okEnvelope({ ...result, ...trip }, locale, { locales: extra }),
+        envelope: okEnvelope(
+          {
+            ...result,
+            ...trip,
+            next_action: handoff.next_action,
+            prefer_tool: handoff.prefer_tool,
+            host_instructions: handoff.host_instructions,
+            ...(handoff.next_tool_call ? { next_tool_call: handoff.next_tool_call } : {}),
+          },
+          locale,
+          { locales: extra },
+        ),
       };
     } catch (err) {
       const tripFail = tripStoreFailure(err, locale, extra);
@@ -449,9 +471,56 @@ export async function dispatchTool(
             notes: result.stop_display.notes,
           }
         : {};
+      // BUG-007: continue HTTP fill chain when caller echoed skeleton + cursor.
+      let handoffFields: Record<string, unknown> = {};
+      const cursor = parsed.data.cursor;
+      const bodySkeleton = parsed.data.skeleton as
+        | { days?: Array<{ day_index?: number; day_theme?: string; stops?: unknown[] }> }
+        | undefined;
+      const echoSource =
+        (patch.skeleton as typeof bodySkeleton | undefined) ??
+        bodySkeleton ??
+        (skeletonDoc as typeof bodySkeleton | null);
+      if (cursor && echoSource?.days?.length) {
+        const echo: SkeletonEcho = {
+          days: echoSource.days.map((d) => ({
+            day_index: d.day_index ?? 0,
+            day_theme: d.day_theme,
+            stops: (Array.isArray(d.stops) ? d.stops : []).map((s) =>
+              slimStop(
+                (s && typeof s === "object" ? s : { name: "stop" }) as {
+                  name?: string;
+                  kind?: string;
+                  meal_slot?: string;
+                  provider?: string;
+                  native_id?: string;
+                  visit_part?: string;
+                },
+              ),
+            ),
+          })),
+        };
+        const step = nextFillStep(
+          echo,
+          cursor,
+          locale,
+          result.stop_display?.slot?.end,
+          parsed.data.city,
+        );
+        handoffFields = {
+          next_action: step.next_action,
+          ...(step.next_tool_call
+            ? { next_tool_call: step.next_tool_call }
+            : { next_tool_call: undefined }),
+        };
+      }
       return {
         status: 200,
-        envelope: okEnvelope({ ...result, ...flat, ...(trip ?? {}) }, locale, { locales: extra }),
+        envelope: okEnvelope(
+          { ...result, ...flat, ...(trip ?? {}), ...handoffFields },
+          locale,
+          { locales: extra },
+        ),
       };
     } catch (err) {
       const tripFail = tripStoreFailure(err, locale, extra);

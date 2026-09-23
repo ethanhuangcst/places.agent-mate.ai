@@ -35,7 +35,15 @@ type AmapJson = {
   pois?: AmapPoi[] | string;
   geocodes?: AmapGeocodeRow[] | string;
   locations?: string;
-  regeocode?: { formatted_address?: string };
+  regeocode?: {
+    formatted_address?: string;
+    addressComponent?: {
+      country?: unknown;
+      province?: unknown;
+      city?: unknown;
+      district?: unknown;
+    };
+  };
 };
 
 function asList<T>(value: T[] | string | undefined): T[] {
@@ -70,7 +78,7 @@ export type AmapDirectClient = {
   suggestPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string): Promise<PlaceCard | null>;
   geocode(query: string): Promise<GeocodeHit>;
-  reverseGeocode(lat: number, lng: number): Promise<string>;
+  reverseGeocode(lat: number, lng: number): Promise<GeocodeHit>;
 };
 
 export function createAmapDirectClient(
@@ -290,7 +298,24 @@ export function createAmapDirectClient(
         location: formatLngLat(lng, lat),
       });
       assertAmapOk(json, "regeo");
-      return json.regeocode?.formatted_address ?? formatLngLat(lng, lat);
+      const address =
+        json.regeocode?.formatted_address ?? formatLngLat(lng, lat);
+      const ac = json.regeocode?.addressComponent;
+      const admin = parseAmapGeocodeAdmin({
+        country: ac?.country ?? "中国",
+        province: ac?.province,
+        city: ac?.city,
+        district: ac?.district,
+      });
+      return {
+        lat,
+        lng,
+        crs: "GCJ-02",
+        address,
+        ...(admin.country ? { country: admin.country } : {}),
+        ...(admin.country_code ? { country_code: admin.country_code } : {}),
+        ...(admin.city ? { city: admin.city } : {}),
+      };
     },
   };
 }

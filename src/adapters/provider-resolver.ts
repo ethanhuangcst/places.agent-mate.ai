@@ -17,6 +17,7 @@ export type GeocodeFn = (query: string) => Promise<{
   address?: string;
   lat?: number;
   lng?: number;
+  country_code?: string;
 } | null>;
 
 /** Two regions: mainland China → AMAP; everywhere else → Google (ADR-052 D2). */

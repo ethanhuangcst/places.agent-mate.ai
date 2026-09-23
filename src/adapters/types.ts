@@ -22,7 +22,7 @@ export type PlaceAdapter = {
   suggestPlaces?(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string, locale?: Locale): Promise<GeocodeHit>;
-  reverseGeocode(lat: number, lng: number): Promise<string>;
+  reverseGeocode(lat: number, lng: number): Promise<GeocodeHit>;
   deeplinks(card: PlaceCard): Record<string, string>;
   /** Optional live A→B ETA (Story C). Missing/failure → caller keeps heuristic. */
   directions?(input: {

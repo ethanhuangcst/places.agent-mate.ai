@@ -1,5 +1,6 @@
 import { LOCALE_LANG, type Locale } from "../../core/locales";
 import { type PlaceCard, type PlaceLocation, type SearchInput } from "../../core/types";
+import { type GeocodeHit } from "../geocode-hit";
 import { type GoogleAdapterConfig } from "./config";
 import { workerPlaceToCard } from "./card-mapper";
 import { googleDeeplinks } from "./deeplinks";
@@ -47,7 +48,7 @@ export type GoogleMcpClient = {
   searchPlaces(input: SearchInput): Promise<PlaceCard[]>;
   getDetails(nativeId: string, locale?: Locale): Promise<PlaceCard | null>;
   geocode(query: string, locale?: Locale): Promise<PlaceLocation & { address?: string; country?: string; city?: string; city_en?: string }>;
-  reverseGeocode(lat: number, lng: number): Promise<string>;
+  reverseGeocode(lat: number, lng: number): Promise<GeocodeHit>;
   directions(input: { from: PlaceLocation; to: PlaceLocation; mode: TravelMode }): Promise<DirectionsEta | null>;
   /** Test hook: how many tools/call invocations */
   callCount: () => number;
@@ -154,7 +155,8 @@ export function createGoogleMcpClient(
       const cards = await callSearchPlaces(`address at ${lat}, ${lng}`, {
         near: { lat, lng },
       });
-      return cards[0]?.address ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      const address = cards[0]?.address ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      return { lat, lng, crs: "WGS84", address };
     },
     async directions(input) {
       await ensureToolsListed();

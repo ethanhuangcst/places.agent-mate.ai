@@ -242,7 +242,8 @@ describe("AMAP live direct client", () => {
     expect(pin.city).toBe("上海市");
     expect(pin.city_en).toBeUndefined();
     const addr = await client.reverseGeocode(31.17, 121.36);
-    expect(addr).toContain("紫藤路");
+    expect(addr.address).toContain("紫藤路");
+    expect(addr.country_code).toBe("CN");
     expect(urls.some((u) => u.pathname.includes("/place/detail"))).toBe(true);
   });
 

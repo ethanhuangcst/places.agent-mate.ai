@@ -255,6 +255,14 @@ describe("geocode", () => {
       providers: ["GOOGLE_MAPS"],
     });
     expect(result.data?.address).toBeTruthy();
+    expect(result.data?.country_code).toBeTruthy();
+  });
+
+  it("should_preserve_country_code_in_geocode_cache", async () => {
+    const first = await geocode({ query: "Lisbon", providers: ["GOOGLE_MAPS"], locale: "EN" });
+    expect(first.data?.country_code).toBe("PT");
+    const second = await geocode({ query: "Lisbon", providers: ["GOOGLE_MAPS"], locale: "EN" });
+    expect(second.data?.country_code).toBe("PT");
   });
 
   it("should_skip_when_geocode_input_missing", async () => {

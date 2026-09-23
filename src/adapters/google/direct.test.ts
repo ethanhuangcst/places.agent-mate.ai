@@ -405,16 +405,29 @@ describe("Google live direct client", () => {
   it("should_reverse_geocode_or_fallback_coords", async () => {
     const { fetchFn } = recordFetch(() => jsonResponse({ results: [] }));
     const client = createGoogleDirectClient(testConfig(), fetchFn);
-    const addr = await client.reverseGeocode(22.2819, 114.158);
-    expect(addr).toMatch(/22\.2819|114\.1580/);
+    const hit = await client.reverseGeocode(22.2819, 114.158);
+    expect(hit.address).toMatch(/22\.2819|114\.1580/);
+    expect(hit.lat).toBe(22.2819);
+    expect(hit.lng).toBe(114.158);
   });
 
   it("should_return_formatted_reverse_geocode", async () => {
     const { fetchFn } = recordFetch(() =>
-      jsonResponse({ results: [{ formatted_address: "Central, Hong Kong" }] }),
+      jsonResponse({
+        results: [
+          {
+            formatted_address: "Central, Hong Kong",
+            address_components: [
+              { long_name: "Hong Kong", short_name: "HK", types: ["country"] },
+            ],
+          },
+        ],
+      }),
     );
     const client = createGoogleDirectClient(testConfig(), fetchFn);
-    await expect(client.reverseGeocode(22.28, 114.16)).resolves.toBe("Central, Hong Kong");
+    const hit = await client.reverseGeocode(22.28, 114.16);
+    expect(hit.address).toBe("Central, Hong Kong");
+    expect(hit.country_code).toBe("HK");
   });
 
   it("should_throw_on_reverse_http_error", async () => {

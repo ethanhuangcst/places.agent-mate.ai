@@ -329,6 +329,14 @@ export const planNextStopBody = z
       .optional(),
     arrival_clock: hhmm.optional(),
     day_index: z.number().int().min(1).max(14).optional(),
+    /** HTTP fill-chain handoff (BUG-007): cursor + skeleton echo from prior next_tool_call. */
+    cursor: z
+      .object({
+        day_index: z.number().int().min(1).max(14),
+        stop_index: z.number().int().min(0).max(50),
+      })
+      .optional(),
+    skeleton: ItinerarySkeletonSchema.optional(),
     ...shared,
   })
   .superRefine((data, ctx) => {
