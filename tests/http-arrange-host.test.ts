@@ -24,7 +24,7 @@ function place(name: string): PlaceCard {
     category: "风景名胜",
     rating: 4.5,
     location: { lat: 34.26, lng: 108.94, crs: "GCJ-02" },
-    photos: ["https://example.com/a.jpg"],
+    photos: ["https://store.is.autonavi.com/photo-a.jpg"],
     hours: "09:00-17:00",
     sources: [
       {
@@ -59,7 +59,9 @@ describe("TC-M8-H35-01 Mode H host handoff", () => {
     expect(result.user_prompt).toContain("大雁塔");
     expect(result.host_instructions).toMatch(/立即执行|DO NOW|写进/i);
     expect(result.day_index).toBe(1);
-    expect(result.candidates_slim.places[0]?.photos).toEqual(["https://example.com/a.jpg"]);
+    expect(result.candidates_slim.places[0]?.photos).toEqual([
+      "https://store.is.autonavi.com/photo-a.jpg",
+    ]);
     expect(result.candidates_slim.places[0]?.sources?.[0]?.deeplinks?.amap).toMatch(
       /uri\.amap\.com/,
     );

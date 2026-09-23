@@ -533,8 +533,8 @@ function filterPlacesByRadius(
 
 function countGroundedAttractions(cards: PlaceCard[]): number {
   // Use eligibility (ADR-042 / nominate ground), NOT discover ATTRACTION_ALLOW.
-  // AMAP West Lake titles (苏堤 / 灵隐寺 / 雷峰塔景区) often lack category and
-  // fail ATTRACTION_ALLOW — that falsely triggered expand_radius for Hangzhou.
+  // Some AMAP scenic titles omit category and fail ATTRACTION_ALLOW — that
+  // falsely triggered expand_radius for Hangzhou.
   return cards.filter(
     (c) =>
       hasMapPin(c) &&

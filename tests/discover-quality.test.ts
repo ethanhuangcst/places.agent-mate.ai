@@ -11,6 +11,7 @@ vi.mock("../src/core/tools", async () => {
     ...actual,
     searchPlaces: vi.fn(),
     searchRestaurants: vi.fn(),
+    geocode: vi.fn(),
   };
 });
 
@@ -34,6 +35,13 @@ function card(name: string, category: string, rating?: number): PlaceCard {
 describe("discoverPlaces quality (ADR-038)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(tools.geocode).mockResolvedValue({
+      ok: true,
+      outcomeKey: "ok",
+      data: { lat: 34.26, lng: 108.94, crs: "GCJ-02", address: "西安" },
+      locale: "CN",
+      skipped: [],
+    } as never);
   });
   afterEach(() => {
     vi.clearAllMocks();

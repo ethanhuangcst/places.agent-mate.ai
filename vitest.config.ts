@@ -11,6 +11,8 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "tests/**/*.test.ts"],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,
+    maxWorkers: 1,
+    pool: "forks",
     env: {
       SESSION_SECRET: "test-session-secret-32chars-minimum",
       DATABASE_URL: testDb,

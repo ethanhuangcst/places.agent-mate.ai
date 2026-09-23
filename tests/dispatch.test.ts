@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db/client";
-import { generateCallerSecret, hashPassword } from "../src/core/crypto";
+import { generateCallerSecret } from "../src/core/crypto";
 import { authenticateCaller } from "../src/auth/caller";
 import { dispatchTool } from "../src/http/dispatch";
 import { AGENT_ID } from "../src/core/locales";
 import { arrangeDay, discoverPlaces } from "../src/core/itinerary-planner";
+import { resetCallerDb } from "./helpers/http-v1";
 
 vi.mock("../src/core/itinerary-planner", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/core/itinerary-planner")>();
@@ -15,20 +16,8 @@ vi.mock("../src/core/itinerary-planner", async (importOriginal) => {
   };
 });
 
-const ADMIN = {
-  username: "admin",
-  email: "me@ethanhuang.com",
-};
-
 async function resetDb() {
-  await prisma.callerApiKey.deleteMany();
-  await prisma.adminUser.deleteMany();
-  await prisma.adminUser.create({
-    data: {
-      ...ADMIN,
-      passwordHash: await hashPassword("devpass"),
-    },
-  });
+  await resetCallerDb();
 }
 
 describe("caller auth and HTTP dispatch", () => {

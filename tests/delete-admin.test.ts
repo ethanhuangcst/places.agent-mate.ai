@@ -18,6 +18,7 @@ describe("validateDeleteAdmin", () => {
   });
 
   async function seedPair() {
+    await prisma.adminUser.deleteMany();
     const actor = await prisma.adminUser.create({
       data: {
         email: actorEmail,

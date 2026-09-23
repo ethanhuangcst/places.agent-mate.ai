@@ -12,7 +12,7 @@ const poolPlace = (name: string): PlaceCard => ({
   name,
   location: { lat: 30, lng: 120, crs: "WGS84" },
   category: "attraction",
-  sources: [{ provider: "AMAP", native_id: `n-${name}`, deeplinks: {} }],
+  sources: [{ provider: "AMAP", native_id: "B0XIHU00001", deeplinks: {} }],
 });
 
 function skeleton1d(): ItinerarySkeleton {
@@ -23,7 +23,7 @@ function skeleton1d(): ItinerarySkeleton {
         day_theme: "Day 1",
         stops: [
           { name: "Hotel", kind: "stay" },
-          { name: "西湖", kind: "attraction" },
+          { name: "西湖", kind: "attraction", provider: "AMAP", native_id: "B0XIHU00001" },
           { name: "lunch", kind: "meal", meal_slot: "lunch" },
           { name: "dinner", kind: "meal", meal_slot: "dinner" },
         ],

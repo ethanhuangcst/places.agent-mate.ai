@@ -59,6 +59,11 @@ describe("runChatLoop", () => {
   });
 
   it("should_use_single_configured_model_regardless_of_destination", () => {
-    expect(configuredChatModel()).toBe(process.env.OPENAI_CHAT_MODEL ?? "gpt-5.4");
+    // Default chat model follows resolveChatLlmConfig (Qwen preferred, else OpenAI).
+    expect(configuredChatModel()).toBe(
+      process.env.QWEN_CHAT_MODEL?.trim() ||
+        process.env.OPENAI_CHAT_MODEL?.trim() ||
+        "qwen-plus",
+    );
   });
 });

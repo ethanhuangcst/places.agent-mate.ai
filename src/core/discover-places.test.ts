@@ -18,7 +18,17 @@ vi.mock("./query-assembler", () => ({
 vi.mock("./tools", () => ({
   searchPlaces: searchPlacesMock,
   searchRestaurants: searchRestaurantsMock,
-  geocode: vi.fn().mockResolvedValue({ data: { lat: 0, lng: 0, crs: "WGS84" } }),
+  geocode: vi.fn().mockResolvedValue({
+    data: { lat: 0, lng: 0, crs: "WGS84" },
+    skipped: [],
+    locale: "EN",
+  }),
+}));
+
+vi.mock("openai", () => ({
+  default: class OpenAI {
+    chat = { completions: { create: vi.fn() } };
+  },
 }));
 
 import { discoverPlaces } from "./itinerary-planner";

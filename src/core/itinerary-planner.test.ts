@@ -256,7 +256,10 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
       category: "museum",
       rating: 4.5,
       hours: "09:00-17:00",
-      photos: ["https://example.com/a.jpg?key=SECRET", "https://example.com/b.jpg"],
+      photos: [
+        "https://lh3.googleusercontent.com/a.jpg?key=SECRET",
+        "https://lh3.googleusercontent.com/b.jpg",
+      ],
       location: { lat: 31.23, lng: 121.47, crs: "WGS84" },
       sources: [
         {
@@ -272,7 +275,7 @@ describe("slimArrangeCandidate (TC-M6-P0-02)", () => {
     expect(slim.rating).toBe(4.5);
     expect(slim.location).toEqual(fat.location);
     // ADR-051: photos with ?key= are not displayable; first displayable wins.
-    expect(slim.photos).toEqual(["https://example.com/b.jpg"]);
+    expect(slim.photos).toEqual(["https://lh3.googleusercontent.com/b.jpg"]);
     expect(slim.hours).toBeUndefined();
     expect(slim.sources?.[0]?.deeplinks?.google).toBe("https://maps.google.com/?cid=1");
     expect(JSON.stringify(slim)).not.toMatch(/SECRET/);

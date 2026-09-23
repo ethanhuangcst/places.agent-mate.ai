@@ -95,7 +95,7 @@ describe("TC-M12-52 MCP /mcp stateless", () => {
     expect(res.status).toBeLessThan(300);
     expect(res.headers.get("mcp-session-id")).toBeNull();
     const text = await res.text();
-    expect(text).toMatch(/search_restaurants|discover_places|make_itinerary/);
+    expect(text).toMatch(/plan_trip|fetch_trip_details/);
   });
 
   it("should_ignore_stale_session_id_and_not_reject", async () => {

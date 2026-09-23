@@ -8,15 +8,29 @@ vi.mock("../src/core/tools", async () => {
     ...actual,
     searchPlaces: vi.fn(),
     searchRestaurants: vi.fn(),
+    geocode: vi.fn(),
   };
 });
 
+vi.mock("openai", () => ({
+  default: class OpenAI {
+    chat = { completions: { create: vi.fn() } };
+  },
+}));
+
 describe("discoverPlaces progressive", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    vi.mocked(tools.geocode).mockResolvedValue({
+      ok: true,
+      outcomeKey: "ok",
+      data: { lat: 25.03, lng: 121.56, crs: "WGS84", address: "台北" },
+      locale: "CN",
+      skipped: [],
+    } as never);
   });
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("should_emit_candidate_events_then_discover_done", async () => {
@@ -24,14 +38,38 @@ describe("discoverPlaces progressive", () => {
       ok: true,
       outcomeKey: "ok",
       data: [
-        { name: "Place A", provider: "GOOGLE_MAPS", category: "museum" },
-        { name: "Place B", provider: "GOOGLE_MAPS", category: "park" },
+        {
+          name: "Place A",
+          provider: "GOOGLE_MAPS",
+          category: "museum",
+          location: { lat: 25.03, lng: 121.56, crs: "WGS84" },
+          sources: [{ provider: "GOOGLE_MAPS", native_id: "a", deeplinks: {} }],
+        },
+        {
+          name: "Place B",
+          provider: "GOOGLE_MAPS",
+          category: "park",
+          location: { lat: 25.04, lng: 121.55, crs: "WGS84" },
+          sources: [{ provider: "GOOGLE_MAPS", native_id: "b", deeplinks: {} }],
+        },
       ],
+      locale: "CN",
+      skipped: [],
     } as never);
     vi.mocked(tools.searchRestaurants).mockResolvedValue({
       ok: true,
       outcomeKey: "ok",
-      data: [{ name: "Rest A", provider: "GOOGLE_MAPS", category: "restaurant" }],
+      data: [
+        {
+          name: "Rest A",
+          provider: "GOOGLE_MAPS",
+          category: "restaurant",
+          location: { lat: 25.03, lng: 121.56, crs: "WGS84" },
+          sources: [{ provider: "GOOGLE_MAPS", native_id: "r", deeplinks: {} }],
+        },
+      ],
+      locale: "CN",
+      skipped: [],
     } as never);
 
     const events: Array<{ type: string }> = [];

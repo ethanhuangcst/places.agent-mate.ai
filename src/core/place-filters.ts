@@ -22,7 +22,7 @@ export function isAttractionServiceFragment(name: string): boolean {
 }
 
 const ATTRACTION_ALLOW =
-  /museum|park|landmark|tourist_attraction|monument|gallery|temple|church|castle|viewpoint|miradouro|zoo|aquarium|palace|bridge|memorial|scenic|place_of_worship|monastery|abbey|景点|博物馆|博物館|公园|公園|风景|風景|名胜|名勝|古迹|古跡|寺庙|寺廟|园林|園林|展览|展覽|美术馆|美術館|history_museum|botanical|archaeolog|cathedral|科教文化|风景名胜|風景名勝|文物古迹|文物古蹟|纪念馆|紀念館|展览馆|展覽館|观光|觀光|人文景观|人文景觀|修道院|教堂|14\d{4}/i;
+  /museum|park|landmark|tourist_attraction|theme_park|amusement|monument|gallery|temple|church|castle|viewpoint|miradouro|zoo|aquarium|palace|bridge|memorial|scenic|place_of_worship|monastery|abbey|景点|博物馆|博物館|公园|公園|风景|風景|名胜|名勝|古迹|古跡|寺庙|寺廟|园林|園林|展览|展覽|美术馆|美術館|history_museum|botanical|archaeolog|cathedral|科教文化|风景名胜|風景名勝|文物古迹|文物古蹟|纪念馆|紀念館|展览馆|展覽館|观光|觀光|人文景观|人文景觀|修道院|教堂|乐园|樂園|娱乐场所|娛樂場所|14\d{4}/i;
 
 const DINING_ALLOW =
   /restaurant|cafe|café|coffee|tea house|teahouse|dining|food|餐|饭店|料理|烧烤|火锅|茶馆|咖啡馆|酒楼|菜馆|050000/i;
@@ -42,7 +42,7 @@ function blobOf(place: PlaceCard): string {
 export function filterAttractionPlaces(places: PlaceCard[]): PlaceCard[] {
   return places.filter((p) => {
     const blob = blobOf(p);
-    if (LODGING_DENY.test(blob) || VISIT_DENY.test(blob) || BUSINESS_TRANSIT_DENY.test(blob)) {
+    if (isLodgingPlace(p) || VISIT_DENY.test(blob) || BUSINESS_TRANSIT_DENY.test(blob)) {
       return false;
     }
     if (ATTRACTION_FRAGMENT_DENY.test(blob)) return false;
@@ -69,7 +69,19 @@ export function filterCafePlaces(places: PlaceCard[]): PlaceCard[] {
 }
 
 export function isLodgingPlace(place: PlaceCard): boolean {
-  return LODGING_DENY.test(blobOf(place));
+  const blob = blobOf(place);
+  // Theme parks / tourist attractions may include "resort" in the name (TC-T3-105)
+  // without being lodging — only treat as lodging when a hotel signal is present.
+  const visitCat =
+    /tourist_attraction|theme_park|amusement|景点|乐园|樂園|娱乐场所|娛樂場所|风景名胜|風景名勝/i.test(
+      place.category ?? "",
+    ) || /乐园|樂園|theme.?park|amusement.?park/i.test(place.name);
+  const hotelSignal =
+    /hostel|hotel|\binn\b|lodging|motel|guesthouse|hilton|hyatt|公寓|宾馆|酒店|旅馆|旅舍|民宿|客栈/i.test(
+      blob,
+    );
+  if (visitCat && !hotelSignal) return false;
+  return LODGING_DENY.test(blob);
 }
 
 export function normalizeVenueName(name: string): string {

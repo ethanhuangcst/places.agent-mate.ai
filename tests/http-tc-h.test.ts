@@ -97,6 +97,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
     expect(env.data?.tools).toEqual([
       "search_restaurants",
       "search_places",
+      "suggest_places",
       "plan_itinerary",
       "get_place_details",
       "geocode",
@@ -110,6 +111,7 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
       "travel_tips",
       "patch_trip",
       "plan_trip",
+      "list_destination_pois",
       "chat",
     ]);
   });
@@ -357,12 +359,15 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
   });
 
   it("TC-H12: should_match_mcp_envelope_for_same_search_body_as_http", async () => {
+    // ADR-076: MCP public surface is plan_trip + fetch_trip_details only.
+    // search_restaurants remains HTTP /v1; MCP tools/call for it must fail clearly.
     const http = await postV1<PlaceCardPayload[]>("search_restaurants", H02_BODY, auth);
     expect(http.status).toBe(200);
     const httpEnv = parseEnvelope(http.body);
+    expect(httpEnv.ok).toBe(true);
+    expect((httpEnv.data ?? []).length).toBeGreaterThanOrEqual(1);
 
-    const mcpEnv = await callMcpTool("search_restaurants", { ...H02_BODY });
-    assertEnvelopeParity(httpEnv, mcpEnv);
+    await expect(callMcpTool("search_restaurants", { ...H02_BODY })).rejects.toThrow(/MCP error/i);
   });
 
   it("TC-H13: should_skip_unconfigured_amap_in_live_mode", async () => {
@@ -489,12 +494,22 @@ describe("HTTP user test cases (TC-H01–H15)", () => {
           JSON.stringify({
             status: "1",
             infocode: "10000",
-            geocodes: [{ location: "121.364597,31.172796", formatted_address: "紫藤路站" }],
+            geocodes: [
+              {
+                location: "121.364597,31.172796",
+                formatted_address: "上海市闵行区紫藤路站",
+                country: "中国",
+                province: "上海市",
+                city: "上海市",
+                district: "闵行区",
+                level: "兴趣点",
+              },
+            ],
           }),
           { headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.pathname.includes("/place/around")) {
+      if (url.pathname.includes("/place/around") || url.pathname.includes("/place/text")) {
         return new Response(
           JSON.stringify({
             status: "1",

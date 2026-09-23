@@ -14,6 +14,7 @@ vi.mock("../src/core/tools", async () => {
     ...actual,
     searchPlaces: vi.fn(),
     searchRestaurants: vi.fn(),
+    geocode: vi.fn(),
   };
 });
 
@@ -53,6 +54,14 @@ function card(
 describe("TC-M8-U34-01 discover Arm A", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Fixture geocode stubs every query to HK; pin city anchor to Xi'an for radius filter.
+    vi.mocked(tools.geocode).mockResolvedValue({
+      ok: true,
+      outcomeKey: "ok",
+      data: { lat: 34.26, lng: 108.94, crs: "GCJ-02", address: "西安" },
+      locale: "CN",
+      skipped: [],
+    } as never);
   });
   afterEach(() => {
     vi.clearAllMocks();
@@ -161,12 +170,12 @@ describe("TC-M8-U34-01 discover Arm A", () => {
       bounds: { start: "2026-08-22", end: "2026-08-24" },
       locale: "CN",
       numDays: 1,
-      // providers omitted → Arm A mainland dual-source
+      // providers omitted → mainland AMAP-only (ADR-052 / Feature 89)
     });
 
     const placeProviderSets = vi.mocked(tools.searchPlaces).mock.calls.map((c) => c[0]?.providers ?? []);
     const flat = placeProviderSets.flat();
     expect(flat).toContain("AMAP");
-    expect(flat).toContain("GOOGLE_MAPS");
+    expect(flat).not.toContain("GOOGLE_MAPS");
   });
 });

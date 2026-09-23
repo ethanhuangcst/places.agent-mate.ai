@@ -29,15 +29,27 @@ export type V1Response<T = unknown> = {
   body: V1Envelope<T>;
 };
 
+export async function ensureTestAdmin(): Promise<void> {
+  const passwordHash = await hashPassword("devpass");
+  const data = { ...ADMIN, passwordHash };
+  for (let i = 0; i < 3; i++) {
+    try {
+      await prisma.adminUser.upsert({
+        where: { username: ADMIN.username },
+        create: data,
+        update: { passwordHash, email: ADMIN.email },
+      });
+      return;
+    } catch (err) {
+      if (i === 2) throw err;
+      await new Promise((r) => setTimeout(r, 30 * (i + 1)));
+    }
+  }
+}
+
 export async function resetCallerDb(): Promise<void> {
   await prisma.callerApiKey.deleteMany();
-  await prisma.adminUser.deleteMany();
-  await prisma.adminUser.create({
-    data: {
-      ...ADMIN,
-      passwordHash: await hashPassword("devpass"),
-    },
-  });
+  await ensureTestAdmin();
 }
 
 export async function issueTestCallerKey(): Promise<string> {

@@ -28,6 +28,14 @@ import type { ToolResult } from "./types";
 
 const ADMIN = { username: "admin", email: "me@ethanhuang.com" };
 
+/** Harness ids that pass isResolvablePlaceNativeId (not fixture_/amap_name). */
+function testNativeId(provider: "GOOGLE_MAPS" | "AMAP", name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  const hex = h.toString(16).toUpperCase().padStart(8, "0");
+  return provider === "AMAP" ? `B0${hex}` : `ChIJ${hex}`;
+}
+
 function place(opts: {
   name: string;
   provider: "GOOGLE_MAPS" | "AMAP";
@@ -45,7 +53,7 @@ function place(opts: {
     sources: [
       {
         provider: opts.provider,
-        native_id: opts.nativeId ?? `fixture_${opts.name}`,
+        native_id: opts.nativeId ?? testNativeId(opts.provider, opts.name),
         deeplinks: {},
       },
     ],
@@ -68,9 +76,11 @@ async function resetDb() {
   clearTripMemoryForTests();
   await prisma.trip.deleteMany();
   await prisma.callerApiKey.deleteMany();
-  await prisma.adminUser.deleteMany();
-  await prisma.adminUser.create({
-    data: { ...ADMIN, passwordHash: await hashPassword("devpass") },
+  const passwordHash = await hashPassword("devpass");
+  await prisma.adminUser.upsert({
+    where: { username: ADMIN.username },
+    create: { ...ADMIN, passwordHash },
+    update: { passwordHash, email: ADMIN.email },
   });
 }
 
@@ -125,21 +135,21 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
           }),
           place({
             name: "Castelo de São Jorge",
             provider: "GOOGLE_MAPS",
             lat: 38.7139,
             lng: -9.1335,
-            photo: "https://cdn.example.com/castelo.jpg",
+            photo: "https://lh3.googleusercontent.com/castelo.jpg",
           }),
           place({
             name: "Mosteiro dos Jerónimos",
             provider: "GOOGLE_MAPS",
             lat: 38.6979,
             lng: -9.2067,
-            photo: "https://cdn.example.com/jeronimos.jpg",
+            photo: "https://lh3.googleusercontent.com/jeronimos.jpg",
           }),
         ]),
     });
@@ -236,7 +246,7 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
           }),
         ]),
     });
@@ -273,7 +283,7 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
             nativeId: "ChIJbelem",
           }),
           place({
@@ -281,7 +291,7 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.7139,
             lng: -9.1335,
-            photo: "https://cdn.example.com/castelo.jpg",
+            photo: "https://lh3.googleusercontent.com/castelo.jpg",
             nativeId: "ChIJcastelo",
           }),
         ]),
@@ -323,7 +333,7 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.7071,
             lng: -9.1364,
-            photo: "https://cdn.example.com/comercio.jpg",
+            photo: "https://lh3.googleusercontent.com/comercio.jpg",
           }),
         ]);
       },
@@ -344,7 +354,7 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
           }),
           {
             provider: "GOOGLE_MAPS",
@@ -390,14 +400,14 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
           }),
           place({
             name: "Porto São Bento",
             provider: "GOOGLE_MAPS",
             lat: 41.1456,
             lng: -8.6105,
-            photo: "https://cdn.example.com/porto.jpg",
+            photo: "https://lh3.googleusercontent.com/porto.jpg",
           }),
         ]),
     });
@@ -436,6 +446,7 @@ describe("planTrip POC intake", () => {
             lat: 30.2408,
             lng: 120.0966,
             photo: "https://store.is.autonavi.com/lingyin.jpg",
+            nativeId: "B0LINGYIN01",
           }),
           place({
             name: "西溪湿地",
@@ -480,14 +491,14 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 22.275,
             lng: 114.145,
-            photo: "https://cdn.example.com/peak.jpg",
+            photo: "https://lh3.googleusercontent.com/peak.jpg",
           }),
           place({
             name: "Hong Kong Museum of History",
             provider: "GOOGLE_MAPS",
             lat: 22.3019,
             lng: 114.1772,
-            photo: "https://cdn.example.com/hk-museum.jpg",
+            photo: "https://lh3.googleusercontent.com/hk-museum.jpg",
           }),
         ]),
     });
@@ -511,7 +522,7 @@ describe("planTrip POC intake", () => {
       lat: 30.242,
       lng: 120.143,
       photo: "https://store.is.autonavi.com/dahua.jpg",
-      nativeId: "amap_dahua",
+      nativeId: "B0DAHUA0001",
     });
     hotel.category = "酒店";
 
@@ -539,6 +550,7 @@ describe("planTrip POC intake", () => {
             lat: 30.2408,
             lng: 120.0966,
             photo: "https://store.is.autonavi.com/lingyin.jpg",
+            nativeId: "B0LINGYIN01",
           }),
           place({
             name: "西溪湿地",
@@ -546,6 +558,7 @@ describe("planTrip POC intake", () => {
             lat: 30.2706,
             lng: 120.0631,
             photo: "https://store.is.autonavi.com/xixi.jpg",
+            nativeId: "B0XIXI00001",
           }),
           place({
             name: "雷峰塔",
@@ -553,6 +566,7 @@ describe("planTrip POC intake", () => {
             lat: 30.231,
             lng: 120.148,
             photo: "https://store.is.autonavi.com/leifeng.jpg",
+            nativeId: "B0LEIFENG01",
           }),
         ]);
       },
@@ -565,7 +579,7 @@ describe("planTrip POC intake", () => {
               day_theme: "湖西经典",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "灵隐寺", kind: "attraction" as const },
+                { name: "灵隐寺", kind: "attraction" as const, provider: "AMAP", native_id: "B0LINGYIN01" },
                 { name: "lunch", kind: "meal" as const, meal_slot: "lunch" as const },
               ],
             },
@@ -574,7 +588,7 @@ describe("planTrip POC intake", () => {
               day_theme: "湿地休闲",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "西溪湿地", kind: "attraction" as const },
+                { name: "西溪湿地", kind: "attraction" as const, provider: "AMAP", native_id: "B0XIXI00001" },
                 { name: "dinner", kind: "meal" as const, meal_slot: "dinner" as const },
               ],
             },
@@ -583,7 +597,7 @@ describe("planTrip POC intake", () => {
               day_theme: "返程轻松",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "雷峰塔", kind: "attraction" as const },
+                { name: "雷峰塔", kind: "attraction" as const, provider: "AMAP", native_id: "B0LEIFENG01" },
               ],
             },
           ],
@@ -596,6 +610,7 @@ describe("planTrip POC intake", () => {
               lat: 30.2408,
               lng: 120.0966,
               photo: "https://store.is.autonavi.com/lingyin.jpg",
+              nativeId: "B0LINGYIN01",
             }),
             place({
               name: "西溪湿地",
@@ -603,6 +618,7 @@ describe("planTrip POC intake", () => {
               lat: 30.2706,
               lng: 120.0631,
               photo: "https://store.is.autonavi.com/xixi.jpg",
+              nativeId: "B0XIXI00001",
             }),
             place({
               name: "雷峰塔",
@@ -610,6 +626,7 @@ describe("planTrip POC intake", () => {
               lat: 30.231,
               lng: 120.148,
               photo: "https://store.is.autonavi.com/leifeng.jpg",
+              nativeId: "B0LEIFENG01",
             }),
           ],
           restaurants: [],
@@ -701,7 +718,7 @@ describe("planTrip POC intake", () => {
       lat: 30.242,
       lng: 120.143,
       photo: "https://store.is.autonavi.com/dahua.jpg",
-      nativeId: "amap_dahua",
+      nativeId: "B0DAHUA0001",
     });
     hotel.category = "酒店";
     const lingyin = place({
@@ -710,7 +727,7 @@ describe("planTrip POC intake", () => {
       lat: 30.2408,
       lng: 120.0966,
       photo: "https://store.is.autonavi.com/lingyin.jpg",
-      nativeId: "amap_lingyin",
+      nativeId: "B0LINGYIN01",
     });
 
     const planned = await planTrip({
@@ -745,7 +762,7 @@ describe("planTrip POC intake", () => {
               day_theme: "湖西",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "灵隐寺", kind: "attraction" as const },
+                { name: "灵隐寺", kind: "attraction" as const, provider: "AMAP", native_id: "B0LINGYIN01" },
                 { name: "lunch", kind: "meal" as const, meal_slot: "lunch" as const },
               ],
             },
@@ -754,7 +771,7 @@ describe("planTrip POC intake", () => {
               day_theme: "湿地",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "雷峰塔", kind: "attraction" as const },
+                { name: "雷峰塔", kind: "attraction" as const, provider: "AMAP", native_id: "B0LEIFENG01" },
                 { name: "dinner", kind: "meal" as const, meal_slot: "dinner" as const },
               ],
             },
@@ -763,7 +780,7 @@ describe("planTrip POC intake", () => {
               day_theme: "返程",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "西溪湿地", kind: "attraction" as const },
+                { name: "西溪湿地", kind: "attraction" as const, provider: "AMAP", native_id: "B0XIXI00001" },
               ],
             },
           ],
@@ -777,7 +794,7 @@ describe("planTrip POC intake", () => {
               lat: 30.231,
               lng: 120.148,
               photo: "https://store.is.autonavi.com/leifeng.jpg",
-              nativeId: "amap_leifeng",
+              nativeId: "B0LEIFENG01",
             }),
             place({
               name: "西溪湿地",
@@ -785,7 +802,7 @@ describe("planTrip POC intake", () => {
               lat: 30.2706,
               lng: 120.0631,
               photo: "https://store.is.autonavi.com/xixi.jpg",
-              nativeId: "amap_xixi",
+              nativeId: "B0XIXI00001",
             }),
           ],
           restaurants: [],
@@ -853,7 +870,7 @@ describe("planTrip POC intake", () => {
       provider: "AMAP",
       lat: 30.242,
       lng: 120.143,
-      nativeId: "amap_dahua",
+      nativeId: "B0DAHUA0001",
     });
     hotel.category = "酒店";
     const chip = place({
@@ -862,7 +879,7 @@ describe("planTrip POC intake", () => {
       lat: 30.2408,
       lng: 120.0966,
       photo: "https://store.is.autonavi.com/lingyin.jpg",
-      nativeId: "amap_lingyin",
+      nativeId: "B0LINGYIN01",
     });
     const extra = place({
       name: "雷峰塔",
@@ -870,7 +887,7 @@ describe("planTrip POC intake", () => {
       lat: 30.231,
       lng: 120.148,
       photo: "https://store.is.autonavi.com/leifeng.jpg",
-      nativeId: "amap_leifeng",
+      nativeId: "B0LEIFENG01",
     });
 
     await planTrip({
@@ -895,8 +912,8 @@ describe("planTrip POC intake", () => {
               day_theme: "一日",
               stops: [
                 { name: "西湖大华饭店", kind: "stay" as const },
-                { name: "灵隐寺", kind: "attraction" as const },
-                { name: "雷峰塔", kind: "attraction" as const },
+                { name: "灵隐寺", kind: "attraction" as const, provider: "AMAP", native_id: "B0LINGYIN01" },
+                { name: "雷峰塔", kind: "attraction" as const, provider: "AMAP", native_id: "B0LEIFENG01" },
               ],
             },
           ],
@@ -959,7 +976,7 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
           }),
         ]),
     });
@@ -1018,7 +1035,7 @@ describe("planTrip POC intake", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
           }),
         ]),
     });
@@ -1337,7 +1354,7 @@ describe("MVP-T3 plan_trip skeleton_only (TC-T3-100)", () => {
             provider: "GOOGLE_MAPS" as const,
             lat: 38.6916,
             lng: -9.216,
-            photo: "https://cdn.example.com/belem.jpg",
+            photo: "https://lh3.googleusercontent.com/belem.jpg",
             nativeId: "ChIJbelem",
           }),
         ]),
@@ -1347,7 +1364,7 @@ describe("MVP-T3 plan_trip skeleton_only (TC-T3-100)", () => {
           provider: "GOOGLE_MAPS" as const,
           lat: 38.73,
           lng: -9.14,
-          photo: "https://cdn.example.com/hotel.jpg",
+          photo: "https://lh3.googleusercontent.com/hotel.jpg",
           nativeId: "ChIJhotel",
         }),
       _testMakeItinerary: async () => ({
@@ -1618,7 +1635,7 @@ describe("MVP-T3++ LLM OptA discovery (TC-T3-110a)", () => {
             provider: "GOOGLE_MAPS",
             lat: 38.69,
             lng: -9.21,
-            photo: "https://cdn.example.com/p.jpg",
+            photo: "https://lh3.googleusercontent.com/p.jpg",
             nativeId,
           }),
         ]);
@@ -1629,7 +1646,7 @@ describe("MVP-T3++ LLM OptA discovery (TC-T3-110a)", () => {
           provider: "GOOGLE_MAPS",
           lat: 38.73,
           lng: -9.14,
-          photo: "https://cdn.example.com/hotel.jpg",
+          photo: "https://lh3.googleusercontent.com/hotel.jpg",
           nativeId: "ChIJhotel",
         }),
       _testMakeItinerary: async () => ({
@@ -1694,7 +1711,7 @@ describe("MVP-T3++ LLM OptA discovery (TC-T3-110a)", () => {
           provider: "GOOGLE_MAPS",
           lat: 38.6916,
           lng: -9.216,
-          photo: "https://cdn.example.com/belem.jpg",
+          photo: "https://lh3.googleusercontent.com/belem.jpg",
           nativeId: "ChIJbelem",
         }),
       ],
@@ -1730,7 +1747,7 @@ describe("MVP-T3++ LLM OptA discovery (TC-T3-110a)", () => {
           provider: "GOOGLE_MAPS",
           lat: 38.7139,
           lng: -9.1334,
-          photo: "https://cdn.example.com/castelo.jpg",
+          photo: "https://lh3.googleusercontent.com/castelo.jpg",
           nativeId: "ChIJcastelo",
         }),
         place({
@@ -1738,7 +1755,7 @@ describe("MVP-T3++ LLM OptA discovery (TC-T3-110a)", () => {
           provider: "GOOGLE_MAPS",
           lat: 38.6916,
           lng: -9.216,
-          photo: "https://cdn.example.com/belem.jpg",
+          photo: "https://lh3.googleusercontent.com/belem.jpg",
           nativeId: "ChIJbelem",
         }),
       ],
@@ -1802,7 +1819,7 @@ describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
       provider: "GOOGLE_MAPS",
       lat: 38.6916,
       lng: -9.216,
-      photo: "https://cdn.example.com/belem.jpg",
+      photo: "https://lh3.googleusercontent.com/belem.jpg",
       nativeId: "ChIJbelem",
     });
   }
@@ -1813,7 +1830,7 @@ describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
       provider: "GOOGLE_MAPS",
       lat: 39.5,
       lng: -8.9,
-      photo: "https://cdn.example.com/nearby.jpg",
+      photo: "https://lh3.googleusercontent.com/nearby.jpg",
       nativeId,
     });
   }
@@ -1846,7 +1863,7 @@ describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
           provider: "GOOGLE_MAPS",
           lat: 38.73,
           lng: -9.14,
-          photo: "https://cdn.example.com/hotel.jpg",
+          photo: "https://lh3.googleusercontent.com/hotel.jpg",
           nativeId: "ChIJhotel",
         }),
       _testMakeItinerary: async () => ({
@@ -1903,7 +1920,7 @@ describe("MVP-T3++Q expand radius need_input (TC-T3-110d)", () => {
               provider: "GOOGLE_MAPS",
               lat: 38.6916,
               lng: -9.216,
-              photo: "https://cdn.example.com/belem.jpg",
+              photo: "https://lh3.googleusercontent.com/belem.jpg",
               nativeId: "ChIJbelem",
             }),
           ]),
@@ -2080,7 +2097,7 @@ describe("MVP-T5 TD-4 HTTP answers.hotel", () => {
       provider: "AMAP",
       lat: 34.384,
       lng: 109.273,
-      photo: "https://cdn.example.com/bw.jpg",
+      photo: "https://lh3.googleusercontent.com/bw.jpg",
       nativeId: "amap-bw",
     });
     const wall = place({
@@ -2088,7 +2105,7 @@ describe("MVP-T5 TD-4 HTTP answers.hotel", () => {
       provider: "AMAP",
       lat: 34.266,
       lng: 108.943,
-      photo: "https://cdn.example.com/wall.jpg",
+      photo: "https://lh3.googleusercontent.com/wall.jpg",
       nativeId: "amap-wall",
     });
     const bell = place({
@@ -2096,7 +2113,7 @@ describe("MVP-T5 TD-4 HTTP answers.hotel", () => {
       provider: "AMAP",
       lat: 34.261,
       lng: 108.942,
-      photo: "https://cdn.example.com/bell.jpg",
+      photo: "https://lh3.googleusercontent.com/bell.jpg",
       nativeId: "amap-bell",
     });
     return {
@@ -2318,8 +2335,8 @@ describe("MVP-T5 TD-5 resolve_origin_stay cross-script / once-guard", () => {
       provider: "GOOGLE_MAPS",
       lat: 35.698,
       lng: 139.773,
-      photo: "https://cdn.example.com/aki.jpg",
-      nativeId: "g-aki",
+      photo: "https://lh3.googleusercontent.com/aki.jpg",
+      nativeId: "ChIJakihabara1",
     });
     const result = await planTrip({
       callerKey,
@@ -2349,7 +2366,7 @@ describe("MVP-T5 TD-5 resolve_origin_stay cross-script / once-guard", () => {
               day_theme: "Anime",
               stops: [
                 { name: "Hotel Monterey Lasoeur Ginza", kind: "stay" as const },
-                { name: "秋叶原", kind: "attraction" as const },
+                { name: "秋叶原", kind: "attraction" as const, provider: "GOOGLE_MAPS", native_id: "ChIJakihabara1" },
               ],
             },
           ],
@@ -2413,7 +2430,7 @@ describe("agent-tips-93d — tips-only after skeleton (TC-T10-93d)", () => {
     provider: "AMAP",
     lat: 34.26,
     lng: 108.94,
-    photo: "https://cdn.example.com/bell.jpg",
+    photo: "https://lh3.googleusercontent.com/bell.jpg",
     nativeId: "B0FFH3BELL1",
   });
   const warrior = place({
@@ -2421,7 +2438,7 @@ describe("agent-tips-93d — tips-only after skeleton (TC-T10-93d)", () => {
     provider: "AMAP",
     lat: 34.38,
     lng: 109.27,
-    photo: "https://cdn.example.com/warrior.jpg",
+    photo: "https://lh3.googleusercontent.com/warrior.jpg",
     nativeId: "B0FFH3WAR01",
   });
 
